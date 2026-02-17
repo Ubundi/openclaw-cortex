@@ -72,8 +72,7 @@ export class RetryQueue {
         if (task.retries >= this.maxRetries) {
           this.queue = this.queue.filter((t) => t.id !== task.id);
           this.logger.warn(
-            `Retry queue: ${task.id} failed after ${this.maxRetries} retries, dropping`,
-            err,
+            `Retry queue: ${task.id} failed after ${this.maxRetries} retries, dropping: ${String(err)}`,
           );
         } else {
           const delay = Math.min(

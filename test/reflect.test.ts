@@ -61,7 +61,7 @@ describe("PeriodicReflect", () => {
     reflect.start();
 
     await vi.advanceTimersByTimeAsync(1000);
-    expect(logger.warn).toHaveBeenCalledWith("Reflect failed:", expect.any(Error));
+    expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining("Reflect failed:"));
 
     // Should continue running — next tick should also attempt
     await vi.advanceTimersByTimeAsync(1000);

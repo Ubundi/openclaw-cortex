@@ -51,11 +51,11 @@ export class TranscriptsSync {
       try {
         await doIngest();
       } catch (err) {
-        this.logger.warn(`Transcript sync failed for ${filename}, queuing for retry:`, err);
+        this.logger.warn(`Transcript sync failed for ${filename}, queuing for retry: ${String(err)}`);
         this.retryQueue?.enqueue(doIngest, `transcript-${filename}-${++this.syncCounter}`);
       }
     } catch (err) {
-      this.logger.warn(`Transcript sync read failed for ${filename}:`, err);
+      this.logger.warn(`Transcript sync read failed for ${filename}: ${String(err)}`);
     }
   }
 

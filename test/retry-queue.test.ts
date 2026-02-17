@@ -76,7 +76,6 @@ describe("RetryQueue", () => {
     expect(queue.pending).toBe(0);
     expect(logger.warn).toHaveBeenCalledWith(
       expect.stringContaining("failed after 2 retries"),
-      expect.anything(),
     );
   });
 

@@ -23,7 +23,7 @@ export class PeriodicReflect {
 
     this.timer = setInterval(() => {
       this.run().catch((err) => {
-        this.logger.warn("Periodic reflect failed:", err);
+        this.logger.warn(`Periodic reflect failed: ${String(err)}`);
       });
     }, this.intervalMs);
 
@@ -37,7 +37,7 @@ export class PeriodicReflect {
         `Reflect: synthesized ${result.synthesized_count} facts, superseded ${result.superseded_count}`,
       );
     } catch (err) {
-      this.logger.warn("Reflect failed:", err);
+      this.logger.warn(`Reflect failed: ${String(err)}`);
     }
   }
 

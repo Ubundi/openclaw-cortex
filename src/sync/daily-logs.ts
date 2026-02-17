@@ -38,11 +38,11 @@ export class DailyLogsSync {
       try {
         await doIngest();
       } catch (err) {
-        this.logger.warn(`Daily log sync failed for ${filename}, queuing for retry:`, err);
+        this.logger.warn(`Daily log sync failed for ${filename}, queuing for retry: ${String(err)}`);
         this.retryQueue?.enqueue(doIngest, `daily-${filename}-${++this.syncCounter}`);
       }
     } catch (err) {
-      this.logger.warn(`Daily log sync read failed for ${filename}:`, err);
+      this.logger.warn(`Daily log sync read failed for ${filename}: ${String(err)}`);
     }
   }
 

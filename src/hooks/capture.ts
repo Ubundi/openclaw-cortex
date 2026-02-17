@@ -98,13 +98,13 @@ export function createCaptureHandler(
 
       // Fire-and-forget with retry on failure
       doIngest().catch((err) => {
-        logger.warn("Cortex capture failed, queuing for retry:", err);
+        logger.warn(`Cortex capture failed, queuing for retry: ${String(err)}`);
         if (retryQueue) {
           retryQueue.enqueue(doIngest, `capture-${++captureCounter}`);
         }
       });
     } catch (err) {
-      logger.warn("Cortex capture error:", err);
+      logger.warn(`Cortex capture error: ${String(err)}`);
     }
   };
 }

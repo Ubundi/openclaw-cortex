@@ -105,7 +105,7 @@ export function createRecallHandler(
       if ((err as Error).name === "AbortError") {
         logger.debug?.("Cortex recall timed out, proceeding without memories");
       } else {
-        logger.warn("Cortex recall failed:", err);
+        logger.warn(`Cortex recall failed: ${String(err)}`);
       }
       return;
     }

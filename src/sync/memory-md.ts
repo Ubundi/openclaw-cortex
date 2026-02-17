@@ -29,7 +29,7 @@ export class MemoryMdSync {
 
     this.debounceTimer = setTimeout(() => {
       this.diffAndIngest().catch((err) => {
-        this.logger.warn("MEMORY.md sync failed:", err);
+        this.logger.warn(`MEMORY.md sync failed: ${String(err)}`);
       });
     }, DEBOUNCE_MS);
   }
@@ -56,7 +56,7 @@ export class MemoryMdSync {
     try {
       await doIngest();
     } catch (err) {
-      this.logger.warn("MEMORY.md sync ingest failed, queuing for retry:", err);
+      this.logger.warn(`MEMORY.md sync ingest failed, queuing for retry: ${String(err)}`);
       this.retryQueue?.enqueue(doIngest, `memory-md-${++this.syncCounter}`);
     }
   }
