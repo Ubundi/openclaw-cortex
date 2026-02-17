@@ -2,3 +2,21 @@ node_modules/
 dist/
 *.tsbuildinfo
 .env
+.env.*
+!.env.example
+
+# Local Codex/Claude settings
+.claude/settings.local.json
+
+# Test and coverage outputs
+coverage/
+.nyc_output/
+
+# OS/editor noise
+.DS_Store
+
+# Package manager debug logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
