@@ -150,7 +150,10 @@ npm install
 npm run build      # TypeScript → dist/
 npm test           # Run vitest (52 tests)
 npm run test:watch # Watch mode
+npm run test:integration # Live Cortex API tests (requires CORTEX_API_KEY)
 ```
+
+Manual proof scripts live under `tests/manual/`.
 
 ## License
 

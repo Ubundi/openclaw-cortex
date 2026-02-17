@@ -8,10 +8,10 @@
 |-------|---------|-------|----------------|
 | Unit tests | `npm test` | 52 tests | All modules work in isolation with mocked Cortex API |
 | Integration tests | `npm run test:integration` | 9 tests | Client methods work against the live Cortex API |
-| Harness simulation | `npx tsx test-harness.ts` | 4-turn session | Full plugin lifecycle works end-to-end |
-| Persistence proof | `npx tsx test-persistence.ts` | 1 round-trip | Captured data actually persists and is retrievable |
-| File sync proof | `npx tsx test-filesync.ts` | 3 file types | MEMORY.md, daily logs, and transcript sync all work |
-| Edge cases + retry | `npx tsx test-edge-cases.ts` | 17 assertions | Empty prompts, huge messages, invalid config, network drops, retry recovery |
+| Harness simulation | `npx tsx tests/manual/test-harness.ts` | 4-turn session | Full plugin lifecycle works end-to-end |
+| Persistence proof | `npx tsx tests/manual/test-persistence.ts` | 1 round-trip | Captured data actually persists and is retrievable |
+| File sync proof | `npx tsx tests/manual/test-filesync.ts` | 3 file types | MEMORY.md, daily logs, and transcript sync all work |
+| Edge cases + retry | `npx tsx tests/manual/test-edge-cases.ts` | 17 assertions | Empty prompts, huge messages, invalid config, network drops, retry recovery |
 
 All tests require `CORTEX_API_KEY` env var for integration/harness/persistence/filesync/edge-cases.
 
@@ -79,10 +79,10 @@ Uses a dedicated `vitest.integration.config.ts` to run separately from unit test
 
 ---
 
-## Harness Simulation (test-harness.ts)
+## Harness Simulation (tests/manual/test-harness.ts)
 
 ```bash
-CORTEX_API_KEY=your-key npx tsx test-harness.ts
+CORTEX_API_KEY=your-key npx tsx tests/manual/test-harness.ts
 ```
 
 Simulates a 4-turn OpenClaw coding session without OpenClaw installed. Exercises the full plugin lifecycle:
@@ -124,10 +124,10 @@ Simulates a 4-turn OpenClaw coding session without OpenClaw installed. Exercises
 
 ---
 
-## Persistence Proof (test-persistence.ts)
+## Persistence Proof (tests/manual/test-persistence.ts)
 
 ```bash
-CORTEX_API_KEY=your-key npx tsx test-persistence.ts
+CORTEX_API_KEY=your-key npx tsx tests/manual/test-persistence.ts
 ```
 
 Proves that data captured via `ingestConversation()` actually persists in Cortex and is retrievable via `retrieve()`.
@@ -170,10 +170,10 @@ Marker: persistence-proof-1771334865769
 
 ---
 
-## File Sync Proof (test-filesync.ts)
+## File Sync Proof (tests/manual/test-filesync.ts)
 
 ```bash
-CORTEX_API_KEY=your-key npx tsx test-filesync.ts
+CORTEX_API_KEY=your-key npx tsx tests/manual/test-filesync.ts
 ```
 
 Proves that all three file sync channels work: MEMORY.md, daily logs, and session transcripts. Creates a temp workspace, starts the plugin with `fileSync: true` and `transcriptSync: true`, writes files, waits for ingestion + indexing, then recalls to verify.
@@ -304,11 +304,11 @@ npm test
 CORTEX_API_KEY=your-key npm run test:integration
 
 # Full lifecycle simulation
-CORTEX_API_KEY=your-key npx tsx test-harness.ts
+CORTEX_API_KEY=your-key npx tsx tests/manual/test-harness.ts
 
 # Persistence proof
-CORTEX_API_KEY=your-key npx tsx test-persistence.ts
+CORTEX_API_KEY=your-key npx tsx tests/manual/test-persistence.ts
 
 # File sync proof
-CORTEX_API_KEY=your-key npx tsx test-filesync.ts
+CORTEX_API_KEY=your-key npx tsx tests/manual/test-filesync.ts
 ```
