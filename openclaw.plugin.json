@@ -1,8 +1,8 @@
 {
   "id": "cortex-memory",
   "name": "Cortex Memory",
-  "description": "Long-term memory powered by Cortex — Auto-Recall, Auto-Capture, and background file sync",
-  "version": "0.1.0",
+  "description": "Long-term memory powered by Cortex — Auto-Recall, Auto-Capture, transcript ingestion, periodic consolidation, and background file sync",
+  "version": "0.2.0",
   "kind": "memory",
   "configSchema": {
     "type": "object",
@@ -37,10 +37,26 @@
         "description": "Maximum time to wait for memory recall (ms)",
         "default": 500
       },
+      "recallMode": {
+        "type": "string",
+        "enum": ["fast", "balanced", "full"],
+        "description": "Retrieval depth — fast (BM25 + semantic), balanced (+ light reranking), full (+ graph traversal + reranker)",
+        "default": "fast"
+      },
       "fileSync": {
         "type": "boolean",
         "description": "Watch MEMORY.md and daily logs for background ingestion",
         "default": true
+      },
+      "transcriptSync": {
+        "type": "boolean",
+        "description": "Watch sessions/*.jsonl and ingest cleaned transcripts",
+        "default": true
+      },
+      "reflectIntervalMs": {
+        "type": "number",
+        "description": "Interval for periodic memory consolidation (ms). Set to 0 to disable.",
+        "default": 3600000
       }
     }
   },
@@ -61,6 +77,19 @@
     "recallTimeoutMs": {
       "label": "Recall Timeout (ms)",
       "advanced": true
+    },
+    "recallMode": {
+      "label": "Recall Mode",
+      "helpText": "Fast is best for low-latency auto-recall. Full enables graph traversal for deeper retrieval at higher latency."
+    },
+    "transcriptSync": {
+      "label": "Transcript Sync",
+      "helpText": "Automatically ingest session transcripts (sessions/*.jsonl) after stripping system prompts and tool JSON."
+    },
+    "reflectIntervalMs": {
+      "label": "Reflect Interval (ms)",
+      "advanced": true,
+      "helpText": "How often to consolidate memories (SUPERSEDES chains, contradiction detection). Set to 0 to disable."
     }
   }
 }
