@@ -145,4 +145,27 @@ describe("RetryQueue", () => {
       smallQueue.stop();
     });
   });
+
+  it("double start() does not create two timers", async () => {
+    const task = vi.fn().mockResolvedValue(undefined);
+    queue.start();
+    queue.start(); // second call should be a no-op
+    queue.enqueue(task, "t");
+
+    await vi.advanceTimersByTimeAsync(5000);
+
+    // Task should only execute once per flush, not twice
+    expect(task).toHaveBeenCalledTimes(1);
+  });
+
+  it("stop() with pending tasks logs a warning", () => {
+    queue.enqueue(vi.fn(), "t1");
+    queue.enqueue(vi.fn(), "t2");
+
+    queue.stop();
+
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.stringContaining("2 pending tasks"),
+    );
+  });
 });

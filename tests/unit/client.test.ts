@@ -173,4 +173,47 @@ describe("CortexClient", () => {
       await expect(client.reflect("s1", 10)).rejects.toThrow();
     });
   });
+
+  describe("error status codes", () => {
+    it("throws with status code for 401 Unauthorized", async () => {
+      mockFetch.mockResolvedValueOnce({ ok: false, status: 401 });
+      await expect(client.retrieve("q", 5, "fast", 500)).rejects.toThrow("Cortex retrieve failed: 401");
+    });
+
+    it("throws with status code for 403 Forbidden", async () => {
+      mockFetch.mockResolvedValueOnce({ ok: false, status: 403 });
+      await expect(client.ingest("text", "s1")).rejects.toThrow("Cortex ingest failed: 403");
+    });
+
+    it("throws with status code for 429 Too Many Requests", async () => {
+      mockFetch.mockResolvedValueOnce({ ok: false, status: 429 });
+      await expect(client.ingestConversation([{ role: "user", content: "hi" }], "s1")).rejects.toThrow("Cortex ingest/conversation failed: 429");
+    });
+  });
+
+  describe("optional sessionId", () => {
+    it("ingest without sessionId omits session_id from body", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => MOCK_INGEST_RESPONSE,
+      });
+
+      await client.ingest("some text");
+
+      const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+      expect(body).toEqual({ text: "some text", session_id: undefined });
+    });
+
+    it("reflect without sessionId omits session_id from body", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ synthesized_count: 0, superseded_count: 0 }),
+      });
+
+      await client.reflect();
+
+      const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+      expect(body).toEqual({ session_id: undefined });
+    });
+  });
 });

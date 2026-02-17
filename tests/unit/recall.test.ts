@@ -101,4 +101,36 @@ describe("createRecallHandler", () => {
     expect(result).toBeUndefined();
     expect(logger.warn).toHaveBeenCalled();
   });
+
+  it("maps recallMode 'balanced' to 'fast' in API call", async () => {
+    const client = {
+      retrieve: vi.fn().mockResolvedValue({ results: [] }),
+    } as unknown as CortexClient;
+
+    const handler = createRecallHandler(client, makeConfig({ recallMode: "balanced" }), logger);
+    await handler({ prompt: "some query here" }, {});
+
+    expect(client.retrieve).toHaveBeenCalledWith(
+      "some query here",
+      5,
+      "fast", // balanced maps to fast
+      500,
+    );
+  });
+
+  it("passes 'full' mode through unchanged", async () => {
+    const client = {
+      retrieve: vi.fn().mockResolvedValue({ results: [] }),
+    } as unknown as CortexClient;
+
+    const handler = createRecallHandler(client, makeConfig({ recallMode: "full" }), logger);
+    await handler({ prompt: "some query here" }, {});
+
+    expect(client.retrieve).toHaveBeenCalledWith(
+      "some query here",
+      5,
+      "full",
+      500,
+    );
+  });
 });

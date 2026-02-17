@@ -128,4 +128,50 @@ describe("cleanTranscriptChunk", () => {
     expect(result.worthIngesting).toBe(false);
     expect(result.messages).toHaveLength(0);
   });
+
+  it("reports not worth ingesting when only user messages (no assistant)", () => {
+    const jsonl = [
+      JSON.stringify({ role: "user", content: "What is the deployment strategy for our backend?" }),
+    ].join("\n");
+
+    const result = cleanTranscriptChunk(jsonl);
+    expect(result.worthIngesting).toBe(false);
+    expect(result.messages).toHaveLength(1);
+  });
+});
+
+describe("cleanTranscript edge cases", () => {
+  it("skips messages with non-string non-array content", () => {
+    const jsonl = [
+      JSON.stringify({ role: "user", content: 12345 }),
+      JSON.stringify({ role: "assistant", content: { nested: true } }),
+      JSON.stringify({ role: "user", content: "Real message" }),
+    ].join("\n");
+
+    const result = cleanTranscript(jsonl);
+    expect(result).toEqual([{ role: "user", content: "Real message" }]);
+  });
+
+  it("skips messages that are purely base64 images after stripping", () => {
+    const longBase64 = "A".repeat(200);
+    const jsonl = JSON.stringify({
+      role: "user",
+      content: `data:image/png;base64,${longBase64}`,
+    });
+
+    const result = cleanTranscript(jsonl);
+    expect(result).toEqual([]);
+  });
+
+  it("handles empty lines in JSONL", () => {
+    const jsonl = [
+      "",
+      JSON.stringify({ role: "user", content: "Hello there" }),
+      "   ",
+      "",
+    ].join("\n");
+
+    const result = cleanTranscript(jsonl);
+    expect(result).toEqual([{ role: "user", content: "Hello there" }]);
+  });
 });

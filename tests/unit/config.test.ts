@@ -82,4 +82,57 @@ describe("CortexConfigSchema", () => {
       expect(result.success).toBe(false);
     });
   });
+
+  describe("field validation", () => {
+    it("rejects empty apiKey", () => {
+      const result = CortexConfigSchema.safeParse({ apiKey: "" });
+      expect(result.success).toBe(false);
+    });
+
+    it("rejects recallTopK below 1", () => {
+      const result = CortexConfigSchema.safeParse({ ...validBase, recallTopK: 0 });
+      expect(result.success).toBe(false);
+    });
+
+    it("rejects recallTopK above 20", () => {
+      const result = CortexConfigSchema.safeParse({ ...validBase, recallTopK: 21 });
+      expect(result.success).toBe(false);
+    });
+
+    it("rejects recallTimeoutMs below 100", () => {
+      const result = CortexConfigSchema.safeParse({ ...validBase, recallTimeoutMs: 99 });
+      expect(result.success).toBe(false);
+    });
+
+    it("rejects recallTimeoutMs above 10000", () => {
+      const result = CortexConfigSchema.safeParse({ ...validBase, recallTimeoutMs: 10001 });
+      expect(result.success).toBe(false);
+    });
+
+    it("rejects invalid recallMode", () => {
+      const result = CortexConfigSchema.safeParse({ ...validBase, recallMode: "turbo" });
+      expect(result.success).toBe(false);
+    });
+
+    it("rejects negative reflectIntervalMs", () => {
+      const result = CortexConfigSchema.safeParse({ ...validBase, reflectIntervalMs: -1 });
+      expect(result.success).toBe(false);
+    });
+
+    it("applies all defaults with only apiKey", () => {
+      const result = CortexConfigSchema.safeParse(validBase);
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.autoRecall).toBe(true);
+        expect(result.data.autoCapture).toBe(true);
+        expect(result.data.recallTopK).toBe(5);
+        expect(result.data.recallTimeoutMs).toBe(2000);
+        expect(result.data.recallMode).toBe("fast");
+        expect(result.data.fileSync).toBe(true);
+        expect(result.data.transcriptSync).toBe(true);
+        expect(result.data.reflectIntervalMs).toBe(3_600_000);
+        expect(result.data.namespace).toBe("openclaw");
+      }
+    });
+  });
 });

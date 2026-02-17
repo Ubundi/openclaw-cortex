@@ -54,4 +54,26 @@ describe("LatencyMetrics", () => {
     expect(m.count).toBe(0);
     expect(m.p50).toBeNull();
   });
+
+  it("summary returns all nulls after reset", () => {
+    const m = new LatencyMetrics();
+    m.record(100);
+    m.reset();
+    const s = m.summary();
+    expect(s).toEqual({ count: 0, p50: null, p95: null, p99: null });
+  });
+
+  it("percentile(100) returns the maximum", () => {
+    const m = new LatencyMetrics();
+    for (let i = 1; i <= 10; i++) m.record(i);
+    expect(m.p99).toBe(10); // p99 of 10 items = index 9 = max
+  });
+
+  it("windowSize of 1 keeps only the last sample", () => {
+    const m = new LatencyMetrics(1);
+    m.record(100);
+    m.record(200);
+    expect(m.count).toBe(1);
+    expect(m.p50).toBe(200);
+  });
 });

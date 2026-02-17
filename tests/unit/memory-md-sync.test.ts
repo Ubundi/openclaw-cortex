@@ -1,0 +1,169 @@
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { MemoryMdSync } from "../../src/features/sync/memory-md-sync.js";
+import type { CortexClient } from "../../src/cortex/client.js";
+import type { RetryQueue } from "../../src/shared/queue/retry-queue.js";
+
+vi.mock("node:fs/promises", () => ({
+  readFile: vi.fn(),
+}));
+
+import { readFile } from "node:fs/promises";
+
+const mockReadFile = readFile as ReturnType<typeof vi.fn>;
+
+function makeLogger() {
+  return {
+    debug: vi.fn(),
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+  };
+}
+
+function makeClient(overrides: Partial<CortexClient> = {}): CortexClient {
+  return {
+    ingest: vi.fn().mockResolvedValue({ nodes_created: 1, edges_created: 0, facts: [], entities: [] }),
+    ...overrides,
+  } as unknown as CortexClient;
+}
+
+function makeRetryQueue(): RetryQueue {
+  return {
+    enqueue: vi.fn(),
+    start: vi.fn(),
+    stop: vi.fn(),
+  } as unknown as RetryQueue;
+}
+
+describe("MemoryMdSync", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("ingests diff after debounce", async () => {
+    const client = makeClient();
+    const logger = makeLogger();
+    const sync = new MemoryMdSync("/workspace/MEMORY.md", client, "mem-session", logger);
+
+    mockReadFile.mockResolvedValue("line1\nline2");
+
+    sync.onFileChange();
+    await vi.advanceTimersByTimeAsync(2000);
+
+    expect(client.ingest).toHaveBeenCalledWith(
+      "line1\nline2",
+      "mem-session",
+    );
+  });
+
+  it("debounces multiple rapid calls", async () => {
+    const client = makeClient();
+    const logger = makeLogger();
+    const sync = new MemoryMdSync("/workspace/MEMORY.md", client, "s", logger);
+
+    mockReadFile.mockResolvedValue("content");
+
+    sync.onFileChange();
+    sync.onFileChange();
+    sync.onFileChange();
+
+    await vi.advanceTimersByTimeAsync(2000);
+
+    // readFile should only be called once despite 3 onChange calls
+    expect(mockReadFile).toHaveBeenCalledTimes(1);
+  });
+
+  it("skips when file content is identical to last read", async () => {
+    const client = makeClient();
+    const logger = makeLogger();
+    const sync = new MemoryMdSync("/workspace/MEMORY.md", client, "s", logger);
+
+    mockReadFile.mockResolvedValue("same content");
+
+    // First call: ingests
+    sync.onFileChange();
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(client.ingest).toHaveBeenCalledTimes(1);
+
+    (client.ingest as ReturnType<typeof vi.fn>).mockClear();
+
+    // Second call: same content, should skip
+    sync.onFileChange();
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(client.ingest).not.toHaveBeenCalled();
+  });
+
+  it("skips when diff is only whitespace", async () => {
+    const client = makeClient();
+    const logger = makeLogger();
+    const sync = new MemoryMdSync("/workspace/MEMORY.md", client, "s", logger);
+
+    mockReadFile.mockResolvedValue("line1\nline2");
+
+    sync.onFileChange();
+    await vi.advanceTimersByTimeAsync(2000);
+    (client.ingest as ReturnType<typeof vi.fn>).mockClear();
+
+    // Add only blank lines
+    mockReadFile.mockResolvedValue("line1\nline2\n\n  \n");
+
+    sync.onFileChange();
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(client.ingest).not.toHaveBeenCalled();
+  });
+
+  it("silently returns when file does not exist", async () => {
+    const client = makeClient();
+    const logger = makeLogger();
+    const sync = new MemoryMdSync("/workspace/MEMORY.md", client, "s", logger);
+
+    mockReadFile.mockRejectedValue(new Error("ENOENT"));
+
+    sync.onFileChange();
+    await vi.advanceTimersByTimeAsync(2000);
+
+    expect(client.ingest).not.toHaveBeenCalled();
+    // Should NOT warn — file-not-found is expected
+    expect(logger.warn).not.toHaveBeenCalled();
+  });
+
+  it("queues for retry when ingest fails", async () => {
+    const client = makeClient({
+      ingest: vi.fn().mockRejectedValue(new Error("server error")),
+    });
+    const logger = makeLogger();
+    const retryQueue = makeRetryQueue();
+    const sync = new MemoryMdSync("/workspace/MEMORY.md", client, "s", logger, retryQueue);
+
+    mockReadFile.mockResolvedValue("new line");
+
+    sync.onFileChange();
+    await vi.advanceTimersByTimeAsync(2000);
+
+    expect(retryQueue.enqueue).toHaveBeenCalledWith(
+      expect.any(Function),
+      expect.stringContaining("memory-md-"),
+    );
+  });
+
+  it("stop() cancels pending debounce", async () => {
+    const client = makeClient();
+    const logger = makeLogger();
+    const sync = new MemoryMdSync("/workspace/MEMORY.md", client, "s", logger);
+
+    mockReadFile.mockResolvedValue("content");
+
+    sync.onFileChange();
+    sync.stop();
+
+    await vi.advanceTimersByTimeAsync(5000);
+
+    expect(mockReadFile).not.toHaveBeenCalled();
+    expect(client.ingest).not.toHaveBeenCalled();
+  });
+});
