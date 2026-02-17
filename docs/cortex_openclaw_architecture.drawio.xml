@@ -53,7 +53,7 @@
         <mxCell id="plugin-container" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e8f5e9;strokeColor=#43a047;strokeWidth=1.5;arcSize=6;" vertex="1" parent="1">
           <mxGeometry x="365" y="115" width="310" height="380" as="geometry"/>
         </mxCell>
-        <mxCell id="plugin-label" value="@cortex/openclaw-plugin (Phase 2)" style="text;html=1;fontSize=13;fontStyle=1;align=center;verticalAlign=middle;fillColor=none;strokeColor=none;fontColor=#2e7d32;" vertex="1" parent="1">
+        <mxCell id="plugin-label" value="@ubundi/openclaw-cortex v0.2" style="text;html=1;fontSize=13;fontStyle=1;align=center;verticalAlign=middle;fillColor=none;strokeColor=none;fontColor=#2e7d32;" vertex="1" parent="1">
           <mxGeometry x="365" y="120" width="310" height="25" as="geometry"/>
         </mxCell>
         <mxCell id="plugin-phase" value="npm plugin — lifecycle hooks" style="text;html=1;fontSize=10;fontStyle=2;align=center;verticalAlign=middle;fillColor=none;strokeColor=none;fontColor=#558b2f;" vertex="1" parent="1">
@@ -64,8 +64,8 @@
         <mxCell id="auto-recall" value="Auto-Recall" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#a5d6a7;strokeColor=#43a047;fontSize=12;fontStyle=1;align=center;" vertex="1" parent="1">
           <mxGeometry x="385" y="170" width="270" height="35" as="geometry"/>
         </mxCell>
-        <mxCell id="auto-recall-detail" value="before_agent_start → POST /v1/retrieve (mode=fast)&#xa;Injects &lt;cortex_memories&gt; via prependContext&#xa;Hard timeout: 500ms (configurable)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#c8e6c9;strokeColor=none;fontSize=9;align=left;spacingLeft=8;" vertex="1" parent="1">
-          <mxGeometry x="385" y="205" width="270" height="48" as="geometry"/>
+        <mxCell id="auto-recall-detail" value="before_agent_start → POST /v1/retrieve&#xa;mode=fast|balanced|full (configurable)&#xa;Injects &lt;cortex_memories&gt; via prependContext&#xa;Default timeout: 2000ms (100-10000ms)&#xa;Cold-start circuit breaker (3 failures → 30s cooldown)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#c8e6c9;strokeColor=none;fontSize=9;align=left;spacingLeft=8;" vertex="1" parent="1">
+          <mxGeometry x="385" y="205" width="270" height="62" as="geometry"/>
         </mxCell>
 
         <!-- Auto-Capture -->
@@ -80,12 +80,12 @@
         <mxCell id="file-sync" value="File Sync (FileSync class)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#a5d6a7;strokeColor=#43a047;fontSize=12;fontStyle=1;align=center;" vertex="1" parent="1">
           <mxGeometry x="385" y="353" width="270" height="35" as="geometry"/>
         </mxCell>
-        <mxCell id="file-sync-detail" value="MEMORY.md → diff-based (2s debounce)&#xa;memory/*.md → append-based (offset tracking)&#xa;sessions/*.jsonl → clean + batch ingest (Phase 3)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#c8e6c9;strokeColor=none;fontSize=9;align=left;spacingLeft=8;" vertex="1" parent="1">
-          <mxGeometry x="385" y="388" width="270" height="48" as="geometry"/>
+        <mxCell id="file-sync-detail" value="MEMORY.md → diff-based (2s debounce)&#xa;memory/*.md → append-based (offset tracking)&#xa;sessions/*.jsonl → clean + batch ingest&#xa;safePath validation on all file operations&#xa;RetryQueue with dedup + capacity cap" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#c8e6c9;strokeColor=none;fontSize=9;align=left;spacingLeft=8;" vertex="1" parent="1">
+          <mxGeometry x="385" y="388" width="270" height="62" as="geometry"/>
         </mxCell>
 
         <!-- Dedup tag -->
-        <mxCell id="dedup" value="Dedup: sets &lt;cortex_memories&gt; tag&#xa;so SKILL.md skips redundant recall" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#e8f5e9;strokeColor=#81c784;fontSize=9;fontStyle=2;align=center;" vertex="1" parent="1">
+        <mxCell id="dedup" value="Dedup tag + prompt injection sanitization&#xa;HTTPS enforced (localhost exempt)&#xa;Namespace-scoped session IDs" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#e8f5e9;strokeColor=#81c784;fontSize=9;fontStyle=2;align=center;" vertex="1" parent="1">
           <mxGeometry x="385" y="450" width="270" height="30" as="geometry"/>
         </mxCell>
 
@@ -232,7 +232,7 @@
         <!-- MAIN DATA FLOW ARROWS (Plugin + Skill to API) -->
 
         <!-- Plugin Auto-Recall arrow -->
-        <mxCell id="plugin-to-api" value="Auto-Recall&#xa;mode=fast" style="rounded=1;strokeColor=#2e7d32;strokeWidth=2;exitX=0.5;exitY=1;entryX=0.35;entryY=0;fontColor=#2e7d32;fontSize=10;fontStyle=1;labelBackgroundColor=#ffffff;" edge="1" source="plugin-container" target="apigw" parent="1">
+        <mxCell id="plugin-to-api" value="Auto-Recall&#xa;mode=fast|balanced|full" style="rounded=1;strokeColor=#2e7d32;strokeWidth=2;exitX=0.5;exitY=1;entryX=0.35;entryY=0;fontColor=#2e7d32;fontSize=10;fontStyle=1;labelBackgroundColor=#ffffff;" edge="1" source="plugin-container" target="apigw" parent="1">
           <mxGeometry x="0.3" relative="1" as="geometry">
             <mxPoint as="offset"/>
             <Array as="points">
@@ -281,7 +281,7 @@
         <mxCell id="lat-fast" value="mode=fast (Auto-Recall path)" style="text;html=1;fontSize=11;fontStyle=1;align=left;fillColor=none;strokeColor=none;fontColor=#c62828;" vertex="1" parent="1">
           <mxGeometry x="1110" y="105" width="250" height="20" as="geometry"/>
         </mxCell>
-        <mxCell id="lat-fast-detail" value="Server-side: ~80-150ms (BM25 + semantic + RRF)&#xa;End-to-end (us-east-1): ~200-300ms&#xa;End-to-end (EU/APAC): ~400-600ms&#xa;Plugin hard timeout: 500ms (configurable)" style="text;html=1;fontSize=10;align=left;fillColor=none;strokeColor=none;fontColor=#b71c1c;spacingLeft=8;" vertex="1" parent="1">
+        <mxCell id="lat-fast-detail" value="Server-side: ~80-150ms (BM25 + semantic + RRF)&#xa;End-to-end (us-east-1): ~200-300ms&#xa;End-to-end (EU/APAC): ~400-600ms&#xa;Plugin default timeout: 2000ms (configurable 100-10000ms)" style="text;html=1;fontSize=10;align=left;fillColor=none;strokeColor=none;fontColor=#b71c1c;spacingLeft=8;" vertex="1" parent="1">
           <mxGeometry x="1110" y="125" width="430" height="60" as="geometry"/>
         </mxCell>
 
@@ -317,14 +317,14 @@
         <mxCell id="p2" value="Phase 2: npm Plugin (the real launch)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#a5d6a7;strokeColor=#43a047;fontSize=11;fontStyle=1;align=center;" vertex="1" parent="1">
           <mxGeometry x="1110" y="488" width="430" height="30" as="geometry"/>
         </mxCell>
-        <mxCell id="p2d" value="Auto-Recall + Auto-Capture + File Sync. Parity with Mem0/Cognee/Supermemory." style="text;html=1;fontSize=9;align=left;fillColor=none;strokeColor=none;fontColor=#4a148c;spacingLeft=8;" vertex="1" parent="1">
+        <mxCell id="p2d" value="Auto-Recall + Auto-Capture + File Sync + Transcript Ingestion.&#xa;Security hardening, retry queue, cold-start circuit breaker. Published on npm." style="text;html=1;fontSize=9;align=left;fillColor=none;strokeColor=none;fontColor=#4a148c;spacingLeft=8;" vertex="1" parent="1">
           <mxGeometry x="1110" y="518" width="430" height="18" as="geometry"/>
         </mxCell>
 
         <mxCell id="p3" value="Phase 3: Advanced Features" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1bee7;strokeColor=#7b1fa2;fontSize=11;fontStyle=1;align=center;" vertex="1" parent="1">
           <mxGeometry x="1110" y="546" width="430" height="30" as="geometry"/>
         </mxCell>
-        <mxCell id="p3d" value="Transcript ingestion, cortex_relate, reflection triggers, auto-recall tuning." style="text;html=1;fontSize=9;align=left;fillColor=none;strokeColor=none;fontColor=#4a148c;spacingLeft=8;" vertex="1" parent="1">
+        <mxCell id="p3d" value="cortex_relate, reflection triggers, auto-recall tuning, balanced mode reranking." style="text;html=1;fontSize=9;align=left;fillColor=none;strokeColor=none;fontColor=#4a148c;spacingLeft=8;" vertex="1" parent="1">
           <mxGeometry x="1110" y="576" width="430" height="18" as="geometry"/>
         </mxCell>
 
