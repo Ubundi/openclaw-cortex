@@ -43,11 +43,44 @@ export interface ConversationMessage {
   content: string;
 }
 
+const DEFAULT_INGEST_TIMEOUT_MS = 10_000;
+const DEFAULT_REFLECT_TIMEOUT_MS = 30_000;
+
 export class CortexClient {
   constructor(
     private baseUrl: string,
     private apiKey: string,
   ) {}
+
+  private async fetchJsonWithTimeout<T>(
+    url: string,
+    body: unknown,
+    timeoutMs: number,
+    label: string,
+  ): Promise<T> {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+    try {
+      const res = await fetch(url, {
+        method: "POST",
+        headers: {
+          "x-api-key": this.apiKey,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      });
+
+      if (!res.ok) {
+        throw new Error(`Cortex ${label} failed: ${res.status}`);
+      }
+
+      return (await res.json()) as T;
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
 
   async retrieve(
     query: string,
@@ -55,81 +88,49 @@ export class CortexClient {
     mode: "fast" | "full",
     timeoutMs: number,
   ): Promise<RetrieveResponse> {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), timeoutMs);
-
-    try {
-      const res = await fetch(`${this.baseUrl}/v1/retrieve`, {
-        method: "POST",
-        headers: {
-          "x-api-key": this.apiKey,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ query, top_k: topK, mode }),
-        signal: controller.signal,
-      });
-
-      if (!res.ok) {
-        throw new Error(`Cortex retrieve failed: ${res.status}`);
-      }
-
-      return (await res.json()) as RetrieveResponse;
-    } finally {
-      clearTimeout(timeout);
-    }
+    return this.fetchJsonWithTimeout<RetrieveResponse>(
+      `${this.baseUrl}/v1/retrieve`,
+      { query, top_k: topK, mode },
+      timeoutMs,
+      "retrieve",
+    );
   }
 
-  async ingest(text: string, sessionId?: string): Promise<IngestResponse> {
-    const res = await fetch(`${this.baseUrl}/v1/ingest`, {
-      method: "POST",
-      headers: {
-        "x-api-key": this.apiKey,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ text, session_id: sessionId }),
-    });
-
-    if (!res.ok) {
-      throw new Error(`Cortex ingest failed: ${res.status}`);
-    }
-
-    return (await res.json()) as IngestResponse;
+  async ingest(
+    text: string,
+    sessionId?: string,
+    timeoutMs = DEFAULT_INGEST_TIMEOUT_MS,
+  ): Promise<IngestResponse> {
+    return this.fetchJsonWithTimeout<IngestResponse>(
+      `${this.baseUrl}/v1/ingest`,
+      { text, session_id: sessionId },
+      timeoutMs,
+      "ingest",
+    );
   }
 
   async ingestConversation(
     messages: ConversationMessage[],
     sessionId?: string,
+    timeoutMs = DEFAULT_INGEST_TIMEOUT_MS,
   ): Promise<IngestResponse> {
-    const res = await fetch(`${this.baseUrl}/v1/ingest/conversation`, {
-      method: "POST",
-      headers: {
-        "x-api-key": this.apiKey,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ messages, session_id: sessionId }),
-    });
-
-    if (!res.ok) {
-      throw new Error(`Cortex ingest/conversation failed: ${res.status}`);
-    }
-
-    return (await res.json()) as IngestResponse;
+    return this.fetchJsonWithTimeout<IngestResponse>(
+      `${this.baseUrl}/v1/ingest/conversation`,
+      { messages, session_id: sessionId },
+      timeoutMs,
+      "ingest/conversation",
+    );
   }
 
-  async reflect(sessionId?: string): Promise<ReflectResponse> {
-    const res = await fetch(`${this.baseUrl}/v1/reflect`, {
-      method: "POST",
-      headers: {
-        "x-api-key": this.apiKey,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ session_id: sessionId }),
-    });
-
-    if (!res.ok) {
-      throw new Error(`Cortex reflect failed: ${res.status}`);
-    }
-
-    return (await res.json()) as ReflectResponse;
+  async reflect(
+    sessionId?: string,
+    timeoutMs = DEFAULT_REFLECT_TIMEOUT_MS,
+  ): Promise<ReflectResponse> {
+    return this.fetchJsonWithTimeout<ReflectResponse>(
+      `${this.baseUrl}/v1/reflect`,
+      { session_id: sessionId },
+      timeoutMs,
+      "reflect",
+    );
   }
 }

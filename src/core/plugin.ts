@@ -61,8 +61,9 @@ const plugin = {
     const client = new CortexClient(config.baseUrl, config.apiKey);
     const retryQueue = new RetryQueue(api.logger);
     const recallMetrics = new LatencyMetrics();
+    const namespace = config.namespace;
 
-    api.logger.info(`Cortex plugin registered (recallMode=${config.recallMode})`);
+    api.logger.info(`Cortex plugin registered (recallMode=${config.recallMode}, namespace=${namespace})`);
 
     // Auto-Recall: inject relevant memories before every agent turn
     api.on("before_agent_start", createRecallHandler(client, config, api.logger, recallMetrics));
@@ -85,7 +86,7 @@ const plugin = {
             const watcher = new FileSyncWatcher(
               workspaceDir,
               client,
-              "openclaw",
+              namespace,
               api.logger,
               retryQueue,
               { transcripts: config.transcriptSync },

@@ -87,4 +87,62 @@ describe("RetryQueue", () => {
     queue.stop();
     expect(queue.pending).toBe(0);
   });
+
+  describe("capacity and deduplication", () => {
+    it("deduplicates tasks with the same label", () => {
+      const task1 = vi.fn();
+      const task2 = vi.fn();
+
+      queue.enqueue(task1, "same-label");
+      queue.enqueue(task2, "same-label");
+
+      // Should still be 1 task, not 2
+      expect(queue.pending).toBe(1);
+    });
+
+    it("replaces the execute function on dedup", async () => {
+      const task1 = vi.fn().mockRejectedValue(new Error("old"));
+      const task2 = vi.fn().mockResolvedValue(undefined);
+
+      queue.start();
+      queue.enqueue(task1, "dedup-test");
+      queue.enqueue(task2, "dedup-test");
+
+      await vi.advanceTimersByTimeAsync(5000);
+
+      // task2 should have been called (it replaced task1)
+      expect(task2).toHaveBeenCalledOnce();
+      expect(task1).not.toHaveBeenCalled();
+      expect(queue.pending).toBe(0);
+    });
+
+    it("drops oldest task when at capacity", () => {
+      const smallQueue = new RetryQueue(logger, 5, 3); // capacity 3
+
+      smallQueue.enqueue(vi.fn(), "t1");
+      smallQueue.enqueue(vi.fn(), "t2");
+      smallQueue.enqueue(vi.fn(), "t3");
+      expect(smallQueue.pending).toBe(3);
+
+      // This should drop t1
+      smallQueue.enqueue(vi.fn(), "t4");
+      expect(smallQueue.pending).toBe(3);
+      expect(logger.warn).toHaveBeenCalledWith(
+        expect.stringContaining("dropped oldest task t1"),
+      );
+
+      smallQueue.stop();
+    });
+
+    it("never exceeds max capacity", () => {
+      const smallQueue = new RetryQueue(logger, 5, 2); // capacity 2
+
+      for (let i = 0; i < 10; i++) {
+        smallQueue.enqueue(vi.fn(), `task-${i}`);
+      }
+
+      expect(smallQueue.pending).toBeLessThanOrEqual(2);
+      smallQueue.stop();
+    });
+  });
 });

@@ -50,6 +50,7 @@ export class FileSyncWatcher {
       this.sessionPrefix,
       this.logger,
       this.retryQueue,
+      memoryDir,
     );
 
     // Watch MEMORY.md
@@ -87,6 +88,7 @@ export class FileSyncWatcher {
         this.sessionPrefix,
         this.logger,
         this.retryQueue,
+        sessionsDir,
       );
 
       try {

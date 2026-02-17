@@ -15,6 +15,7 @@ export interface RetryTask {
 const BASE_DELAY_MS = 1000;
 const MAX_DELAY_MS = 60_000;
 const MAX_RETRIES = 5;
+const MAX_CAPACITY = 100;
 const FLUSH_INTERVAL_MS = 5000;
 
 export class RetryQueue {
@@ -25,6 +26,7 @@ export class RetryQueue {
   constructor(
     private logger: Logger,
     private maxRetries = MAX_RETRIES,
+    private maxCapacity = MAX_CAPACITY,
   ) {}
 
   start(): void {
@@ -45,6 +47,25 @@ export class RetryQueue {
 
   enqueue(execute: () => Promise<void>, label?: string): void {
     const id = label ?? `task-${++this.taskCounter}`;
+
+    // Deduplicate: if a task with the same label exists, replace it
+    const existingIdx = this.queue.findIndex((t) => t.id === id);
+    if (existingIdx !== -1) {
+      this.queue[existingIdx].execute = execute;
+      this.queue[existingIdx].retries = 0;
+      this.queue[existingIdx].nextAttemptAt = Date.now();
+      this.logger.debug?.(`Retry queue: deduplicated ${id}`);
+      return;
+    }
+
+    // Capacity check: drop oldest task if at limit
+    if (this.queue.length >= this.maxCapacity) {
+      const dropped = this.queue.shift()!;
+      this.logger.warn(
+        `Retry queue: at capacity (${this.maxCapacity}), dropped oldest task ${dropped.id}`,
+      );
+    }
+
     this.queue.push({
       id,
       execute,

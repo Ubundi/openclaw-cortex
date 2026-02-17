@@ -87,6 +87,19 @@ describe("CortexClient", () => {
       expect(result.nodes_created).toBe(1);
       expect(result.facts).toHaveLength(1);
     });
+
+    it("aborts on timeout", async () => {
+      mockFetch.mockImplementationOnce(
+        (_url: string, init: { signal: AbortSignal }) =>
+          new Promise((_resolve, reject) => {
+            init.signal.addEventListener("abort", () =>
+              reject(new DOMException("aborted", "AbortError")),
+            );
+          }),
+      );
+
+      await expect(client.ingest("text", "s1", 10)).rejects.toThrow();
+    });
   });
 
   describe("ingestConversation", () => {
@@ -110,6 +123,54 @@ describe("CortexClient", () => {
         }),
       );
       expect(result.facts).toHaveLength(2);
+    });
+
+    it("aborts on timeout", async () => {
+      mockFetch.mockImplementationOnce(
+        (_url: string, init: { signal: AbortSignal }) =>
+          new Promise((_resolve, reject) => {
+            init.signal.addEventListener("abort", () =>
+              reject(new DOMException("aborted", "AbortError")),
+            );
+          }),
+      );
+
+      await expect(
+        client.ingestConversation([{ role: "user", content: "hi" }], "s1", 10),
+      ).rejects.toThrow();
+    });
+  });
+
+  describe("reflect", () => {
+    it("sends reflect request", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ synthesized_count: 3, superseded_count: 1 }),
+      });
+
+      const result = await client.reflect("sess-1");
+
+      expect(mockFetch).toHaveBeenCalledWith(
+        "https://api.example.com/v1/reflect",
+        expect.objectContaining({
+          method: "POST",
+          body: JSON.stringify({ session_id: "sess-1" }),
+        }),
+      );
+      expect(result.synthesized_count).toBe(3);
+    });
+
+    it("aborts on timeout", async () => {
+      mockFetch.mockImplementationOnce(
+        (_url: string, init: { signal: AbortSignal }) =>
+          new Promise((_resolve, reject) => {
+            init.signal.addEventListener("abort", () =>
+              reject(new DOMException("aborted", "AbortError")),
+            );
+          }),
+      );
+
+      await expect(client.reflect("s1", 10)).rejects.toThrow();
     });
   });
 });
