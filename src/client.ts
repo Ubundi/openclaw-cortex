@@ -16,6 +16,11 @@ export interface IngestResponse {
   entity_count: number;
 }
 
+export interface ReflectResponse {
+  synthesized_count: number;
+  superseded_count: number;
+}
+
 export interface ConversationMessage {
   role: string;
   content: string;
@@ -92,5 +97,22 @@ export class CortexClient {
     }
 
     return (await res.json()) as IngestResponse;
+  }
+
+  async reflect(sessionId?: string): Promise<ReflectResponse> {
+    const res = await fetch(`${this.baseUrl}/v1/reflect`, {
+      method: "POST",
+      headers: {
+        "x-api-key": this.apiKey,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ session_id: sessionId }),
+    });
+
+    if (!res.ok) {
+      throw new Error(`Cortex reflect failed: ${res.status}`);
+    }
+
+    return (await res.json()) as ReflectResponse;
   }
 }

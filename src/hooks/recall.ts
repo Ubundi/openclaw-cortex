@@ -62,10 +62,15 @@ export function createRecallHandler(
     const start = Date.now();
 
     try {
+      // recallMode maps to Cortex API mode parameter:
+      // "fast" = BM25 + semantic only (~80-150ms server-side)
+      // "balanced" = adds light reranking (~150-300ms)
+      // "full" = adds graph traversal + full reranker (~300-600ms)
+      const apiMode = config.recallMode === "balanced" ? "fast" : config.recallMode;
       const response = await client.retrieve(
         prompt,
         config.recallTopK,
-        "fast",
+        apiMode as "fast" | "full",
         config.recallTimeoutMs,
       );
 

@@ -1,5 +1,7 @@
 # @cortex/openclaw-plugin
 
+![OpenClaw Cortex Logo](assets/logo.png)
+
 OpenClaw plugin for [Cortex](https://github.com/ubundi/cortex) long-term memory. Provides:
 
 - **Auto-Recall** — injects relevant memories before every agent turn via `before_agent_start` hook
@@ -51,15 +53,15 @@ Environment variables are supported via `${VAR_NAME}` syntax:
 
 ### Config Options
 
-| Option | Type | Default | Description |
-|--------|------|---------|-------------|
-| `apiKey` | string | *required* | Cortex API key |
-| `baseUrl` | string | `https://q5p64iw9c9...` | Cortex API base URL |
-| `autoRecall` | boolean | `true` | Inject memories before each agent turn |
-| `autoCapture` | boolean | `true` | Extract facts after agent responses |
-| `recallTopK` | number | `5` | Number of memories to retrieve |
-| `recallTimeoutMs` | number | `500` | Max time to wait for recall (ms) |
-| `fileSync` | boolean | `true` | Watch MEMORY.md and daily logs |
+| Option            | Type    | Default                 | Description                            |
+| ----------------- | ------- | ----------------------- | -------------------------------------- |
+| `apiKey`          | string  | _required_              | Cortex API key                         |
+| `baseUrl`         | string  | `https://q5p64iw9c9...` | Cortex API base URL                    |
+| `autoRecall`      | boolean | `true`                  | Inject memories before each agent turn |
+| `autoCapture`     | boolean | `true`                  | Extract facts after agent responses    |
+| `recallTopK`      | number  | `5`                     | Number of memories to retrieve         |
+| `recallTimeoutMs` | number  | `500`                   | Max time to wait for recall (ms)       |
+| `fileSync`        | boolean | `true`                  | Watch MEMORY.md and daily logs         |
 
 ## How It Works
 
@@ -87,7 +89,7 @@ Capture is fire-and-forget — it never blocks the agent.
 The plugin watches OpenClaw's memory files and ingests changes into Cortex:
 
 - **MEMORY.md**: Line-level diff with 2-second debounce. Only added lines are ingested.
-- **memory/*.md** (daily logs): Offset-based append detection. New content is ingested as it's written.
+- **memory/\*.md** (daily logs): Offset-based append detection. New content is ingested as it's written.
 
 ## Development
 

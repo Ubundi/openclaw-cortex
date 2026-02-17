@@ -1,5 +1,8 @@
 import { z } from "zod";
 
+export const RecallMode = z.enum(["fast", "balanced", "full"]);
+export type RecallMode = z.infer<typeof RecallMode>;
+
 export const CortexConfigSchema = z.object({
   apiKey: z.string().min(1, "apiKey is required"),
   baseUrl: z
@@ -10,7 +13,10 @@ export const CortexConfigSchema = z.object({
   autoCapture: z.boolean().default(true),
   recallTopK: z.number().int().min(1).max(20).default(5),
   recallTimeoutMs: z.number().int().min(100).max(5000).default(500),
+  recallMode: RecallMode.default("fast"),
   fileSync: z.boolean().default(true),
+  transcriptSync: z.boolean().default(true),
+  reflectIntervalMs: z.number().int().min(0).default(3_600_000),
 });
 
 export type CortexConfig = z.infer<typeof CortexConfigSchema>;

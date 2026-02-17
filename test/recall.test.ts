@@ -11,7 +11,10 @@ function makeConfig(overrides: Partial<CortexConfig> = {}): CortexConfig {
     autoCapture: true,
     recallTopK: 5,
     recallTimeoutMs: 500,
+    recallMode: "fast" as const,
     fileSync: true,
+    transcriptSync: true,
+    reflectIntervalMs: 3_600_000,
     ...overrides,
   };
 }
