@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import type { CortexClient } from "../client.js";
+import type { RetryQueue } from "../utils/retry-queue.js";
 
 type Logger = {
   debug?(...args: unknown[]): void;
@@ -13,12 +14,14 @@ const DEBOUNCE_MS = 2000;
 export class MemoryMdSync {
   private lastContent = "";
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
+  private syncCounter = 0;
 
   constructor(
     private filePath: string,
     private client: CortexClient,
     private sessionId: string,
     private logger: Logger,
+    private retryQueue?: RetryQueue,
   ) {}
 
   onFileChange(): void {
@@ -46,11 +49,15 @@ export class MemoryMdSync {
 
     if (!added.trim()) return;
 
-    try {
-      await this.client.ingest(added, this.sessionId);
+    const doIngest = () => this.client.ingest(added, this.sessionId).then(() => {
       this.logger.debug?.("MEMORY.md sync: ingested diff");
+    });
+
+    try {
+      await doIngest();
     } catch (err) {
-      this.logger.warn("MEMORY.md sync ingest failed:", err);
+      this.logger.warn("MEMORY.md sync ingest failed, queuing for retry:", err);
+      this.retryQueue?.enqueue(doIngest, `memory-md-${++this.syncCounter}`);
     }
   }
 

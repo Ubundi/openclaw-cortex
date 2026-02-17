@@ -1,5 +1,6 @@
 import type { CortexClient, ConversationMessage } from "../client.js";
 import type { CortexConfig } from "../config.js";
+import type { RetryQueue } from "../utils/retry-queue.js";
 
 interface AgentEndEvent {
   messages: unknown[];
@@ -44,7 +45,6 @@ function extractContent(content: unknown): string {
 }
 
 function isWorthCapturing(messages: ConversationMessage[]): boolean {
-  // Skip if no substantive user/assistant exchange
   const hasUser = messages.some((m) => m.role === "user" && m.content.length > MIN_CONTENT_LENGTH);
   const hasAssistant = messages.some(
     (m) => m.role === "assistant" && m.content.length > MIN_CONTENT_LENGTH,
@@ -56,7 +56,10 @@ export function createCaptureHandler(
   client: CortexClient,
   config: CortexConfig,
   logger: Logger,
+  retryQueue?: RetryQueue,
 ) {
+  let captureCounter = 0;
+
   return async (event: AgentEndEvent, ctx: AgentContext): Promise<void> => {
     if (!config.autoCapture) return;
     if (!event.success) return;
@@ -86,17 +89,20 @@ export function createCaptureHandler(
 
       const sessionId = ctx.sessionKey ?? ctx.sessionId;
 
-      // Fire-and-forget — don't await in the critical path
-      client
-        .ingestConversation(normalized, sessionId)
-        .then((res) => {
-          logger.debug?.(
-            `Cortex capture: ingested ${res.fact_ids.length} facts, ${res.entity_count} entities`,
-          );
-        })
-        .catch((err) => {
-          logger.warn("Cortex capture failed:", err);
-        });
+      const doIngest = async () => {
+        const res = await client.ingestConversation(normalized, sessionId);
+        logger.debug?.(
+          `Cortex capture: ingested ${res.fact_ids.length} facts, ${res.entity_count} entities`,
+        );
+      };
+
+      // Fire-and-forget with retry on failure
+      doIngest().catch((err) => {
+        logger.warn("Cortex capture failed, queuing for retry:", err);
+        if (retryQueue) {
+          retryQueue.enqueue(doIngest, `capture-${++captureCounter}`);
+        }
+      });
     } catch (err) {
       logger.warn("Cortex capture error:", err);
     }

@@ -3,6 +3,8 @@ import { CortexClient } from "./client.js";
 import { createRecallHandler } from "./hooks/recall.js";
 import { createCaptureHandler } from "./hooks/capture.js";
 import { FileSyncWatcher } from "./sync/watcher.js";
+import { RetryQueue } from "./utils/retry-queue.js";
+import { LatencyMetrics } from "./utils/metrics.js";
 
 interface PluginApi {
   pluginConfig?: Record<string, unknown>;
@@ -56,42 +58,58 @@ const plugin = {
 
     const config: CortexConfig = parsed.data;
     const client = new CortexClient(config.baseUrl, config.apiKey);
+    const retryQueue = new RetryQueue(api.logger);
+    const recallMetrics = new LatencyMetrics();
 
     api.logger.info("Cortex plugin registered");
 
     // Auto-Recall: inject relevant memories before every agent turn
-    api.on("before_agent_start", createRecallHandler(client, config, api.logger));
+    // Includes cold-start detection and latency instrumentation
+    api.on("before_agent_start", createRecallHandler(client, config, api.logger, recallMetrics));
 
     // Auto-Capture: extract facts after agent responses
-    api.on("agent_end", createCaptureHandler(client, config, api.logger));
+    // Failed ingestions are queued for retry with exponential backoff
+    api.on("agent_end", createCaptureHandler(client, config, api.logger, retryQueue));
 
-    // File Sync: watch MEMORY.md and daily logs for background ingestion
-    if (config.fileSync) {
-      let watcher: FileSyncWatcher | null = null;
+    // Retry queue + file sync share a service lifecycle
+    api.registerService({
+      id: "cortex-services",
+      start(ctx) {
+        retryQueue.start();
 
-      api.registerService({
-        id: "cortex-file-sync",
-        start(ctx) {
+        if (config.fileSync) {
           const workspaceDir = ctx.workspaceDir;
           if (!workspaceDir) {
             api.logger.warn("Cortex file sync: no workspaceDir, skipping");
             return;
           }
-          watcher = new FileSyncWatcher(
+          const watcher = new FileSyncWatcher(
             workspaceDir,
             client,
             "openclaw",
             api.logger,
+            retryQueue,
           );
           watcher.start();
+          // Store on service context for stop
+          (this as any)._watcher = watcher;
           api.logger.info("Cortex file sync started");
-        },
-        stop() {
-          watcher?.stop();
-          watcher = null;
-        },
-      });
-    }
+        }
+
+        api.logger.info("Cortex services started");
+      },
+      stop() {
+        (this as any)._watcher?.stop();
+        retryQueue.stop();
+
+        const summary = recallMetrics.summary();
+        if (summary.count > 0) {
+          api.logger.info(
+            `Cortex recall latency (${summary.count} samples): p50=${summary.p50}ms p95=${summary.p95}ms p99=${summary.p99}ms`,
+          );
+        }
+      },
+    });
   },
 };
 
@@ -103,4 +121,6 @@ export { CortexConfigSchema, type CortexConfig } from "./config.js";
 export { createRecallHandler } from "./hooks/recall.js";
 export { createCaptureHandler } from "./hooks/capture.js";
 export { FileSyncWatcher } from "./sync/watcher.js";
+export { RetryQueue } from "./utils/retry-queue.js";
+export { LatencyMetrics } from "./utils/metrics.js";
 export { formatMemories } from "./utils/format.js";

@@ -1,6 +1,7 @@
 import { watch, type FSWatcher } from "node:fs";
 import { join } from "node:path";
 import type { CortexClient } from "../client.js";
+import type { RetryQueue } from "../utils/retry-queue.js";
 import { MemoryMdSync } from "./memory-md.js";
 import { DailyLogsSync } from "./daily-logs.js";
 
@@ -21,6 +22,7 @@ export class FileSyncWatcher {
     private client: CortexClient,
     private sessionPrefix: string,
     private logger: Logger,
+    private retryQueue?: RetryQueue,
   ) {}
 
   start(): void {
@@ -32,12 +34,14 @@ export class FileSyncWatcher {
       this.client,
       `${this.sessionPrefix}:memory-md`,
       this.logger,
+      this.retryQueue,
     );
 
     this.dailyLogsSync = new DailyLogsSync(
       this.client,
       this.sessionPrefix,
       this.logger,
+      this.retryQueue,
     );
 
     // Watch MEMORY.md
