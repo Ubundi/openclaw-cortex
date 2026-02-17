@@ -1,0 +1,66 @@
+{
+  "id": "cortex-memory",
+  "name": "Cortex Memory",
+  "description": "Long-term memory powered by Cortex — Auto-Recall, Auto-Capture, and background file sync",
+  "version": "0.1.0",
+  "kind": "memory",
+  "configSchema": {
+    "type": "object",
+    "required": ["apiKey"],
+    "properties": {
+      "apiKey": {
+        "type": "string",
+        "description": "Cortex API key"
+      },
+      "baseUrl": {
+        "type": "string",
+        "description": "Cortex API base URL",
+        "default": "https://q5p64iw9c9.execute-api.us-east-1.amazonaws.com/prod"
+      },
+      "autoRecall": {
+        "type": "boolean",
+        "description": "Inject relevant memories before each agent turn",
+        "default": true
+      },
+      "autoCapture": {
+        "type": "boolean",
+        "description": "Extract facts from conversations after agent turns",
+        "default": true
+      },
+      "recallTopK": {
+        "type": "number",
+        "description": "Number of memories to retrieve per turn",
+        "default": 5
+      },
+      "recallTimeoutMs": {
+        "type": "number",
+        "description": "Maximum time to wait for memory recall (ms)",
+        "default": 500
+      },
+      "fileSync": {
+        "type": "boolean",
+        "description": "Watch MEMORY.md and daily logs for background ingestion",
+        "default": true
+      }
+    }
+  },
+  "uiHints": {
+    "apiKey": {
+      "label": "API Key",
+      "sensitive": true,
+      "placeholder": "sk-cortex-..."
+    },
+    "baseUrl": {
+      "label": "Base URL",
+      "advanced": true
+    },
+    "recallTopK": {
+      "label": "Recall Top-K",
+      "advanced": true
+    },
+    "recallTimeoutMs": {
+      "label": "Recall Timeout (ms)",
+      "advanced": true
+    }
+  }
+}
