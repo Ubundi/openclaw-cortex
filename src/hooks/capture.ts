@@ -92,7 +92,7 @@ export function createCaptureHandler(
       const doIngest = async () => {
         const res = await client.ingestConversation(normalized, sessionId);
         logger.debug?.(
-          `Cortex capture: ingested ${res.fact_ids.length} facts, ${res.entity_count} entities`,
+          `Cortex capture: ingested ${res.facts.length} facts, ${res.entities.length} entities (${res.nodes_created} nodes)`,
         );
       };
 

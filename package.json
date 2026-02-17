@@ -10,8 +10,9 @@
   },
   "scripts": {
     "build": "tsc",
-    "test": "vitest run",
-    "test:watch": "vitest",
+    "test": "vitest run --exclude test/integration/**",
+    "test:watch": "vitest --exclude test/integration/**",
+    "test:integration": "vitest run -c vitest.integration.config.ts",
     "clean": "rm -rf dist"
   },
   "files": [

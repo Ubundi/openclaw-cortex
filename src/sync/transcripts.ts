@@ -44,7 +44,7 @@ export class TranscriptsSync {
       const doIngest = () =>
         this.client.ingestConversation(messages, sessionId).then((res) => {
           this.logger.debug?.(
-            `Transcript sync: ingested ${res.fact_ids.length} facts from ${filename}`,
+            `Transcript sync: ingested ${res.facts.length} facts from ${filename} (${res.nodes_created} nodes)`,
           );
         });
 

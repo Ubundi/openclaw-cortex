@@ -28,7 +28,7 @@ const logger = {
 
 describe("createCaptureHandler", () => {
   it("ingests conversation on successful agent end", async () => {
-    const ingestPromise = Promise.resolve({ fact_ids: ["f1"], entity_count: 1 });
+    const ingestPromise = Promise.resolve({ nodes_created: 1, edges_created: 1, facts: [{ core: "f", fact_type: "world", occurred_at: null, entity_refs: [], speaker: "user" }], entities: [] });
     const client = {
       ingestConversation: vi.fn().mockReturnValue(ingestPromise),
     } as unknown as CortexClient;
@@ -101,7 +101,7 @@ describe("createCaptureHandler", () => {
   });
 
   it("handles array content blocks", async () => {
-    const ingestPromise = Promise.resolve({ fact_ids: ["f1"], entity_count: 1 });
+    const ingestPromise = Promise.resolve({ nodes_created: 1, edges_created: 1, facts: [{ core: "f", fact_type: "world", occurred_at: null, entity_refs: [], speaker: "user" }], entities: [] });
     const client = {
       ingestConversation: vi.fn().mockReturnValue(ingestPromise),
     } as unknown as CortexClient;

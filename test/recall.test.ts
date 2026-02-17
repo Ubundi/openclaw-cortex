@@ -31,11 +31,9 @@ describe("createRecallHandler", () => {
     const client = {
       retrieve: vi.fn().mockResolvedValue({
         results: [
-          { content: "User likes TypeScript", score: 0.92 },
-          { content: "Project uses Postgres", score: 0.85 },
+          { node_id: "n1", type: "FACT", content: "User likes TypeScript", score: 0.92 },
+          { node_id: "n2", type: "FACT", content: "Project uses Postgres", score: 0.85 },
         ],
-        query: "test",
-        mode: "fast",
       }),
     } as unknown as CortexClient;
 
@@ -70,7 +68,7 @@ describe("createRecallHandler", () => {
 
   it("returns undefined when no results", async () => {
     const client = {
-      retrieve: vi.fn().mockResolvedValue({ results: [], query: "q", mode: "fast" }),
+      retrieve: vi.fn().mockResolvedValue({ results: [] }),
     } as unknown as CortexClient;
 
     const handler = createRecallHandler(client, makeConfig(), logger);

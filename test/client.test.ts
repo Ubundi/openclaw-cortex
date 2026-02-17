@@ -4,6 +4,13 @@ import { CortexClient } from "../src/client.js";
 const mockFetch = vi.fn();
 vi.stubGlobal("fetch", mockFetch);
 
+const MOCK_INGEST_RESPONSE = {
+  nodes_created: 1,
+  edges_created: 1,
+  facts: [{ core: "test fact", fact_type: "world", occurred_at: null, entity_refs: [], speaker: "user" }],
+  entities: [],
+};
+
 describe("CortexClient", () => {
   let client: CortexClient;
 
@@ -20,7 +27,7 @@ describe("CortexClient", () => {
     it("sends correct request", async () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,
-        json: async () => ({ results: [], query: "test", mode: "fast" }),
+        json: async () => ({ results: [] }),
       });
 
       const result = await client.retrieve("test query", 5, "fast", 500);
@@ -36,7 +43,7 @@ describe("CortexClient", () => {
           body: JSON.stringify({ query: "test query", top_k: 5, mode: "fast" }),
         }),
       );
-      expect(result).toEqual({ results: [], query: "test", mode: "fast" });
+      expect(result).toEqual({ results: [] });
     });
 
     it("throws on non-ok response", async () => {
@@ -65,7 +72,7 @@ describe("CortexClient", () => {
     it("sends text with session id", async () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,
-        json: async () => ({ fact_ids: ["f1"], entity_count: 1 }),
+        json: async () => MOCK_INGEST_RESPONSE,
       });
 
       const result = await client.ingest("some fact", "session-1");
@@ -77,15 +84,17 @@ describe("CortexClient", () => {
           body: JSON.stringify({ text: "some fact", session_id: "session-1" }),
         }),
       );
-      expect(result.fact_ids).toEqual(["f1"]);
+      expect(result.nodes_created).toBe(1);
+      expect(result.facts).toHaveLength(1);
     });
   });
 
   describe("ingestConversation", () => {
     it("sends messages array", async () => {
+      const response = { ...MOCK_INGEST_RESPONSE, nodes_created: 2, facts: [MOCK_INGEST_RESPONSE.facts[0], MOCK_INGEST_RESPONSE.facts[0]] };
       mockFetch.mockResolvedValueOnce({
         ok: true,
-        json: async () => ({ fact_ids: ["f1", "f2"], entity_count: 2 }),
+        json: async () => response,
       });
 
       const messages = [
@@ -100,7 +109,7 @@ describe("CortexClient", () => {
           body: JSON.stringify({ messages, session_id: "sess-1" }),
         }),
       );
-      expect(result.fact_ids).toHaveLength(2);
+      expect(result.facts).toHaveLength(2);
     });
   });
 });

@@ -75,7 +75,7 @@ describe("cold-start detection", () => {
 
     // Now resolve successfully
     client.retrieve.mockResolvedValueOnce({
-      results: [{ content: "test memory", score: 0.9 }],
+      results: [{ node_id: "n1", type: "FACT", content: "test memory", score: 0.9 }],
       query: "test",
       mode: "fast",
     });
@@ -91,7 +91,7 @@ describe("cold-start detection", () => {
       retrieve: vi.fn().mockImplementation(async () => {
         callCount++;
         if (callCount <= 2) throw new DOMException("aborted", "AbortError");
-        return { results: [{ content: "mem", score: 0.9 }], query: "q", mode: "fast" };
+        return { results: [{ node_id: "n1", type: "FACT", content: "mem", score: 0.9 }] };
       }),
     } as unknown as CortexClient;
 
@@ -111,14 +111,14 @@ describe("cold-start detection", () => {
 
     // Should still be callable (not in cooldown)
     client.retrieve.mockClear();
-    client.retrieve.mockResolvedValueOnce({ results: [], query: "q", mode: "fast" });
+    client.retrieve.mockResolvedValueOnce({ results: [] });
     await handler({ prompt: "query six here" }, {});
     expect(client.retrieve).toHaveBeenCalled();
   });
 
   it("exposes metrics on the handler", async () => {
     const client = {
-      retrieve: vi.fn().mockResolvedValue({ results: [], query: "q", mode: "fast" }),
+      retrieve: vi.fn().mockResolvedValue({ results: [] }),
     } as unknown as CortexClient;
 
     const handler = createRecallHandler(client, makeConfig(), logger);

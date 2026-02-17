@@ -1,19 +1,36 @@
 export interface RetrieveResult {
+  node_id: string;
+  type: string;
   content: string;
   score: number;
-  fact_id?: string;
+  source?: string;
+  confidence?: number;
   metadata?: Record<string, unknown>;
 }
 
 export interface RetrieveResponse {
   results: RetrieveResult[];
-  query: string;
-  mode: string;
+}
+
+export interface IngestFact {
+  core: string;
+  fact_type: string;
+  occurred_at: string | null;
+  entity_refs: string[];
+  speaker: string;
+}
+
+export interface IngestEntity {
+  name: string;
+  type: string;
+  aliases: string[];
 }
 
 export interface IngestResponse {
-  fact_ids: string[];
-  entity_count: number;
+  nodes_created: number;
+  edges_created: number;
+  facts: IngestFact[];
+  entities: IngestEntity[];
 }
 
 export interface ReflectResponse {
