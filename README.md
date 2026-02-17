@@ -1,4 +1,4 @@
-# @cortex/openclaw-plugin
+# @ubundi/openclaw-cortex
 
 ![OpenClaw Cortex Logo](assets/logo.png)
 
@@ -13,7 +13,7 @@ OpenClaw plugin for [Cortex](https://github.com/ubundi/cortex) long-term memory.
 ## Installation
 
 ```bash
-openclaw plugins install @cortex/openclaw-plugin
+openclaw plugins install @ubundi/openclaw-cortex
 ```
 
 Or link locally for development:
@@ -30,7 +30,7 @@ Add to your `openclaw.json`:
 {
   plugins: {
     entries: {
-      "@cortex/openclaw-plugin": {
+      "@ubundi/openclaw-cortex": {
         enabled: true,
         config: {
           apiKey: "sk-cortex-...",
@@ -47,7 +47,7 @@ Add to your `openclaw.json`:
       }
     },
     slots: {
-      memory: "@cortex/openclaw-plugin"
+      memory: "@ubundi/openclaw-cortex"
     }
   }
 }

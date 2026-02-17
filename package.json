@@ -1,5 +1,5 @@
 {
-  "name": "@cortex/openclaw-plugin",
+  "name": "@ubundi/openclaw-cortex",
   "version": "0.1.0",
   "description": "OpenClaw plugin for Cortex memory — Auto-Recall, Auto-Capture, and file sync",
   "type": "module",
