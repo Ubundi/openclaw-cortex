@@ -16,6 +16,7 @@ function makeConfig(overrides: Partial<CortexConfig> = {}): CortexConfig {
     transcriptSync: true,
     reflectIntervalMs: 3_600_000,
     ...overrides,
+    namespace: overrides.namespace ?? "test",
   };
 }
 
@@ -29,9 +30,8 @@ const logger = {
 describe("createCaptureHandler", () => {
   it("ingests conversation on successful agent end", async () => {
     const ingestPromise = Promise.resolve({ nodes_created: 1, edges_created: 1, facts: [{ core: "f", fact_type: "world", occurred_at: null, entity_refs: [], speaker: "user" }], entities: [] });
-    const client = {
-      ingestConversation: vi.fn().mockReturnValue(ingestPromise),
-    } as unknown as CortexClient;
+    const ingestMock = vi.fn().mockReturnValue(ingestPromise);
+    const client = { ingestConversation: ingestMock } as unknown as CortexClient;
 
     const handler = createCaptureHandler(client, makeConfig(), logger);
 
@@ -49,7 +49,7 @@ describe("createCaptureHandler", () => {
     // Wait for fire-and-forget
     await ingestPromise;
 
-    expect(client.ingestConversation).toHaveBeenCalledWith(
+    expect(ingestMock).toHaveBeenCalledWith(
       [
         { role: "user", content: "What is the deployment strategy for our backend?" },
         { role: "assistant", content: "The backend uses blue-green deployment on ECS Fargate with ALB." },
@@ -59,7 +59,8 @@ describe("createCaptureHandler", () => {
   });
 
   it("skips when autoCapture is disabled", async () => {
-    const client = { ingestConversation: vi.fn() } as unknown as CortexClient;
+    const ingestMock = vi.fn();
+    const client = { ingestConversation: ingestMock } as unknown as CortexClient;
     const handler = createCaptureHandler(client, makeConfig({ autoCapture: false }), logger);
 
     await handler(
@@ -67,11 +68,12 @@ describe("createCaptureHandler", () => {
       {},
     );
 
-    expect(client.ingestConversation).not.toHaveBeenCalled();
+    expect(ingestMock).not.toHaveBeenCalled();
   });
 
   it("skips on failed agent run", async () => {
-    const client = { ingestConversation: vi.fn() } as unknown as CortexClient;
+    const ingestMock = vi.fn();
+    const client = { ingestConversation: ingestMock } as unknown as CortexClient;
     const handler = createCaptureHandler(client, makeConfig(), logger);
 
     await handler(
@@ -79,11 +81,12 @@ describe("createCaptureHandler", () => {
       {},
     );
 
-    expect(client.ingestConversation).not.toHaveBeenCalled();
+    expect(ingestMock).not.toHaveBeenCalled();
   });
 
   it("skips when messages are too short", async () => {
-    const client = { ingestConversation: vi.fn() } as unknown as CortexClient;
+    const ingestMock = vi.fn();
+    const client = { ingestConversation: ingestMock } as unknown as CortexClient;
     const handler = createCaptureHandler(client, makeConfig(), logger);
 
     await handler(
@@ -97,14 +100,13 @@ describe("createCaptureHandler", () => {
       {},
     );
 
-    expect(client.ingestConversation).not.toHaveBeenCalled();
+    expect(ingestMock).not.toHaveBeenCalled();
   });
 
   it("handles array content blocks", async () => {
     const ingestPromise = Promise.resolve({ nodes_created: 1, edges_created: 1, facts: [{ core: "f", fact_type: "world", occurred_at: null, entity_refs: [], speaker: "user" }], entities: [] });
-    const client = {
-      ingestConversation: vi.fn().mockReturnValue(ingestPromise),
-    } as unknown as CortexClient;
+    const ingestMock = vi.fn().mockReturnValue(ingestPromise);
+    const client = { ingestConversation: ingestMock } as unknown as CortexClient;
 
     const handler = createCaptureHandler(client, makeConfig(), logger);
 
@@ -126,7 +128,7 @@ describe("createCaptureHandler", () => {
 
     await ingestPromise;
 
-    const callArgs = client.ingestConversation.mock.calls[0][0];
+    const callArgs = ingestMock.mock.calls[0][0];
     expect(callArgs[1].content).toBe(
       "The project uses PostgreSQL with pgvector for embedding storage.",
     );

@@ -31,6 +31,7 @@ describeIf(!!API_KEY)("Recall pipeline integration", () => {
     fileSync: true,
     transcriptSync: true,
     reflectIntervalMs: 0,
+    namespace: "integration-test",
   };
 
   const logger = {

@@ -35,6 +35,7 @@ const api = {
     fileSync: false,
     transcriptSync: false,
     reflectIntervalMs: 0,
+    namespace: "manual-test",
   },
   logger: {
     debug: (...args: unknown[]) => console.log("  [debug]", ...args),
@@ -88,7 +89,7 @@ async function agentTurn(turnNumber: number, userPrompt: string, conversationHis
     );
     if (result?.prependContext) {
       recalledContext = result.prependContext;
-      const memCount = (recalledContext.match(/\n- /g) || []).length;
+      const memCount = (recalledContext!.match(/\n- /g) || []).length;
       console.log(`[before_agent_start] ${memCount} memories recalled`);
       console.log(recalledContext);
     } else {

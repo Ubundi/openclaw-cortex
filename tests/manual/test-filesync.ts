@@ -50,6 +50,7 @@ const api = {
     fileSync: true,
     transcriptSync: true,
     reflectIntervalMs: 0,
+    namespace: "manual-test",
   },
   logger: {
     debug: (...args: unknown[]) => console.log("  [debug]", ...args),

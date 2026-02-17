@@ -16,6 +16,7 @@ function makeConfig(overrides: Partial<CortexConfig> = {}): CortexConfig {
     transcriptSync: true,
     reflectIntervalMs: 3_600_000,
     ...overrides,
+    namespace: overrides.namespace ?? "test",
   };
 }
 

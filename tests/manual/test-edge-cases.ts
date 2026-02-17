@@ -55,6 +55,7 @@ function createPluginApi(configOverrides: Record<string, unknown> = {}) {
       transcriptSync: false,
       reflectIntervalMs: 0,
       ...configOverrides,
+      namespace: configOverrides?.namespace ?? "manual-test",
     },
     logger: {
       debug: (msg: string) => logs.push(`[debug] ${msg}`),
