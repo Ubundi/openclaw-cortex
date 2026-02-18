@@ -3,6 +3,9 @@ import { z } from "zod";
 export const RecallMode = z.enum(["fast", "balanced", "full"]);
 export type RecallMode = z.infer<typeof RecallMode>;
 
+export const RecallQueryType = z.enum(["factual", "emotional", "combined"]);
+export type RecallQueryType = z.infer<typeof RecallQueryType>;
+
 /**
  * Validates that a URL uses HTTPS, with an exception for localhost in development.
  */
@@ -35,6 +38,7 @@ export const CortexConfigSchema = z.object({
   recallTopK: z.number().int().min(1).max(20).default(5),
   recallTimeoutMs: z.number().int().min(100).max(10000).default(2000),
   recallMode: RecallMode.default("fast"),
+  recallQueryType: RecallQueryType.default("combined"),
   fileSync: z.boolean().default(true),
   transcriptSync: z.boolean().default(true),
   reflectIntervalMs: z.number().int().min(0).default(3_600_000),

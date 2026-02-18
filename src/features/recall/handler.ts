@@ -1,4 +1,4 @@
-import type { CortexClient } from "../../cortex/client.js";
+import type { CortexClient, QueryType } from "../../cortex/client.js";
 import type { CortexConfig } from "../../core/config/schema.js";
 import { formatMemories } from "./formatter.js";
 import { LatencyMetrics } from "../../shared/metrics/latency-metrics.js";
@@ -72,6 +72,7 @@ export function createRecallHandler(
         config.recallTopK,
         apiMode as "fast" | "full",
         config.recallTimeoutMs,
+        config.recallQueryType as QueryType,
       );
 
       const elapsed = Date.now() - start;

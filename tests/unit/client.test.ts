@@ -81,7 +81,7 @@ describe("CortexClient", () => {
         "https://api.example.com/v1/ingest",
         expect.objectContaining({
           method: "POST",
-          body: JSON.stringify({ text: "some fact", session_id: "session-1" }),
+          body: JSON.stringify({ text: "some fact", session_id: "session-1", reference_date: null }),
         }),
       );
       expect(result.nodes_created).toBe(1);
@@ -119,7 +119,7 @@ describe("CortexClient", () => {
       expect(mockFetch).toHaveBeenCalledWith(
         "https://api.example.com/v1/ingest/conversation",
         expect.objectContaining({
-          body: JSON.stringify({ messages, session_id: "sess-1" }),
+          body: JSON.stringify({ messages, session_id: "sess-1", reference_date: null }),
         }),
       );
       expect(result.facts).toHaveLength(2);
@@ -201,7 +201,7 @@ describe("CortexClient", () => {
       await client.ingest("some text");
 
       const body = JSON.parse(mockFetch.mock.calls[0][1].body);
-      expect(body).toEqual({ text: "some text", session_id: undefined });
+      expect(body).toEqual({ text: "some text", session_id: undefined, reference_date: null });
     });
 
     it("reflect without sessionId omits session_id from body", async () => {

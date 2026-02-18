@@ -51,8 +51,10 @@ export class TranscriptsSync {
       const sessionName = filename.replace(/\.jsonl$/, "");
       const sessionId = `${this.sessionPrefix}:session:${sessionName}`;
 
+      const referenceDate = new Date().toISOString().slice(0, 10);
+
       const doIngest = () =>
-        this.client.ingestConversation(messages, sessionId).then((res) => {
+        this.client.ingestConversation(messages, sessionId, undefined, referenceDate).then((res) => {
           this.logger.debug?.(
             `Transcript sync: ingested ${res.facts.length} facts from ${filename} (${res.nodes_created} nodes)`,
           );

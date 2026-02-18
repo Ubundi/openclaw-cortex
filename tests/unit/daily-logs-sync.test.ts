@@ -58,6 +58,8 @@ describe("DailyLogsSync", () => {
     expect(client.ingest).toHaveBeenCalledWith(
       "line1\nline2\n",
       "test-ns:daily:2026-02-17.md",
+      undefined,
+      "2026-02-17",
     );
   });
 
@@ -172,6 +174,6 @@ describe("DailyLogsSync", () => {
     mockReadFile.mockResolvedValue("content");
     await sync.onFileChange("/workspace/memory/log.md", "log.md");
 
-    expect(client.ingest).toHaveBeenCalledWith("content", expect.any(String));
+    expect(client.ingest).toHaveBeenCalledWith("content", expect.any(String), undefined, undefined);
   });
 });

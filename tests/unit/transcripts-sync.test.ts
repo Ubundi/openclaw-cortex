@@ -77,6 +77,8 @@ describe("TranscriptsSync", () => {
         { role: "assistant", content: "We use blue-green deployment on ECS Fargate with ALB switching." },
       ],
       "test-ns:session:abc123",
+      undefined,
+      expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
     );
   });
 

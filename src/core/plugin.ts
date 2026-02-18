@@ -65,6 +65,15 @@ const plugin = {
 
     api.logger.info(`Cortex plugin registered (recallMode=${config.recallMode}, namespace=${namespace})`);
 
+    // Async health check — validate connection early without blocking registration
+    client.healthCheck().then((ok) => {
+      if (ok) {
+        api.logger.info("Cortex health check passed");
+      } else {
+        api.logger.warn("Cortex health check failed — API may be unreachable");
+      }
+    });
+
     // Auto-Recall: inject relevant memories before every agent turn
     api.on("before_agent_start", createRecallHandler(client, config, api.logger, recallMetrics));
 

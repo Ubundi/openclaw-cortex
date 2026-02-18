@@ -43,8 +43,11 @@ export interface ConversationMessage {
   content: string;
 }
 
+export type QueryType = "factual" | "emotional" | "combined";
+
 const DEFAULT_INGEST_TIMEOUT_MS = 10_000;
 const DEFAULT_REFLECT_TIMEOUT_MS = 30_000;
+const DEFAULT_HEALTH_TIMEOUT_MS = 5_000;
 
 export class CortexClient {
   constructor(
@@ -82,15 +85,34 @@ export class CortexClient {
     }
   }
 
+  async healthCheck(timeoutMs = DEFAULT_HEALTH_TIMEOUT_MS): Promise<boolean> {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+    try {
+      const res = await fetch(`${this.baseUrl}/health`, {
+        method: "GET",
+        headers: { "x-api-key": this.apiKey },
+        signal: controller.signal,
+      });
+      return res.ok;
+    } catch {
+      return false;
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
   async retrieve(
     query: string,
     topK: number,
     mode: "fast" | "full",
     timeoutMs: number,
+    queryType?: QueryType,
   ): Promise<RetrieveResponse> {
     return this.fetchJsonWithTimeout<RetrieveResponse>(
       `${this.baseUrl}/v1/retrieve`,
-      { query, top_k: topK, mode },
+      { query, top_k: topK, mode, query_type: queryType },
       timeoutMs,
       "retrieve",
     );
@@ -100,10 +122,11 @@ export class CortexClient {
     text: string,
     sessionId?: string,
     timeoutMs = DEFAULT_INGEST_TIMEOUT_MS,
+    referenceDate?: string,
   ): Promise<IngestResponse> {
     return this.fetchJsonWithTimeout<IngestResponse>(
       `${this.baseUrl}/v1/ingest`,
-      { text, session_id: sessionId },
+      { text, session_id: sessionId, reference_date: referenceDate ?? null },
       timeoutMs,
       "ingest",
     );
@@ -113,10 +136,11 @@ export class CortexClient {
     messages: ConversationMessage[],
     sessionId?: string,
     timeoutMs = DEFAULT_INGEST_TIMEOUT_MS,
+    referenceDate?: string,
   ): Promise<IngestResponse> {
     return this.fetchJsonWithTimeout<IngestResponse>(
       `${this.baseUrl}/v1/ingest/conversation`,
-      { messages, session_id: sessionId },
+      { messages, session_id: sessionId, reference_date: referenceDate ?? null },
       timeoutMs,
       "ingest/conversation",
     );

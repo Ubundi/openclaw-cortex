@@ -12,6 +12,7 @@ function makeConfig(overrides: Partial<CortexConfig> = {}): CortexConfig {
     recallTopK: 5,
     recallTimeoutMs: 500,
     recallMode: "fast" as const,
+    recallQueryType: "combined" as const,
     fileSync: true,
     transcriptSync: true,
     reflectIntervalMs: 3_600_000,
@@ -115,6 +116,7 @@ describe("createRecallHandler", () => {
       5,
       "fast", // balanced maps to fast
       500,
+      "combined",
     );
   });
 
@@ -131,6 +133,7 @@ describe("createRecallHandler", () => {
       5,
       "full",
       500,
+      "combined",
     );
   });
 });

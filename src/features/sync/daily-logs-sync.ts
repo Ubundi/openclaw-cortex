@@ -40,8 +40,9 @@ export class DailyLogsSync {
       if (!newContent.trim()) return;
 
       const sessionId = `${this.sessionPrefix}:daily:${filename}`;
+      const referenceDate = extractDateFromFilename(filename);
 
-      const doIngest = () => this.client.ingest(newContent, sessionId).then(() => {
+      const doIngest = () => this.client.ingest(newContent, sessionId, undefined, referenceDate).then(() => {
         this.logger.debug?.(`Daily log sync: ingested from ${filename}`);
       });
 
@@ -59,4 +60,11 @@ export class DailyLogsSync {
   stop(): void {
     this.offsets.clear();
   }
+}
+
+const DATE_RE = /(\d{4}-\d{2}-\d{2})/;
+
+export function extractDateFromFilename(filename: string): string | undefined {
+  const match = DATE_RE.exec(filename);
+  return match?.[1];
 }
