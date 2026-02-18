@@ -2,7 +2,7 @@
   "id": "cortex-memory",
   "name": "Cortex Memory",
   "description": "Long-term memory powered by Cortex — Auto-Recall, Auto-Capture, transcript ingestion, periodic consolidation, and background file sync",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "kind": "memory",
   "configSchema": {
     "type": "object",
@@ -57,6 +57,17 @@
         "type": "number",
         "description": "Interval for periodic memory consolidation (ms). Set to 0 to disable.",
         "default": 3600000
+      },
+      "recallQueryType": {
+        "type": "string",
+        "enum": ["factual", "emotional", "combined"],
+        "description": "Type of retrieval query — factual (entities/facts), emotional (feelings/values), or combined",
+        "default": "combined"
+      },
+      "namespace": {
+        "type": "string",
+        "description": "Session namespace to isolate memory per workspace/project. Auto-derived from workspace directory if not set.",
+        "default": "openclaw"
       }
     }
   },
@@ -90,6 +101,16 @@
       "label": "Reflect Interval (ms)",
       "advanced": true,
       "helpText": "How often to consolidate memories (SUPERSEDES chains, contradiction detection). Set to 0 to disable."
+    },
+    "recallQueryType": {
+      "label": "Recall Query Type",
+      "advanced": true,
+      "helpText": "Controls what type of memories are prioritised during retrieval."
+    },
+    "namespace": {
+      "label": "Namespace",
+      "advanced": true,
+      "helpText": "Isolates memory per workspace. Auto-derived from workspace directory if left empty."
     }
   }
 }

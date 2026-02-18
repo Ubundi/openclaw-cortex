@@ -7,9 +7,15 @@ vi.mock("node:fs/promises", () => ({
   readFile: vi.fn(),
 }));
 
+vi.mock("../../src/shared/fs/safe-path.js", () => ({
+  safePath: vi.fn(),
+}));
+
 import { readFile } from "node:fs/promises";
+import { safePath } from "../../src/shared/fs/safe-path.js";
 
 const mockReadFile = readFile as ReturnType<typeof vi.fn>;
+const mockSafePath = safePath as ReturnType<typeof vi.fn>;
 
 function makeLogger() {
   return {
@@ -165,5 +171,50 @@ describe("MemoryMdSync", () => {
 
     expect(mockReadFile).not.toHaveBeenCalled();
     expect(client.ingest).not.toHaveBeenCalled();
+  });
+
+  it("rejects unsafe paths when allowedRoot is set", async () => {
+    const client = makeClient();
+    const logger = makeLogger();
+    const sync = new MemoryMdSync("/workspace/MEMORY.md", client, "s", logger, undefined, "/workspace");
+
+    mockSafePath.mockResolvedValue(null);
+
+    sync.onFileChange();
+    await vi.advanceTimersByTimeAsync(2000);
+
+    expect(mockSafePath).toHaveBeenCalledWith("/workspace/MEMORY.md", "/workspace");
+    expect(client.ingest).not.toHaveBeenCalled();
+    expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining("rejected unsafe path"));
+  });
+
+  it("reads resolved path from safePath when allowedRoot is set", async () => {
+    const client = makeClient();
+    const logger = makeLogger();
+    const sync = new MemoryMdSync("/workspace/MEMORY.md", client, "s", logger, undefined, "/workspace");
+
+    mockSafePath.mockResolvedValue("/workspace/MEMORY.md");
+    mockReadFile.mockResolvedValue("safe content");
+
+    sync.onFileChange();
+    await vi.advanceTimersByTimeAsync(2000);
+
+    expect(mockSafePath).toHaveBeenCalledWith("/workspace/MEMORY.md", "/workspace");
+    expect(mockReadFile).toHaveBeenCalledWith("/workspace/MEMORY.md", "utf-8");
+    expect(client.ingest).toHaveBeenCalledWith("safe content", "s");
+  });
+
+  it("skips safePath check when no allowedRoot is provided", async () => {
+    const client = makeClient();
+    const logger = makeLogger();
+    const sync = new MemoryMdSync("/workspace/MEMORY.md", client, "s", logger);
+
+    mockReadFile.mockResolvedValue("content");
+
+    sync.onFileChange();
+    await vi.advanceTimersByTimeAsync(2000);
+
+    expect(mockSafePath).not.toHaveBeenCalled();
+    expect(client.ingest).toHaveBeenCalled();
   });
 });

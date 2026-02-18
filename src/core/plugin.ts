@@ -1,3 +1,5 @@
+import { basename } from "node:path";
+import { createHash } from "node:crypto";
 import { CortexConfigSchema, configSchema, type CortexConfig } from "./config/schema.js";
 import { CortexClient } from "../cortex/client.js";
 import { createRecallHandler } from "../features/recall/handler.js";
@@ -6,6 +8,17 @@ import { FileSyncWatcher } from "../features/sync/watcher.js";
 import { RetryQueue } from "../shared/queue/retry-queue.js";
 import { LatencyMetrics } from "../shared/metrics/latency-metrics.js";
 import { PeriodicReflect } from "../features/reflect/service.js";
+
+/**
+ * Derives a workspace-scoped namespace from the workspace directory path.
+ * Uses the directory basename plus a short hash of the full path to avoid collisions
+ * when multiple workspaces share the same basename.
+ */
+function deriveNamespace(workspaceDir: string): string {
+  const name = basename(workspaceDir).replace(/[^a-zA-Z0-9_-]/g, "_");
+  const hash = createHash("sha256").update(workspaceDir).digest("hex").slice(0, 8);
+  return `${name}-${hash}`;
+}
 
 interface PluginApi {
   pluginConfig?: Record<string, unknown>;
@@ -61,7 +74,9 @@ const plugin = {
     const client = new CortexClient(config.baseUrl, config.apiKey);
     const retryQueue = new RetryQueue(api.logger);
     const recallMetrics = new LatencyMetrics();
-    const namespace = config.namespace;
+    // Whether the user explicitly set a namespace vs. relying on default
+    const userSetNamespace = raw.namespace != null;
+    let namespace = config.namespace;
 
     api.logger.info(`Cortex plugin registered (recallMode=${config.recallMode}, namespace=${namespace})`);
 
@@ -85,6 +100,12 @@ const plugin = {
       id: "cortex-services",
       start(ctx) {
         retryQueue.start();
+
+        // Derive workspace-scoped namespace when user didn't set one explicitly
+        if (!userSetNamespace && ctx.workspaceDir) {
+          namespace = deriveNamespace(ctx.workspaceDir);
+          api.logger.info(`Cortex namespace auto-derived from workspace: ${namespace}`);
+        }
 
         // File sync (MEMORY.md, daily logs, transcripts)
         if (config.fileSync) {

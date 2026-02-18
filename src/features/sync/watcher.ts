@@ -43,6 +43,7 @@ export class FileSyncWatcher {
       `${this.sessionPrefix}:memory-md`,
       this.logger,
       this.retryQueue,
+      this.workspaceDir,
     );
 
     this.dailyLogsSync = new DailyLogsSync(

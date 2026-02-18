@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import type { CortexClient } from "../../cortex/client.js";
 import type { RetryQueue } from "../../shared/queue/retry-queue.js";
+import { safePath } from "../../shared/fs/safe-path.js";
 
 type Logger = {
   debug?(...args: unknown[]): void;
@@ -22,6 +23,7 @@ export class MemoryMdSync {
     private sessionId: string,
     private logger: Logger,
     private retryQueue?: RetryQueue,
+    private allowedRoot?: string,
   ) {}
 
   onFileChange(): void {
@@ -35,9 +37,20 @@ export class MemoryMdSync {
   }
 
   private async diffAndIngest(): Promise<void> {
+    let resolvedPath = this.filePath;
+
+    if (this.allowedRoot) {
+      const safe = await safePath(this.filePath, this.allowedRoot);
+      if (!safe) {
+        this.logger.warn(`MEMORY.md sync: rejected unsafe path ${this.filePath}`);
+        return;
+      }
+      resolvedPath = safe;
+    }
+
     let current: string;
     try {
-      current = await readFile(this.filePath, "utf-8");
+      current = await readFile(resolvedPath, "utf-8");
     } catch {
       return; // File doesn't exist or unreadable
     }
