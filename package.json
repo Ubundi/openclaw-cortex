@@ -36,8 +36,12 @@
     "zod": "^3.23.0"
   },
   "devDependencies": {
+    "@types/node": "^20.0.0",
+    "hono": "^4.11.9",
     "typescript": "^5.5.0",
-    "vitest": "^2.0.0",
-    "@types/node": "^20.0.0"
+    "vitest": "^2.0.0"
+  },
+  "optionalDependencies": {
+    "hono": "*"
   }
 }
