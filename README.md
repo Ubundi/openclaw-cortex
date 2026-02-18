@@ -110,17 +110,8 @@ Environment variables are supported via `${VAR_NAME}` syntax:
 | Option | Type | Default | Description |
 |---|---|---|---|
 | `apiKey` | string | _required_ | Cortex API key |
-| `baseUrl` | string | `https://q5p64iw9c9...` | Cortex hosted API endpoint. The default is correct for the hosted service — only override if running your own Cortex backend |
-| `autoRecall` | boolean | `true` | Inject memories before each agent turn |
-| `autoCapture` | boolean | `true` | Extract facts after agent responses |
-| `recallTopK` | number | `5` | Number of memories to retrieve per turn |
-| `recallTimeoutMs` | number | `500` | Max time to wait for recall (ms) |
-| `recallMode` | string | `"fast"` | Retrieval depth: `fast`, `balanced`, or `full` |
-| `fileSync` | boolean | `true` | Watch MEMORY.md and daily logs |
-| `transcriptSync` | boolean | `true` | Watch and ingest session transcripts |
-| `reflectIntervalMs` | number | `3600000` | Memory consolidation interval (ms). `0` to disable |
-| `recallQueryType` | string | `"combined"` | Retrieval bias: `factual` (entities/facts), `emotional` (feelings/values), or `combined` |
-| `namespace` | string | _(auto)_ | Memory namespace. Auto-derived from workspace directory; set explicitly to share memory across workspaces |
+
+All other options are pre-configured with sensible defaults and can be tuned via the OpenClaw plugin config UI.
 
 ### Recall Modes
 
