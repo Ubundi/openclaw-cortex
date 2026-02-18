@@ -2,11 +2,13 @@
   "id": "cortex-memory",
   "name": "Cortex Memory",
   "description": "Long-term memory powered by Cortex — Auto-Recall, Auto-Capture, transcript ingestion, periodic consolidation, and background file sync",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "kind": "memory",
   "configSchema": {
     "type": "object",
-    "required": ["apiKey"],
+    "required": [
+      "apiKey"
+    ],
     "properties": {
       "apiKey": {
         "type": "string",
@@ -39,7 +41,11 @@
       },
       "recallMode": {
         "type": "string",
-        "enum": ["fast", "balanced", "full"],
+        "enum": [
+          "fast",
+          "balanced",
+          "full"
+        ],
         "description": "Retrieval depth — fast (BM25 + semantic), balanced (+ light reranking), full (+ graph traversal + reranker)",
         "default": "fast"
       },
@@ -60,7 +66,11 @@
       },
       "recallQueryType": {
         "type": "string",
-        "enum": ["factual", "emotional", "combined"],
+        "enum": [
+          "factual",
+          "emotional",
+          "combined"
+        ],
         "description": "Type of retrieval query — factual (entities/facts), emotional (feelings/values), or combined",
         "default": "combined"
       },

@@ -33,7 +33,8 @@
     "test:watch": "vitest",
     "test:integration": "vitest run -c vitest.integration.config.ts",
     "verify-release": "node scripts/verify-release.mjs",
-    "clean": "rm -rf dist"
+    "clean": "rm -rf dist",
+    "version": "node scripts/sync-version.mjs && git add openclaw.plugin.json"
   },
   "files": [
     "dist",
