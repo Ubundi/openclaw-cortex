@@ -27,8 +27,14 @@ jobs:
       - name: Type check
         run: npx tsc --noEmit
 
+      - name: Release consistency
+        run: npm run verify-release
+
       - name: Build
         run: npm run build
+
+      - name: Package smoke test
+        run: npm pack --dry-run
 
       - name: Unit tests
         run: npm test

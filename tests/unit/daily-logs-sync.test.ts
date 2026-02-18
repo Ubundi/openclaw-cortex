@@ -144,6 +144,25 @@ describe("DailyLogsSync", () => {
     );
   });
 
+  it("queues retry on repeated failures for the same file", async () => {
+    const client = makeClient({
+      ingest: vi.fn().mockRejectedValue(new Error("still failing")),
+    });
+    const logger = makeLogger();
+    const retryQueue = makeRetryQueue();
+    const sync = new DailyLogsSync(client, "ns", logger, retryQueue);
+
+    mockReadFile.mockResolvedValueOnce("line1\n");
+    await sync.onFileChange("/workspace/memory/log.md", "log.md");
+
+    mockReadFile.mockResolvedValueOnce("line1\nline2\n");
+    await sync.onFileChange("/workspace/memory/log.md", "log.md");
+
+    expect(retryQueue.enqueue).toHaveBeenCalledTimes(2);
+    expect((retryQueue.enqueue as ReturnType<typeof vi.fn>).mock.calls[0][1]).toBe("daily-log.md");
+    expect((retryQueue.enqueue as ReturnType<typeof vi.fn>).mock.calls[1][1]).toBe("daily-log.md");
+  });
+
   it("logs warning when readFile throws", async () => {
     const client = makeClient();
     const logger = makeLogger();

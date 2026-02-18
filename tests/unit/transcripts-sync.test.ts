@@ -171,6 +171,25 @@ describe("TranscriptsSync", () => {
     );
   });
 
+  it("queues retry on repeated failures for the same transcript", async () => {
+    const client = makeClient({
+      ingestConversation: vi.fn().mockRejectedValue(new Error("still failing")),
+    });
+    const logger = makeLogger();
+    const retryQueue = makeRetryQueue();
+    const sync = new TranscriptsSync(client, "ns", logger, retryQueue);
+
+    mockReadFile.mockResolvedValueOnce(VALID_JSONL);
+    await sync.onFileChange("/workspace/sessions/s.jsonl", "s.jsonl");
+
+    mockReadFile.mockResolvedValueOnce(`${VALID_JSONL}\n${VALID_JSONL}`);
+    await sync.onFileChange("/workspace/sessions/s.jsonl", "s.jsonl");
+
+    expect(retryQueue.enqueue).toHaveBeenCalledTimes(2);
+    expect((retryQueue.enqueue as ReturnType<typeof vi.fn>).mock.calls[0][1]).toBe("transcript-s.jsonl");
+    expect((retryQueue.enqueue as ReturnType<typeof vi.fn>).mock.calls[1][1]).toBe("transcript-s.jsonl");
+  });
+
   it("logs warning when readFile throws", async () => {
     const client = makeClient();
     const logger = makeLogger();

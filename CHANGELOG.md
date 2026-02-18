@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.2] - 2026-02-18
+
+### Added
+
+- `verify-release` script to enforce release consistency across `package.json`, `openclaw.plugin.json`, plugin version wiring, and documented/default `recallTimeoutMs` values.
+- Plugin lifecycle unit tests covering register/start/stop wiring, missing-workspace sync behavior, invalid config rejection, and recall-latency logging.
+
+### Changed
+
+- CI now includes a release consistency gate (`npm run verify-release`) and a package smoke check (`npm pack --dry-run`) before tests.
+- Hardened recall behavior by reducing default `recallTimeoutMs` from `2000` to `500`.
+
 ## [0.3.1] - 2026-02-18
 
 ### Fixed

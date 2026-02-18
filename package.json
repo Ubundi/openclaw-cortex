@@ -15,6 +15,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:integration": "vitest run -c vitest.integration.config.ts",
+    "verify-release": "node scripts/verify-release.mjs",
     "clean": "rm -rf dist"
   },
   "files": [
@@ -40,8 +41,5 @@
     "hono": "^4.11.9",
     "typescript": "^5.5.0",
     "vitest": "^2.0.0"
-  },
-  "optionalDependencies": {
-    "hono": "*"
   }
 }

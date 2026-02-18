@@ -157,6 +157,27 @@ describe("MemoryMdSync", () => {
     );
   });
 
+  it("queues retry tasks for repeated ingest failures", async () => {
+    const client = makeClient({
+      ingest: vi.fn().mockRejectedValue(new Error("still failing")),
+    });
+    const logger = makeLogger();
+    const retryQueue = makeRetryQueue();
+    const sync = new MemoryMdSync("/workspace/MEMORY.md", client, "s", logger, retryQueue);
+
+    mockReadFile.mockResolvedValueOnce("line1");
+    sync.onFileChange();
+    await vi.advanceTimersByTimeAsync(2000);
+
+    mockReadFile.mockResolvedValueOnce("line1\nline2");
+    sync.onFileChange();
+    await vi.advanceTimersByTimeAsync(2000);
+
+    expect(retryQueue.enqueue).toHaveBeenCalledTimes(2);
+    expect((retryQueue.enqueue as ReturnType<typeof vi.fn>).mock.calls[0][1]).toBe("memory-md-1");
+    expect((retryQueue.enqueue as ReturnType<typeof vi.fn>).mock.calls[1][1]).toBe("memory-md-2");
+  });
+
   it("stop() cancels pending debounce", async () => {
     const client = makeClient();
     const logger = makeLogger();

@@ -88,7 +88,7 @@ describe("CortexClient", () => {
       expect(result.facts).toHaveLength(1);
     });
 
-    it("aborts on timeout", async () => {
+    it("aborts on timeout with AbortError", async () => {
       mockFetch.mockImplementationOnce(
         (_url: string, init: { signal: AbortSignal }) =>
           new Promise((_resolve, reject) => {
@@ -98,7 +98,9 @@ describe("CortexClient", () => {
           }),
       );
 
-      await expect(client.ingest("text", "s1", 10)).rejects.toThrow();
+      await expect(client.ingest("text", "s1", 10)).rejects.toMatchObject({
+        name: "AbortError",
+      });
     });
   });
 
@@ -160,7 +162,7 @@ describe("CortexClient", () => {
       expect(result.synthesized_count).toBe(3);
     });
 
-    it("aborts on timeout", async () => {
+    it("aborts on timeout with AbortError", async () => {
       mockFetch.mockImplementationOnce(
         (_url: string, init: { signal: AbortSignal }) =>
           new Promise((_resolve, reject) => {
@@ -170,7 +172,9 @@ describe("CortexClient", () => {
           }),
       );
 
-      await expect(client.reflect("s1", 10)).rejects.toThrow();
+      await expect(client.reflect("s1", 10)).rejects.toMatchObject({
+        name: "AbortError",
+      });
     });
   });
 
