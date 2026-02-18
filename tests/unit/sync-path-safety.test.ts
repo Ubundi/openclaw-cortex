@@ -62,7 +62,6 @@ describe("sync path safety (real symlink checks)", () => {
   afterAll(async () => {
     await rm(workspaceDir, { recursive: true, force: true });
     await rm(outsideDir, { recursive: true, force: true });
-    vi.useRealTimers();
   });
 
   it("rejects symlinked MEMORY.md outside workspace root", async () => {
@@ -73,12 +72,14 @@ describe("sync path safety (real symlink checks)", () => {
 
     sync.onFileChange();
     await vi.advanceTimersByTimeAsync(2000);
-    await Promise.resolve();
-    await Promise.resolve();
-
-    expect(client.ingest).not.toHaveBeenCalled();
-    expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining("rejected unsafe path"));
+    // Restore real timers before waiting on real fs I/O (lstat inside safePath)
     vi.useRealTimers();
+
+    await vi.waitFor(
+      () => expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining("rejected unsafe path")),
+      { timeout: 1000 },
+    );
+    expect(client.ingest).not.toHaveBeenCalled();
   });
 
   it("rejects symlinked daily log outside memory root", async () => {
