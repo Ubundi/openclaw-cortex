@@ -76,6 +76,8 @@ Environment variables are supported via `${VAR_NAME}` syntax:
 | `fileSync` | boolean | `true` | Watch MEMORY.md and daily logs |
 | `transcriptSync` | boolean | `true` | Watch and ingest session transcripts |
 | `reflectIntervalMs` | number | `3600000` | Memory consolidation interval (ms). `0` to disable |
+| `recallQueryType` | string | `"combined"` | Retrieval bias: `factual` (entities/facts), `emotional` (feelings/values), or `combined` |
+| `namespace` | string | _(auto)_ | Memory namespace. Auto-derived from workspace directory; set explicitly to share memory across workspaces |
 
 ### Recall Modes
 
@@ -148,7 +150,7 @@ If both this plugin and the Cortex SKILL.md are active, the `<cortex_memories>` 
 ```bash
 npm install
 npm run build      # TypeScript → dist/
-npm test           # Run vitest (52 tests)
+npm test           # Run vitest (139 tests)
 npm run test:watch # Watch mode
 npm run test:integration # Live Cortex API tests (requires CORTEX_API_KEY)
 ```

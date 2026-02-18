@@ -38,6 +38,11 @@ export interface ReflectResponse {
   superseded_count: number;
 }
 
+export interface WarmupResponse {
+  tenant_id: string;
+  already_warm: boolean;
+}
+
 export interface ConversationMessage {
   role: string;
   content: string;
@@ -48,6 +53,7 @@ export type QueryType = "factual" | "emotional" | "combined";
 const DEFAULT_INGEST_TIMEOUT_MS = 10_000;
 const DEFAULT_REFLECT_TIMEOUT_MS = 30_000;
 const DEFAULT_HEALTH_TIMEOUT_MS = 5_000;
+const DEFAULT_WARMUP_TIMEOUT_MS = 60_000;
 
 export class CortexClient {
   constructor(
@@ -101,6 +107,15 @@ export class CortexClient {
     } finally {
       clearTimeout(timeout);
     }
+  }
+
+  async warmup(timeoutMs = DEFAULT_WARMUP_TIMEOUT_MS): Promise<WarmupResponse> {
+    return this.fetchJsonWithTimeout<WarmupResponse>(
+      `${this.baseUrl}/v1/warmup`,
+      {},
+      timeoutMs,
+      "warmup",
+    );
   }
 
   async retrieve(

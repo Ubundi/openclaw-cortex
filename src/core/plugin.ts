@@ -1,5 +1,6 @@
 import { basename } from "node:path";
 import { createHash } from "node:crypto";
+import { version } from "../../package.json" with { type: "json" };
 import { CortexConfigSchema, configSchema, type CortexConfig } from "./config/schema.js";
 import { CortexClient } from "../cortex/client.js";
 import { createRecallHandler } from "../features/recall/handler.js";
@@ -53,7 +54,7 @@ const plugin = {
   name: "Cortex Memory",
   description:
     "Long-term memory powered by Cortex — Auto-Recall, Auto-Capture, and background file sync",
-  version: "0.2.0",
+  version,
   kind: "memory" as const,
   configSchema,
 
@@ -80,13 +81,21 @@ const plugin = {
 
     api.logger.info(`Cortex plugin registered (recallMode=${config.recallMode}, namespace=${namespace})`);
 
-    // Async health check — validate connection early without blocking registration
+    // Async health check + warmup — validate connection and pre-init the tenant's
+    // Cortex instance so the first ingest doesn't pay the cold-start cost.
     client.healthCheck().then((ok) => {
       if (ok) {
         api.logger.info("Cortex health check passed");
+        return client.warmup();
       } else {
         api.logger.warn("Cortex health check failed — API may be unreachable");
       }
+    }).then((warmup) => {
+      if (warmup) {
+        api.logger.info(`Cortex warmup: ${warmup.already_warm ? "already warm" : "initialized"} (tenant: ${warmup.tenant_id})`);
+      }
+    }).catch(() => {
+      api.logger.warn("Cortex warmup failed — first ingest may be slow");
     });
 
     // Auto-Recall: inject relevant memories before every agent turn
