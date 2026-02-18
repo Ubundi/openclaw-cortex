@@ -22,6 +22,7 @@ export class FileSyncWatcher {
   private memoryMdSync: MemoryMdSync | null = null;
   private dailyLogsSync: DailyLogsSync | null = null;
   private transcriptsSync: TranscriptsSync | null = null;
+  private started = false;
 
   constructor(
     private workspaceDir: string,
@@ -33,6 +34,12 @@ export class FileSyncWatcher {
   ) {}
 
   start(): void {
+    if (this.started) {
+      this.logger.debug?.("File sync: start() called while already running, skipping");
+      return;
+    }
+    this.started = true;
+
     const memoryMdPath = join(this.workspaceDir, "MEMORY.md");
     const memoryDir = join(this.workspaceDir, "memory");
     const sessionsDir = join(this.workspaceDir, "sessions");
@@ -54,33 +61,26 @@ export class FileSyncWatcher {
       memoryDir,
     );
 
-    // Watch MEMORY.md
-    try {
-      const memWatcher = watch(memoryMdPath, () => {
+    this.watchPath(
+      memoryMdPath,
+      () => {
         this.memoryMdSync?.onFileChange();
-      });
-      this.watchers.push(memWatcher);
-      this.logger.debug?.("File sync: watching MEMORY.md");
-    } catch {
-      this.logger.debug?.("File sync: MEMORY.md not found, skipping");
-    }
+      },
+      "File sync: watching MEMORY.md",
+      "File sync: MEMORY.md not found, skipping",
+    );
 
-    // Watch memory/*.md (daily logs)
-    try {
-      const logsWatcher = watch(
-        memoryDir,
-        { recursive: true },
-        (_event, filename) => {
-          if (!filename?.endsWith(".md")) return;
-          const fullPath = join(memoryDir, filename);
-          this.dailyLogsSync?.onFileChange(fullPath, filename);
-        },
-      );
-      this.watchers.push(logsWatcher);
-      this.logger.debug?.("File sync: watching memory/*.md");
-    } catch {
-      this.logger.debug?.("File sync: memory/ directory not found, skipping");
-    }
+    this.watchPath(
+      memoryDir,
+      (_event, filename) => {
+        if (typeof filename !== "string" || !filename.endsWith(".md")) return;
+        const fullPath = join(memoryDir, filename);
+        this.dailyLogsSync?.onFileChange(fullPath, filename);
+      },
+      "File sync: watching memory/*.md",
+      "File sync: memory/ directory not found, skipping",
+      { recursive: true },
+    );
 
     // Watch sessions/*.jsonl (transcripts)
     if (this.options.transcripts !== false) {
@@ -91,26 +91,27 @@ export class FileSyncWatcher {
         this.retryQueue,
         sessionsDir,
       );
-
-      try {
-        const sessionsWatcher = watch(
-          sessionsDir,
-          { recursive: true },
-          (_event, filename) => {
-            if (!filename?.endsWith(".jsonl")) return;
-            const fullPath = join(sessionsDir, filename);
-            this.transcriptsSync?.onFileChange(fullPath, filename);
-          },
-        );
-        this.watchers.push(sessionsWatcher);
-        this.logger.debug?.("File sync: watching sessions/*.jsonl");
-      } catch {
-        this.logger.debug?.("File sync: sessions/ directory not found, skipping");
-      }
+      this.watchPath(
+        sessionsDir,
+        (_event, filename) => {
+          if (typeof filename !== "string" || !filename.endsWith(".jsonl")) return;
+          const fullPath = join(sessionsDir, filename);
+          this.transcriptsSync?.onFileChange(fullPath, filename);
+        },
+        "File sync: watching sessions/*.jsonl",
+        "File sync: sessions/ directory not found, skipping",
+        { recursive: true },
+      );
     }
   }
 
   stop(): void {
+    if (!this.started) {
+      this.logger.info("File sync stopped");
+      return;
+    }
+    this.started = false;
+
     for (const w of this.watchers) {
       w.close();
     }
@@ -119,5 +120,21 @@ export class FileSyncWatcher {
     this.dailyLogsSync?.stop();
     this.transcriptsSync?.stop();
     this.logger.info("File sync stopped");
+  }
+
+  private watchPath(
+    path: string,
+    handler: (event: string, filename: string | Buffer | null) => void,
+    successMessage: string,
+    skipMessage: string,
+    options?: { recursive: true },
+  ): void {
+    try {
+      const watcher = options ? watch(path, options, handler) : watch(path, handler);
+      this.watchers.push(watcher);
+      this.logger.debug?.(successMessage);
+    } catch {
+      this.logger.debug?.(skipMessage);
+    }
   }
 }

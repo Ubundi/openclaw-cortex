@@ -125,6 +125,29 @@ describe("plugin lifecycle contract", () => {
     expect(() => service.stop?.call(service)).not.toThrow();
   });
 
+  it("service start is idempotent and does not duplicate background services", async () => {
+    const retryStart = vi.spyOn(RetryQueue.prototype, "start").mockImplementation(() => {});
+    const watcherStart = vi.spyOn(FileSyncWatcher.prototype, "start").mockImplementation(() => {});
+    const reflectStart = vi.spyOn(PeriodicReflect.prototype, "start").mockImplementation(() => {});
+
+    const { api, services } = makeApi({
+      apiKey: "sk-test",
+      fileSync: true,
+      reflectIntervalMs: 1000,
+    });
+
+    plugin.register(api as any);
+    await flushMicrotasks();
+
+    const service = services[0];
+    service.start?.({ workspaceDir: "/tmp/workspace" });
+    service.start?.({ workspaceDir: "/tmp/workspace" });
+
+    expect(retryStart).toHaveBeenCalledOnce();
+    expect(watcherStart).toHaveBeenCalledOnce();
+    expect(reflectStart).toHaveBeenCalledOnce();
+  });
+
   it("logs warning and skips file sync when workspaceDir is missing", async () => {
     const watcherStart = vi.spyOn(FileSyncWatcher.prototype, "start").mockImplementation(() => {});
     const retryStart = vi.spyOn(RetryQueue.prototype, "start").mockImplementation(() => {});

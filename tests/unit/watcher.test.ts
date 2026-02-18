@@ -82,6 +82,20 @@ describe("FileSyncWatcher", () => {
     expect(TranscriptsSync).toHaveBeenCalledTimes(1);
   });
 
+  it("start() is idempotent and does not register duplicate watchers", () => {
+    const watcher = new FileSyncWatcher(
+      "/workspace",
+      makeClient(),
+      "ns",
+      makeLogger(),
+    );
+
+    watcher.start();
+    watcher.start();
+
+    expect(mockWatch).toHaveBeenCalledTimes(3);
+  });
+
   it("start() skips TranscriptsSync when transcripts: false", () => {
     const watcher = new FileSyncWatcher(
       "/workspace",

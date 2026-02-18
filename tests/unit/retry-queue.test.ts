@@ -158,6 +158,29 @@ describe("RetryQueue", () => {
     expect(task).toHaveBeenCalledTimes(1);
   });
 
+  it("does not execute the same task concurrently across overlapping flush ticks", async () => {
+    let resolveTask!: () => void;
+    const task = vi.fn().mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveTask = resolve;
+        }),
+    );
+
+    queue.start();
+    queue.enqueue(task, "slow-task");
+
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(task).toHaveBeenCalledTimes(1);
+
+    // Another flush tick while task is still in-flight should not trigger a second execution.
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(task).toHaveBeenCalledTimes(1);
+
+    resolveTask();
+    await vi.runAllTicks();
+  });
+
   it("stop() with pending tasks logs a warning", () => {
     queue.enqueue(vi.fn(), "t1");
     queue.enqueue(vi.fn(), "t2");
