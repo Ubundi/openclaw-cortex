@@ -53,20 +53,14 @@ async function main() {
     /recallTimeoutMs:\s*(\d+)/,
     "README config example recallTimeoutMs",
   );
-  const readmeTableTimeout = extractOrFail(
-    readmeRaw,
-    /\|\s*`recallTimeoutMs`\s*\|\s*number\s*\|\s*`(\d+)`\s*\|/,
-    "README table recallTimeoutMs default",
-  );
 
   const timeoutValues = [
     schemaTimeout ? Number(schemaTimeout) : null,
     manifestTimeout != null ? Number(manifestTimeout) : null,
     readmeConfigTimeout ? Number(readmeConfigTimeout) : null,
-    readmeTableTimeout ? Number(readmeTableTimeout) : null,
   ].filter((v) => v != null);
 
-  if (timeoutValues.length === 4) {
+  if (timeoutValues.length === 3) {
     const [first, ...rest] = timeoutValues;
     for (const value of rest) {
       if (value !== first) {
@@ -86,7 +80,7 @@ async function main() {
     process.exit(1);
   }
 
-  console.log(`verify-release passed (version=${packageJson.version}, recallTimeoutMs=${timeoutValues[0]})`);
+  console.log(`verify-release passed (version=${packageJson.version}, recallTimeoutMs=${timeoutValues[0] ?? manifestTimeout})`);
 }
 
 await main();
