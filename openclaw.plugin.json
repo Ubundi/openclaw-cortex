@@ -37,7 +37,7 @@
       "recallTimeoutMs": {
         "type": "number",
         "description": "Maximum time to wait for memory recall (ms)",
-        "default": 500
+        "default": 2000
       },
       "recallMode": {
         "type": "string",
@@ -110,7 +110,7 @@
     "reflectIntervalMs": {
       "label": "Reflect Interval (ms)",
       "advanced": true,
-      "helpText": "How often to consolidate memories (SUPERSEDES chains, contradiction detection). Set to 0 to disable."
+      "helpText": "How often to run cross-session memory consolidation via /v1/reflect. Set to 0 to disable."
     },
     "recallQueryType": {
       "label": "Recall Query Type",

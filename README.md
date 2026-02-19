@@ -81,7 +81,7 @@ Add to your `openclaw.json`:
           autoRecall: true,
           autoCapture: true,
           recallTopK: 5,
-          recallTimeoutMs: 500,
+          recallTimeoutMs: 2000,
           recallMode: "fast",
           fileSync: true,
           transcriptSync: true,
@@ -115,11 +115,11 @@ All other options are pre-configured with sensible defaults and can be tuned via
 
 ### Recall Modes
 
-| Mode       | What it does                         | Server-side latency |
-| ---------- | ------------------------------------ | ------------------- |
-| `fast`     | BM25 + semantic search only          | ~80-150ms           |
-| `balanced` | Adds light reranking                 | ~150-300ms          |
-| `full`     | Adds graph traversal + full reranker | ~300-600ms          |
+| Mode       | What it does                         | Typical round-trip |
+| ---------- | ------------------------------------ | ------------------ |
+| `fast`     | BM25 + semantic search only          | ~600-1200ms        |
+| `balanced` | Adds light reranking                 | ~900-1600ms        |
+| `full`     | Adds graph traversal + full reranker | ~1100-1900ms       |
 
 Use `fast` (default) for auto-recall where latency matters. Use `full` for explicit recall via SKILL.md where depth matters more than speed.
 
@@ -158,10 +158,9 @@ Failed file sync operations are queued for retry, so transient network failures 
 
 Every `reflectIntervalMs` (default: 1 hour), the plugin calls Cortex's `/v1/reflect` endpoint to consolidate memories:
 
-- Merges duplicate facts ingested across sessions
-- Marks stale facts as superseded (SUPERSEDES chains)
-- Detects contradictions between facts
-- Tracks belief drift over time
+- Scans entity-scoped fact clusters across sessions
+- Synthesizes high-level observation nodes that compress multi-session evidence
+- Observation nodes are stored as regular FACT nodes, retrievable through all recall channels
 
 Set `reflectIntervalMs: 0` to disable.
 
@@ -191,7 +190,7 @@ If both this plugin and the Cortex SKILL.md are active, the `<cortex_memories>` 
 ```bash
 npm install
 npm run build      # TypeScript → dist/
-npm test           # Run vitest (150 tests)
+npm test           # Run vitest (153 tests)
 npm run test:watch # Watch mode
 npm run test:integration # Live Cortex API tests (requires CORTEX_API_KEY)
 ```
