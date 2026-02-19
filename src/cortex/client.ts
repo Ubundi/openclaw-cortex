@@ -50,7 +50,7 @@ export interface ConversationMessage {
 
 export type QueryType = "factual" | "emotional" | "combined";
 
-const DEFAULT_INGEST_TIMEOUT_MS = 10_000;
+const DEFAULT_INGEST_TIMEOUT_MS = 45_000;
 const DEFAULT_REFLECT_TIMEOUT_MS = 30_000;
 const DEFAULT_HEALTH_TIMEOUT_MS = 5_000;
 const DEFAULT_WARMUP_TIMEOUT_MS = 60_000;

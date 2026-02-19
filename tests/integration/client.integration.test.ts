@@ -16,6 +16,8 @@ const BASE_URL =
 
 const describeIf = (condition: boolean) => (condition ? describe : describe.skip);
 
+const TEST_NAMESPACE = `integration-test-${Date.now()}`;
+
 describeIf(!!API_KEY)("CortexClient integration", () => {
   let client: CortexClient;
 
@@ -26,7 +28,7 @@ describeIf(!!API_KEY)("CortexClient integration", () => {
   it("ingest accepts text and returns nodes_created + facts", async () => {
     const result = await client.ingest(
       "Integration test: the project uses PostgreSQL with pgvector for embeddings.",
-      "integration-test",
+      TEST_NAMESPACE,
     );
 
     expect(result).toBeDefined();
@@ -35,7 +37,7 @@ describeIf(!!API_KEY)("CortexClient integration", () => {
     expect(Array.isArray(result.facts)).toBe(true);
     expect(Array.isArray(result.entities)).toBe(true);
     console.log(`  Ingested: ${result.nodes_created} nodes, ${result.facts.length} facts, ${result.entities.length} entities`);
-  }, 30_000);
+  }, 60_000);
 
   it("ingestConversation accepts messages and returns facts", async () => {
     const result = await client.ingestConversation(
@@ -43,14 +45,14 @@ describeIf(!!API_KEY)("CortexClient integration", () => {
         { role: "user", content: "What database does the project use?" },
         { role: "assistant", content: "The project uses PostgreSQL with pgvector for vector storage and retrieval." },
       ],
-      "integration-test",
+      TEST_NAMESPACE,
     );
 
     expect(result).toBeDefined();
     expect(typeof result.nodes_created).toBe("number");
     expect(Array.isArray(result.facts)).toBe(true);
     console.log(`  Conversation: ${result.nodes_created} nodes, ${result.facts.length} facts, ${result.entities.length} entities`);
-  }, 30_000);
+  }, 60_000);
 
   it("retrieve returns results with expected shape", async () => {
     const result = await client.retrieve("What database does the project use?", 5, "fast", 10_000);

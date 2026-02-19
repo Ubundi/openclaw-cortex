@@ -17,6 +17,8 @@ const BASE_URL =
 
 const describeIf = (condition: boolean) => (condition ? describe : describe.skip);
 
+const TEST_NAMESPACE = `integration-test-recall-${Date.now()}`;
+
 describeIf(!!API_KEY)("Recall pipeline integration", () => {
   let client: CortexClient;
 
@@ -32,7 +34,7 @@ describeIf(!!API_KEY)("Recall pipeline integration", () => {
     fileSync: true,
     transcriptSync: true,
     reflectIntervalMs: 0,
-    namespace: "integration-test",
+    namespace: TEST_NAMESPACE,
   };
 
   const logger = {
@@ -63,7 +65,7 @@ describeIf(!!API_KEY)("Recall pipeline integration", () => {
     await seedWithRetry(
       () => client.ingest(
         "The user's name is Alice and she works at Ubundi as a software engineer.",
-        "integration-test-recall",
+        TEST_NAMESPACE,
       ),
       "ingest-fact",
     );
@@ -74,7 +76,7 @@ describeIf(!!API_KEY)("Recall pipeline integration", () => {
           { role: "user", content: "We decided to use TypeScript for the plugin" },
           { role: "assistant", content: "Good choice. TypeScript gives us compile-time safety for the OpenClaw plugin API." },
         ],
-        "integration-test-recall",
+        TEST_NAMESPACE,
       ),
       "ingest-conversation",
     );
@@ -88,7 +90,7 @@ describeIf(!!API_KEY)("Recall pipeline integration", () => {
 
     const result = await handler(
       { prompt: "Who is the user and where do they work?" },
-      { sessionKey: "integration-test-recall" },
+      { sessionKey: TEST_NAMESPACE },
     );
 
     console.log("  Result:", JSON.stringify(result, null, 2)?.slice(0, 500));

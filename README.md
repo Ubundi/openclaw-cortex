@@ -85,14 +85,14 @@ Add to your `openclaw.json`:
           recallMode: "fast",
           fileSync: true,
           transcriptSync: true,
-          reflectIntervalMs: 3600000
-        }
-      }
+          reflectIntervalMs: 3600000,
+        },
+      },
     },
     slots: {
-      memory: "@ubundi/openclaw-cortex"
-    }
-  }
+      memory: "@ubundi/openclaw-cortex",
+    },
+  },
 }
 ```
 
@@ -107,19 +107,19 @@ Environment variables are supported via `${VAR_NAME}` syntax:
 
 ### Config Options
 
-| Option | Type | Default | Description |
-|---|---|---|---|
+| Option   | Type   | Default    | Description    |
+| -------- | ------ | ---------- | -------------- |
 | `apiKey` | string | _required_ | Cortex API key |
 
 All other options are pre-configured with sensible defaults and can be tuned via the OpenClaw plugin config UI.
 
 ### Recall Modes
 
-| Mode | What it does | Server-side latency |
-|---|---|---|
-| `fast` | BM25 + semantic search only | ~80-150ms |
-| `balanced` | Adds light reranking | ~150-300ms |
-| `full` | Adds graph traversal + full reranker | ~300-600ms |
+| Mode       | What it does                         | Server-side latency |
+| ---------- | ------------------------------------ | ------------------- |
+| `fast`     | BM25 + semantic search only          | ~80-150ms           |
+| `balanced` | Adds light reranking                 | ~150-300ms          |
+| `full`     | Adds graph traversal + full reranker | ~300-600ms          |
 
 Use `fast` (default) for auto-recall where latency matters. Use `full` for explicit recall via SKILL.md where depth matters more than speed.
 
