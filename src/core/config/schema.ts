@@ -36,7 +36,7 @@ export const CortexConfigSchema = z.object({
   autoRecall: z.boolean().default(true),
   autoCapture: z.boolean().default(true),
   recallTopK: z.number().int().min(1).max(20).default(5),
-  recallTimeoutMs: z.number().int().min(100).max(10000).default(500),
+  recallTimeoutMs: z.number().int().min(100).max(10000).default(2000),
   recallMode: RecallMode.default("fast"),
   recallQueryType: RecallQueryType.default("combined"),
   fileSync: z.boolean().default(true),

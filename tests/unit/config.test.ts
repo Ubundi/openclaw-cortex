@@ -126,7 +126,7 @@ describe("CortexConfigSchema", () => {
         expect(result.data.autoRecall).toBe(true);
         expect(result.data.autoCapture).toBe(true);
         expect(result.data.recallTopK).toBe(5);
-        expect(result.data.recallTimeoutMs).toBe(500);
+        expect(result.data.recallTimeoutMs).toBe(2000);
         expect(result.data.recallMode).toBe("fast");
         expect(result.data.fileSync).toBe(true);
         expect(result.data.transcriptSync).toBe(true);
