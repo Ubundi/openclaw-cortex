@@ -50,7 +50,13 @@ export interface ConversationMessage {
 
 export type QueryType = "factual" | "emotional" | "combined";
 
+export interface JobSubmitResponse {
+  job_id: string;
+  status: string;
+}
+
 const DEFAULT_INGEST_TIMEOUT_MS = 45_000;
+const DEFAULT_SUBMIT_TIMEOUT_MS = 10_000;
 const DEFAULT_REFLECT_TIMEOUT_MS = 30_000;
 const DEFAULT_HEALTH_TIMEOUT_MS = 5_000;
 const DEFAULT_WARMUP_TIMEOUT_MS = 60_000;
@@ -158,6 +164,53 @@ export class CortexClient {
       { messages, session_id: sessionId, reference_date: referenceDate ?? null },
       timeoutMs,
       "ingest/conversation",
+    );
+  }
+
+  async getJob(jobId: string): Promise<JobSubmitResponse & { result?: IngestResponse; error?: string }> {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), DEFAULT_SUBMIT_TIMEOUT_MS);
+
+    try {
+      const res = await fetch(`${this.baseUrl}/v1/jobs/${jobId}`, {
+        method: "GET",
+        headers: { "x-api-key": this.apiKey },
+        signal: controller.signal,
+      });
+
+      if (!res.ok) {
+        throw new Error(`Cortex job status failed: ${res.status}`);
+      }
+
+      return (await res.json()) as JobSubmitResponse & { result?: IngestResponse; error?: string };
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  async submitIngest(
+    text: string,
+    sessionId?: string,
+    referenceDate?: string,
+  ): Promise<JobSubmitResponse> {
+    return this.fetchJsonWithTimeout<JobSubmitResponse>(
+      `${this.baseUrl}/v1/jobs/ingest`,
+      { text, session_id: sessionId, reference_date: referenceDate ?? null },
+      DEFAULT_SUBMIT_TIMEOUT_MS,
+      "jobs/ingest",
+    );
+  }
+
+  async submitIngestConversation(
+    messages: ConversationMessage[],
+    sessionId?: string,
+    referenceDate?: string,
+  ): Promise<JobSubmitResponse> {
+    return this.fetchJsonWithTimeout<JobSubmitResponse>(
+      `${this.baseUrl}/v1/jobs/ingest/conversation`,
+      { messages, session_id: sessionId, reference_date: referenceDate ?? null },
+      DEFAULT_SUBMIT_TIMEOUT_MS,
+      "jobs/ingest/conversation",
     );
   }
 

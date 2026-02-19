@@ -42,8 +42,8 @@ export class DailyLogsSync {
       const sessionId = `${this.sessionPrefix}:daily:${filename}`;
       const referenceDate = extractDateFromFilename(filename);
 
-      const doIngest = () => this.client.ingest(newContent, sessionId, undefined, referenceDate).then(() => {
-        this.logger.debug?.(`Daily log sync: ingested from ${filename}`);
+      const doIngest = () => this.client.submitIngest(newContent, sessionId, referenceDate).then((res) => {
+        this.logger.debug?.(`Daily log sync: submitted ingest job ${res.job_id} for ${filename}`);
       });
 
       try {

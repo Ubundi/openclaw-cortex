@@ -62,8 +62,8 @@ export class MemoryMdSync {
 
     if (!added.trim()) return;
 
-    const doIngest = () => this.client.ingest(added, this.sessionId).then(() => {
-      this.logger.debug?.("MEMORY.md sync: ingested diff");
+    const doIngest = () => this.client.submitIngest(added, this.sessionId).then((res) => {
+      this.logger.debug?.(`MEMORY.md sync: submitted ingest job ${res.job_id}`);
     });
 
     try {

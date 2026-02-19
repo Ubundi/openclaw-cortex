@@ -54,10 +54,8 @@ export class TranscriptsSync {
       const referenceDate = new Date().toISOString().slice(0, 10);
 
       const doIngest = () =>
-        this.client.ingestConversation(messages, sessionId, undefined, referenceDate).then((res) => {
-          this.logger.debug?.(
-            `Transcript sync: ingested ${res.facts.length} facts from ${filename} (${res.nodes_created} nodes)`,
-          );
+        this.client.submitIngestConversation(messages, sessionId, referenceDate).then((res) => {
+          this.logger.debug?.(`Transcript sync: submitted ingest job ${res.job_id} for ${filename}`);
         });
 
       try {

@@ -29,9 +29,9 @@ const logger = {
 
 describe("createCaptureHandler", () => {
   it("ingests conversation on successful agent end", async () => {
-    const ingestPromise = Promise.resolve({ nodes_created: 1, edges_created: 1, facts: [{ core: "f", fact_type: "world", occurred_at: null, entity_refs: [], speaker: "user" }], entities: [] });
+    const ingestPromise = Promise.resolve({ job_id: "job-1", status: "pending" });
     const ingestMock = vi.fn().mockReturnValue(ingestPromise);
-    const client = { ingestConversation: ingestMock } as unknown as CortexClient;
+    const client = { submitIngestConversation: ingestMock } as unknown as CortexClient;
 
     const handler = createCaptureHandler(client, makeConfig(), logger);
 
@@ -60,7 +60,7 @@ describe("createCaptureHandler", () => {
 
   it("skips when autoCapture is disabled", async () => {
     const ingestMock = vi.fn();
-    const client = { ingestConversation: ingestMock } as unknown as CortexClient;
+    const client = { submitIngestConversation: ingestMock } as unknown as CortexClient;
     const handler = createCaptureHandler(client, makeConfig({ autoCapture: false }), logger);
 
     await handler(
@@ -73,7 +73,7 @@ describe("createCaptureHandler", () => {
 
   it("skips on failed agent run", async () => {
     const ingestMock = vi.fn();
-    const client = { ingestConversation: ingestMock } as unknown as CortexClient;
+    const client = { submitIngestConversation: ingestMock } as unknown as CortexClient;
     const handler = createCaptureHandler(client, makeConfig(), logger);
 
     await handler(
@@ -86,7 +86,7 @@ describe("createCaptureHandler", () => {
 
   it("skips when messages are too short", async () => {
     const ingestMock = vi.fn();
-    const client = { ingestConversation: ingestMock } as unknown as CortexClient;
+    const client = { submitIngestConversation: ingestMock } as unknown as CortexClient;
     const handler = createCaptureHandler(client, makeConfig(), logger);
 
     await handler(
@@ -104,9 +104,9 @@ describe("createCaptureHandler", () => {
   });
 
   it("handles array content blocks", async () => {
-    const ingestPromise = Promise.resolve({ nodes_created: 1, edges_created: 1, facts: [{ core: "f", fact_type: "world", occurred_at: null, entity_refs: [], speaker: "user" }], entities: [] });
+    const ingestPromise = Promise.resolve({ job_id: "job-1", status: "pending" });
     const ingestMock = vi.fn().mockReturnValue(ingestPromise);
-    const client = { ingestConversation: ingestMock } as unknown as CortexClient;
+    const client = { submitIngestConversation: ingestMock } as unknown as CortexClient;
 
     const handler = createCaptureHandler(client, makeConfig(), logger);
 

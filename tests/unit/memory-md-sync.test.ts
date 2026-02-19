@@ -28,7 +28,7 @@ function makeLogger() {
 
 function makeClient(overrides: Partial<CortexClient> = {}): CortexClient {
   return {
-    ingest: vi.fn().mockResolvedValue({ nodes_created: 1, edges_created: 0, facts: [], entities: [] }),
+    submitIngest: vi.fn().mockResolvedValue({ job_id: "job-1", status: "pending" }),
     ...overrides,
   } as unknown as CortexClient;
 }
@@ -61,7 +61,7 @@ describe("MemoryMdSync", () => {
     sync.onFileChange();
     await vi.advanceTimersByTimeAsync(2000);
 
-    expect(client.ingest).toHaveBeenCalledWith(
+    expect(client.submitIngest).toHaveBeenCalledWith(
       "line1\nline2",
       "mem-session",
     );
@@ -94,14 +94,14 @@ describe("MemoryMdSync", () => {
     // First call: ingests
     sync.onFileChange();
     await vi.advanceTimersByTimeAsync(2000);
-    expect(client.ingest).toHaveBeenCalledTimes(1);
+    expect(client.submitIngest).toHaveBeenCalledTimes(1);
 
-    (client.ingest as ReturnType<typeof vi.fn>).mockClear();
+    (client.submitIngest as ReturnType<typeof vi.fn>).mockClear();
 
     // Second call: same content, should skip
     sync.onFileChange();
     await vi.advanceTimersByTimeAsync(2000);
-    expect(client.ingest).not.toHaveBeenCalled();
+    expect(client.submitIngest).not.toHaveBeenCalled();
   });
 
   it("skips when diff is only whitespace", async () => {
@@ -113,14 +113,14 @@ describe("MemoryMdSync", () => {
 
     sync.onFileChange();
     await vi.advanceTimersByTimeAsync(2000);
-    (client.ingest as ReturnType<typeof vi.fn>).mockClear();
+    (client.submitIngest as ReturnType<typeof vi.fn>).mockClear();
 
     // Add only blank lines
     mockReadFile.mockResolvedValue("line1\nline2\n\n  \n");
 
     sync.onFileChange();
     await vi.advanceTimersByTimeAsync(2000);
-    expect(client.ingest).not.toHaveBeenCalled();
+    expect(client.submitIngest).not.toHaveBeenCalled();
   });
 
   it("silently returns when file does not exist", async () => {
@@ -133,14 +133,14 @@ describe("MemoryMdSync", () => {
     sync.onFileChange();
     await vi.advanceTimersByTimeAsync(2000);
 
-    expect(client.ingest).not.toHaveBeenCalled();
+    expect(client.submitIngest).not.toHaveBeenCalled();
     // Should NOT warn — file-not-found is expected
     expect(logger.warn).not.toHaveBeenCalled();
   });
 
   it("queues for retry when ingest fails", async () => {
     const client = makeClient({
-      ingest: vi.fn().mockRejectedValue(new Error("server error")),
+      submitIngest: vi.fn().mockRejectedValue(new Error("server error")),
     });
     const logger = makeLogger();
     const retryQueue = makeRetryQueue();
@@ -159,7 +159,7 @@ describe("MemoryMdSync", () => {
 
   it("queues retry tasks for repeated ingest failures", async () => {
     const client = makeClient({
-      ingest: vi.fn().mockRejectedValue(new Error("still failing")),
+      submitIngest: vi.fn().mockRejectedValue(new Error("still failing")),
     });
     const logger = makeLogger();
     const retryQueue = makeRetryQueue();
@@ -191,7 +191,7 @@ describe("MemoryMdSync", () => {
     await vi.advanceTimersByTimeAsync(5000);
 
     expect(mockReadFile).not.toHaveBeenCalled();
-    expect(client.ingest).not.toHaveBeenCalled();
+    expect(client.submitIngest).not.toHaveBeenCalled();
   });
 
   it("rejects unsafe paths when allowedRoot is set", async () => {
@@ -205,7 +205,7 @@ describe("MemoryMdSync", () => {
     await vi.advanceTimersByTimeAsync(2000);
 
     expect(mockSafePath).toHaveBeenCalledWith("/workspace/MEMORY.md", "/workspace");
-    expect(client.ingest).not.toHaveBeenCalled();
+    expect(client.submitIngest).not.toHaveBeenCalled();
     expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining("rejected unsafe path"));
   });
 
@@ -222,7 +222,7 @@ describe("MemoryMdSync", () => {
 
     expect(mockSafePath).toHaveBeenCalledWith("/workspace/MEMORY.md", "/workspace");
     expect(mockReadFile).toHaveBeenCalledWith("/workspace/MEMORY.md", "utf-8");
-    expect(client.ingest).toHaveBeenCalledWith("safe content", "s");
+    expect(client.submitIngest).toHaveBeenCalledWith("safe content", "s");
   });
 
   it("skips safePath check when no allowedRoot is provided", async () => {
@@ -236,6 +236,6 @@ describe("MemoryMdSync", () => {
     await vi.advanceTimersByTimeAsync(2000);
 
     expect(mockSafePath).not.toHaveBeenCalled();
-    expect(client.ingest).toHaveBeenCalled();
+    expect(client.submitIngest).toHaveBeenCalled();
   });
 });

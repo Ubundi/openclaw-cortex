@@ -28,12 +28,7 @@ function makeLogger() {
 
 function makeClient(overrides: Partial<CortexClient> = {}): CortexClient {
   return {
-    ingestConversation: vi.fn().mockResolvedValue({
-      nodes_created: 1,
-      edges_created: 0,
-      facts: [{ core: "f", fact_type: "world", occurred_at: null, entity_refs: [], speaker: "user" }],
-      entities: [],
-    }),
+    submitIngestConversation: vi.fn().mockResolvedValue({ job_id: "job-1", status: "pending" }),
     ...overrides,
   } as unknown as CortexClient;
 }
@@ -71,13 +66,12 @@ describe("TranscriptsSync", () => {
 
     await sync.onFileChange("/workspace/sessions/abc123.jsonl", "abc123.jsonl");
 
-    expect(client.ingestConversation).toHaveBeenCalledWith(
+    expect(client.submitIngestConversation).toHaveBeenCalledWith(
       [
         { role: "user", content: "What is the deployment strategy for our backend services?" },
         { role: "assistant", content: "We use blue-green deployment on ECS Fargate with ALB switching." },
       ],
       "test-ns:session:abc123",
-      undefined,
       expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
     );
   });
@@ -91,7 +85,7 @@ describe("TranscriptsSync", () => {
 
     await sync.onFileChange("/workspace/sessions/my-session-42.jsonl", "my-session-42.jsonl");
 
-    const sessionId = (client.ingestConversation as ReturnType<typeof vi.fn>).mock.calls[0][1];
+    const sessionId = (client.submitIngestConversation as ReturnType<typeof vi.fn>).mock.calls[0][1];
     expect(sessionId).toBe("ns:session:my-session-42");
   });
 
@@ -104,7 +98,7 @@ describe("TranscriptsSync", () => {
 
     await sync.onFileChange("/workspace/sessions/s.jsonl", "s.jsonl");
 
-    expect(client.ingestConversation).not.toHaveBeenCalled();
+    expect(client.submitIngestConversation).not.toHaveBeenCalled();
   });
 
   it("only ingests new content on subsequent calls (incremental offset)", async () => {
@@ -119,7 +113,7 @@ describe("TranscriptsSync", () => {
     mockReadFile.mockResolvedValue(appended);
     await sync.onFileChange("/workspace/sessions/s.jsonl", "s.jsonl");
 
-    expect(client.ingestConversation).toHaveBeenCalledTimes(2);
+    expect(client.submitIngestConversation).toHaveBeenCalledTimes(2);
   });
 
   it("skips when new content is only whitespace", async () => {
@@ -129,13 +123,13 @@ describe("TranscriptsSync", () => {
 
     mockReadFile.mockResolvedValue(VALID_JSONL);
     await sync.onFileChange("/workspace/sessions/s.jsonl", "s.jsonl");
-    (client.ingestConversation as ReturnType<typeof vi.fn>).mockClear();
+    (client.submitIngestConversation as ReturnType<typeof vi.fn>).mockClear();
 
     // Same content, no new bytes
     mockReadFile.mockResolvedValue(VALID_JSONL + "   ");
     await sync.onFileChange("/workspace/sessions/s.jsonl", "s.jsonl");
 
-    expect(client.ingestConversation).not.toHaveBeenCalled();
+    expect(client.submitIngestConversation).not.toHaveBeenCalled();
   });
 
   it("rejects unsafe paths when allowedRoot is set", async () => {
@@ -147,7 +141,7 @@ describe("TranscriptsSync", () => {
 
     await sync.onFileChange("/etc/shadow", "shadow");
 
-    expect(client.ingestConversation).not.toHaveBeenCalled();
+    expect(client.submitIngestConversation).not.toHaveBeenCalled();
     expect(logger.warn).toHaveBeenCalledWith(
       expect.stringContaining("rejected unsafe path"),
     );
@@ -155,7 +149,7 @@ describe("TranscriptsSync", () => {
 
   it("queues for retry when ingestConversation fails", async () => {
     const client = makeClient({
-      ingestConversation: vi.fn().mockRejectedValue(new Error("timeout")),
+      submitIngestConversation: vi.fn().mockRejectedValue(new Error("timeout")),
     });
     const logger = makeLogger();
     const retryQueue = makeRetryQueue();
@@ -173,7 +167,7 @@ describe("TranscriptsSync", () => {
 
   it("queues retry on repeated failures for the same transcript", async () => {
     const client = makeClient({
-      ingestConversation: vi.fn().mockRejectedValue(new Error("still failing")),
+      submitIngestConversation: vi.fn().mockRejectedValue(new Error("still failing")),
     });
     const logger = makeLogger();
     const retryQueue = makeRetryQueue();
@@ -199,7 +193,7 @@ describe("TranscriptsSync", () => {
 
     await sync.onFileChange("/workspace/sessions/s.jsonl", "s.jsonl");
 
-    expect(client.ingestConversation).not.toHaveBeenCalled();
+    expect(client.submitIngestConversation).not.toHaveBeenCalled();
     expect(logger.warn).toHaveBeenCalledWith(
       expect.stringContaining("read failed"),
     );
@@ -212,13 +206,13 @@ describe("TranscriptsSync", () => {
 
     mockReadFile.mockResolvedValue(VALID_JSONL);
     await sync.onFileChange("/workspace/sessions/s.jsonl", "s.jsonl");
-    (client.ingestConversation as ReturnType<typeof vi.fn>).mockClear();
+    (client.submitIngestConversation as ReturnType<typeof vi.fn>).mockClear();
 
     sync.stop();
 
     mockReadFile.mockResolvedValue(VALID_JSONL);
     await sync.onFileChange("/workspace/sessions/s.jsonl", "s.jsonl");
 
-    expect(client.ingestConversation).toHaveBeenCalledTimes(1);
+    expect(client.submitIngestConversation).toHaveBeenCalledTimes(1);
   });
 });

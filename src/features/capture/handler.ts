@@ -90,10 +90,8 @@ export function createCaptureHandler(
       const sessionId = ctx.sessionKey ?? ctx.sessionId;
 
       const doIngest = async () => {
-        const res = await client.ingestConversation(normalized, sessionId);
-        logger.debug?.(
-          `Cortex capture: ingested ${res.facts.length} facts, ${res.entities.length} entities (${res.nodes_created} nodes)`,
-        );
+        const res = await client.submitIngestConversation(normalized, sessionId);
+        logger.debug?.(`Cortex capture: submitted ingest job ${res.job_id}`);
       };
 
       // Fire-and-forget with retry on failure

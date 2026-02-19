@@ -47,42 +47,65 @@ describeIf(!!API_KEY)("Recall pipeline integration", () => {
   beforeAll(async () => {
     client = new CortexClient(BASE_URL, API_KEY!);
 
-    // Seed data with retry (Cortex may return 503 under load)
-    const seedWithRetry = async (fn: () => Promise<unknown>, label: string) => {
+    // Submit seed jobs with retry, returning job_id on success
+    const submitWithRetry = async (fn: () => Promise<{ job_id: string; status: string }>, label: string): Promise<string | null> => {
       for (let attempt = 1; attempt <= 3; attempt++) {
         try {
-          await fn();
-          console.log(`  Seed "${label}": ok (attempt ${attempt})`);
-          return;
+          const { job_id } = await fn();
+          console.log(`  Seed "${label}": submitted job ${job_id} (attempt ${attempt})`);
+          return job_id;
         } catch (err) {
           console.warn(`  Seed "${label}": attempt ${attempt} failed:`, (err as Error).message);
           if (attempt < 3) await new Promise((r) => setTimeout(r, 5000 * attempt));
         }
       }
       console.warn(`  Seed "${label}": all attempts failed, tests may return empty results`);
+      return null;
     };
 
-    await seedWithRetry(
-      () => client.ingest(
-        "The user's name is Alice and she works at Ubundi as a software engineer.",
-        TEST_NAMESPACE,
-      ),
-      "ingest-fact",
-    );
+    // Poll a job until completed or failed
+    const pollUntilComplete = async (jobId: string, label: string): Promise<void> => {
+      const deadline = Date.now() + 60_000;
+      while (Date.now() < deadline) {
+        const status = await client.getJob(jobId);
+        if (status.status === "completed") {
+          console.log(`  Job "${label}" (${jobId}): completed`);
+          return;
+        }
+        if (status.status === "failed") {
+          console.warn(`  Job "${label}" failed: ${status.error ?? "unknown"}`);
+          return;
+        }
+        await new Promise((r) => setTimeout(r, 2_000));
+      }
+      console.warn(`  Job "${label}" timed out after 60s`);
+    };
 
-    await seedWithRetry(
-      () => client.ingestConversation(
-        [
-          { role: "user", content: "We decided to use TypeScript for the plugin" },
-          { role: "assistant", content: "Good choice. TypeScript gives us compile-time safety for the OpenClaw plugin API." },
-        ],
-        TEST_NAMESPACE,
+    const [ingestJobId, conversationJobId] = await Promise.all([
+      submitWithRetry(
+        () => client.submitIngest(
+          "The user's name is Alice and she works at Ubundi as a software engineer.",
+          TEST_NAMESPACE,
+        ),
+        "ingest-fact",
       ),
-      "ingest-conversation",
-    );
+      submitWithRetry(
+        () => client.submitIngestConversation(
+          [
+            { role: "user", content: "We decided to use TypeScript for the plugin" },
+            { role: "assistant", content: "Good choice. TypeScript gives us compile-time safety for the OpenClaw plugin API." },
+          ],
+          TEST_NAMESPACE,
+        ),
+        "ingest-conversation",
+      ),
+    ]);
 
-    // Wait for indexing
-    await new Promise((r) => setTimeout(r, 3000));
+    // Wait for both jobs to finish processing before recall tests run
+    await Promise.all([
+      ingestJobId ? pollUntilComplete(ingestJobId, "ingest-fact") : Promise.resolve(),
+      conversationJobId ? pollUntilComplete(conversationJobId, "ingest-conversation") : Promise.resolve(),
+    ]);
   }, 90_000);
 
   it("recall handler returns prependContext with cortex_memories tag", async () => {

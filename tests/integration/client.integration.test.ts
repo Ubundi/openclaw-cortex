@@ -25,22 +25,21 @@ describeIf(!!API_KEY)("CortexClient integration", () => {
     client = new CortexClient(BASE_URL, API_KEY!);
   });
 
-  it("ingest accepts text and returns nodes_created + facts", async () => {
-    const result = await client.ingest(
+  it("submitIngest enqueues text and returns job_id", async () => {
+    const result = await client.submitIngest(
       "Integration test: the project uses PostgreSQL with pgvector for embeddings.",
       TEST_NAMESPACE,
     );
 
     expect(result).toBeDefined();
-    expect(typeof result.nodes_created).toBe("number");
-    expect(typeof result.edges_created).toBe("number");
-    expect(Array.isArray(result.facts)).toBe(true);
-    expect(Array.isArray(result.entities)).toBe(true);
-    console.log(`  Ingested: ${result.nodes_created} nodes, ${result.facts.length} facts, ${result.entities.length} entities`);
-  }, 60_000);
+    expect(typeof result.job_id).toBe("string");
+    expect(result.job_id.length).toBeGreaterThan(0);
+    expect(typeof result.status).toBe("string");
+    console.log(`  Submitted ingest job: ${result.job_id} (status: ${result.status})`);
+  }, 15_000);
 
-  it("ingestConversation accepts messages and returns facts", async () => {
-    const result = await client.ingestConversation(
+  it("submitIngestConversation enqueues messages and returns job_id", async () => {
+    const result = await client.submitIngestConversation(
       [
         { role: "user", content: "What database does the project use?" },
         { role: "assistant", content: "The project uses PostgreSQL with pgvector for vector storage and retrieval." },
@@ -49,10 +48,11 @@ describeIf(!!API_KEY)("CortexClient integration", () => {
     );
 
     expect(result).toBeDefined();
-    expect(typeof result.nodes_created).toBe("number");
-    expect(Array.isArray(result.facts)).toBe(true);
-    console.log(`  Conversation: ${result.nodes_created} nodes, ${result.facts.length} facts, ${result.entities.length} entities`);
-  }, 60_000);
+    expect(typeof result.job_id).toBe("string");
+    expect(result.job_id.length).toBeGreaterThan(0);
+    expect(typeof result.status).toBe("string");
+    console.log(`  Submitted conversation job: ${result.job_id} (status: ${result.status})`);
+  }, 15_000);
 
   it("retrieve returns results with expected shape", async () => {
     const result = await client.retrieve("What database does the project use?", 5, "fast", 10_000);
