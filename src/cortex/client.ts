@@ -53,8 +53,10 @@ export interface IngestResponse {
 }
 
 export interface ReflectResponse {
-  synthesized_count: number;
-  superseded_count: number;
+  nodes_created: number;
+  edges_created: number;
+  entities_processed: number;
+  entities_skipped: number;
 }
 
 export interface WarmupResponse {

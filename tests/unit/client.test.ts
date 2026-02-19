@@ -147,7 +147,7 @@ describe("CortexClient", () => {
     it("sends reflect request", async () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,
-        json: async () => ({ synthesized_count: 3, superseded_count: 1 }),
+        json: async () => ({ nodes_created: 3, edges_created: 12, entities_processed: 4, entities_skipped: 7 }),
       });
 
       const result = await client.reflect("sess-1");
@@ -159,7 +159,7 @@ describe("CortexClient", () => {
           body: JSON.stringify({ session_id: "sess-1" }),
         }),
       );
-      expect(result.synthesized_count).toBe(3);
+      expect(result.nodes_created).toBe(3);
     });
 
     it("aborts on timeout with AbortError", async () => {
@@ -211,7 +211,7 @@ describe("CortexClient", () => {
     it("reflect without sessionId omits session_id from body", async () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,
-        json: async () => ({ synthesized_count: 0, superseded_count: 0 }),
+        json: async () => ({ nodes_created: 0, edges_created: 0, entities_processed: 0, entities_skipped: 0 }),
       });
 
       await client.reflect();
@@ -221,3 +221,4 @@ describe("CortexClient", () => {
     });
   });
 });
+

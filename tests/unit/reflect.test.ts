@@ -21,7 +21,7 @@ describe("PeriodicReflect", () => {
 
   it("calls reflect on interval", async () => {
     const client = {
-      reflect: vi.fn().mockResolvedValue({ synthesized_count: 3, superseded_count: 1 }),
+      reflect: vi.fn().mockResolvedValue({ nodes_created: 3, edges_created: 12, entities_processed: 4, entities_skipped: 1 }),
     } as unknown as CortexClient;
 
     const reflect = new PeriodicReflect(client, logger, 5000);
@@ -38,7 +38,7 @@ describe("PeriodicReflect", () => {
 
   it("logs results on success", async () => {
     const client = {
-      reflect: vi.fn().mockResolvedValue({ synthesized_count: 5, superseded_count: 2 }),
+      reflect: vi.fn().mockResolvedValue({ nodes_created: 5, edges_created: 8, entities_processed: 3, entities_skipped: 2 }),
     } as unknown as CortexClient;
 
     const reflect = new PeriodicReflect(client, logger, 1000);
@@ -47,7 +47,7 @@ describe("PeriodicReflect", () => {
     await vi.advanceTimersByTimeAsync(1000);
 
     expect(logger.info).toHaveBeenCalledWith(
-      expect.stringContaining("synthesized 5"),
+      expect.stringContaining("synthesized 5 nodes"),
     );
     reflect.stop();
   });
@@ -72,7 +72,7 @@ describe("PeriodicReflect", () => {
 
   it("run() can be called manually", async () => {
     const client = {
-      reflect: vi.fn().mockResolvedValue({ synthesized_count: 1, superseded_count: 0 }),
+      reflect: vi.fn().mockResolvedValue({ nodes_created: 1, edges_created: 2, entities_processed: 1, entities_skipped: 0 }),
     } as unknown as CortexClient;
 
     const reflect = new PeriodicReflect(client, logger);
@@ -80,13 +80,13 @@ describe("PeriodicReflect", () => {
 
     expect(client.reflect).toHaveBeenCalledOnce();
     expect(logger.info).toHaveBeenCalledWith(
-      expect.stringContaining("synthesized 1"),
+      expect.stringContaining("synthesized 1 nodes"),
     );
   });
 
   it("stop prevents further calls", async () => {
     const client = {
-      reflect: vi.fn().mockResolvedValue({ synthesized_count: 0, superseded_count: 0 }),
+      reflect: vi.fn().mockResolvedValue({ nodes_created: 0, edges_created: 0, entities_processed: 0, entities_skipped: 0 }),
     } as unknown as CortexClient;
 
     const reflect = new PeriodicReflect(client, logger, 1000);

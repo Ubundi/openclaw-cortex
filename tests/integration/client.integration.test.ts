@@ -64,6 +64,17 @@ describeIf(!!API_KEY)("CortexClient integration", () => {
     console.log(`  Warmup: tenant=${result.tenant_id}, already_warm=${result.already_warm}`);
   }, 30_000);
 
+  it("reflect returns consolidation counts", async () => {
+    const result = await client.reflect();
+
+    expect(result).toBeDefined();
+    expect(typeof result.nodes_created).toBe("number");
+    expect(typeof result.edges_created).toBe("number");
+    expect(typeof result.entities_processed).toBe("number");
+    expect(typeof result.entities_skipped).toBe("number");
+    console.log(`  Reflect: ${result.nodes_created} nodes, ${result.edges_created} edges (${result.entities_processed} processed, ${result.entities_skipped} skipped)`);
+  }, 30_000);
+
   it("retrieve returns results with expected shape", async () => {
     const result = await client.retrieve("What database does the project use?", 5, "fast", 10_000);
 

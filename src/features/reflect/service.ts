@@ -34,7 +34,7 @@ export class PeriodicReflect {
     try {
       const result = await this.client.reflect();
       this.logger.info(
-        `Reflect: synthesized ${result.synthesized_count} facts, superseded ${result.superseded_count}`,
+        `Reflect: synthesized ${result.nodes_created} nodes, ${result.edges_created} edges (${result.entities_processed} entities processed, ${result.entities_skipped} skipped)`,
       );
     } catch (err) {
       this.logger.warn(`Reflect failed: ${String(err)}`);
