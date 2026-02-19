@@ -4,9 +4,11 @@
 [![CI](https://github.com/Ubundi/openclaw-cortex/actions/workflows/ci.yml/badge.svg)](https://github.com/Ubundi/openclaw-cortex/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-![OpenClaw Cortex Logo](assets/logo.png)
+![OpenClaw Cortex Banner](assets/readme_assets/Hero%20Banner.png)
 
 [OpenClaw](https://github.com/openclaw/openclaw) plugin for [Cortex](https://github.com/ubundi/cortex) long-term memory. Gives your agent persistent memory that survives across sessions — who you are, what your project does, decisions you made weeks ago, and how things changed over time.
+
+![Features](assets/readme_assets/Feature%20Cards.png)
 
 - **Auto-Recall** — injects relevant memories before every agent turn via `before_agent_start` hook
 - **Auto-Capture** — extracts facts from conversations via `agent_end` hook
@@ -123,7 +125,11 @@ All other options are pre-configured with sensible defaults and can be tuned via
 
 Use `fast` (default) for auto-recall where latency matters. Use `full` for explicit recall via SKILL.md where depth matters more than speed.
 
+![Recall Modes](assets/readme_assets/Recall.png)
+
 ## How It Works
+
+![Architecture](assets/readme_assets/Arch%20Diagram.png)
 
 ### Auto-Recall
 
@@ -173,6 +179,8 @@ Cortex recall latency (847 samples): p50=120ms p95=340ms p99=480ms
 ```
 
 Use this to tune `recallTimeoutMs` and `recallMode` for your deployment.
+
+![Observability](assets/readme_assets/Observability.png)
 
 ## Compatibility with SKILL.md
 
