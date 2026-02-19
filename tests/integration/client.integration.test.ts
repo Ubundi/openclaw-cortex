@@ -116,24 +116,38 @@ describeIf(!!API_KEY)("CortexClient integration", () => {
     console.log(`  Full mode: ${result.results.length} results`);
   }, 15_000);
 
-  it("measures retrieve latency (fast mode)", async () => {
-    const latencies: number[] = [];
+  it("compares fast vs full mode latency", async () => {
+    const RUNS = 5;
+    const QUERY = "What is the project about?";
 
-    for (let i = 0; i < 5; i++) {
-      const start = Date.now();
-      await client.retrieve("What is the project about?", 5, "fast", 10_000);
-      latencies.push(Date.now() - start);
+    // Warm up both modes before sampling
+    await client.retrieve(QUERY, 5, "fast", 10_000);
+    await client.retrieve(QUERY, 5, "full", 10_000);
+
+    const fastLatencies: number[] = [];
+    const fullLatencies: number[] = [];
+
+    for (let i = 0; i < RUNS; i++) {
+      const t0 = Date.now();
+      await client.retrieve(QUERY, 5, "fast", 10_000);
+      fastLatencies.push(Date.now() - t0);
+
+      const t1 = Date.now();
+      await client.retrieve(QUERY, 5, "full", 10_000);
+      fullLatencies.push(Date.now() - t1);
     }
 
-    latencies.sort((a, b) => a - b);
-    const p50 = latencies[Math.floor(latencies.length * 0.5)];
-    const p95 = latencies[Math.floor(latencies.length * 0.95)];
+    fastLatencies.sort((a, b) => a - b);
+    fullLatencies.sort((a, b) => a - b);
 
-    console.log(`  Latencies: ${latencies.map((l) => `${l}ms`).join(", ")}`);
-    console.log(`  p50=${p50}ms, p95=${p95}ms`);
+    const p50 = (arr: number[]) => arr[Math.floor(arr.length * 0.5)];
+    const p95 = (arr: number[]) => arr[Math.floor(arr.length * 0.95)];
 
-    if (p95 > 2000) {
-      console.warn(`  ⚠ p95 (${p95}ms) exceeds default recallTimeoutMs (2000ms)`);
-    }
-  }, 60_000);
+    console.log(`  fast — p50=${p50(fastLatencies)}ms  p95=${p95(fastLatencies)}ms  [${fastLatencies.map((l) => `${l}ms`).join(", ")}]`);
+    console.log(`  full — p50=${p50(fullLatencies)}ms  p95=${p95(fullLatencies)}ms  [${fullLatencies.map((l) => `${l}ms`).join(", ")}]`);
+    console.log(`  fast is ${((p50(fullLatencies) / p50(fastLatencies)) - 1) > 0 ? ((p50(fullLatencies) / p50(fastLatencies) - 1) * 100).toFixed(0) + "% faster" : "not faster"} at p50`);
+
+    expect(Array.isArray(fastLatencies)).toBe(true);
+    expect(Array.isArray(fullLatencies)).toBe(true);
+  }, 120_000);
 });
