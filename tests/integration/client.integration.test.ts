@@ -54,6 +54,16 @@ describeIf(!!API_KEY)("CortexClient integration", () => {
     console.log(`  Submitted conversation job: ${result.job_id} (status: ${result.status})`);
   }, 15_000);
 
+  it("warmup returns tenant_id and already_warm flag", async () => {
+    const result = await client.warmup();
+
+    expect(result).toBeDefined();
+    expect(typeof result.tenant_id).toBe("string");
+    expect(result.tenant_id.length).toBeGreaterThan(0);
+    expect(typeof result.already_warm).toBe("boolean");
+    console.log(`  Warmup: tenant=${result.tenant_id}, already_warm=${result.already_warm}`);
+  }, 30_000);
+
   it("retrieve returns results with expected shape", async () => {
     const result = await client.retrieve("What database does the project use?", 5, "fast", 10_000);
 

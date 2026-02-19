@@ -73,6 +73,7 @@ export function createRecallHandler(
         apiMode as "fast" | "full",
         config.recallTimeoutMs,
         config.recallQueryType as QueryType,
+        { referenceDate: new Date().toISOString() },
       );
 
       const elapsed = Date.now() - start;

@@ -117,6 +117,7 @@ describe("createRecallHandler", () => {
       "fast", // balanced maps to fast
       500,
       "combined",
+      { referenceDate: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/) },
     );
   });
 
@@ -134,6 +135,7 @@ describe("createRecallHandler", () => {
       "full",
       500,
       "combined",
+      { referenceDate: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/) },
     );
   });
 });

@@ -1,11 +1,30 @@
+export type NodeType =
+  | "FACT"
+  | "ENTITY"
+  | "EMOTION"
+  | "INSIGHT"
+  | "VALUE"
+  | "BELIEF"
+  | "LIFECONTEXT"
+  | "SESSION"
+  | "COMMUNITY";
+
+export interface RetrieveResultMetadata {
+  speaker?: string;
+  fact_type?: string;
+  entity_refs?: string[];
+  occurred_at?: string | null;
+  [key: string]: unknown;
+}
+
 export interface RetrieveResult {
   node_id: string;
-  type: string;
+  type: NodeType;
   content: string;
   score: number;
   source?: string;
   confidence?: number;
-  metadata?: Record<string, unknown>;
+  metadata?: RetrieveResultMetadata;
 }
 
 export interface RetrieveResponse {
@@ -49,6 +68,24 @@ export interface ConversationMessage {
 }
 
 export type QueryType = "factual" | "emotional" | "combined";
+
+export interface BatchIngestItem {
+  text: string;
+  session_id?: string;
+  reference_date?: string;
+}
+
+export interface BatchIngestResponse {
+  results: IngestResponse[];
+  total_nodes_created: number;
+  total_edges_created: number;
+  failed_count: number;
+  errors: string[];
+}
+
+export interface HealthCheckResponse {
+  status: string;
+}
 
 export interface JobSubmitResponse {
   job_id: string;
@@ -130,10 +167,18 @@ export class CortexClient {
     mode: "fast" | "full",
     timeoutMs: number,
     queryType?: QueryType,
+    options?: { referenceDate?: string; debug?: boolean },
   ): Promise<RetrieveResponse> {
     return this.fetchJsonWithTimeout<RetrieveResponse>(
       `${this.baseUrl}/v1/retrieve`,
-      { query, top_k: topK, mode, query_type: queryType },
+      {
+        query,
+        top_k: topK,
+        mode,
+        query_type: queryType,
+        reference_date: options?.referenceDate ?? undefined,
+        debug: options?.debug ?? undefined,
+      },
       timeoutMs,
       "retrieve",
     );
@@ -211,6 +256,18 @@ export class CortexClient {
       { messages, session_id: sessionId, reference_date: referenceDate ?? null },
       DEFAULT_SUBMIT_TIMEOUT_MS,
       "jobs/ingest/conversation",
+    );
+  }
+
+  async batchIngest(
+    items: BatchIngestItem[],
+    timeoutMs = DEFAULT_INGEST_TIMEOUT_MS,
+  ): Promise<BatchIngestResponse> {
+    return this.fetchJsonWithTimeout<BatchIngestResponse>(
+      `${this.baseUrl}/v1/ingest/batch`,
+      { items },
+      timeoutMs,
+      "ingest/batch",
     );
   }
 
