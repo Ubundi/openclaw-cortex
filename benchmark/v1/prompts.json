@@ -1,0 +1,325 @@
+[
+  {
+    "id": "A01",
+    "category": "A",
+    "prompt": "What port does the dev server run on?",
+    "groundTruth": "Port 3001 (not the default 3000, because another service uses 3000 locally)",
+    "sourceSession": "session-01-project-setup",
+    "compactionRetains": false
+  },
+  {
+    "id": "A02",
+    "category": "A",
+    "prompt": "What TypeScript target is configured in tsconfig?",
+    "groundTruth": "ES2022 with strict mode enabled",
+    "sourceSession": "session-01-project-setup",
+    "compactionRetains": true
+  },
+  {
+    "id": "A03",
+    "category": "A",
+    "prompt": "What is the Redis cache TTL?",
+    "groundTruth": "300 seconds (5 minutes)",
+    "sourceSession": "session-05-redis-caching",
+    "compactionRetains": false
+  },
+  {
+    "id": "A04",
+    "category": "A",
+    "prompt": "What is the Redis cache key format?",
+    "groundTruth": "cache:{entity}:{id} — for example cache:user:42",
+    "sourceSession": "session-05-redis-caching",
+    "compactionRetains": false
+  },
+  {
+    "id": "A05",
+    "category": "A",
+    "prompt": "What is the WebSocket ping interval?",
+    "groundTruth": "30 seconds ping interval with a 5 second pong timeout",
+    "sourceSession": "session-03-bug-fix",
+    "compactionRetains": false
+  },
+  {
+    "id": "A06",
+    "category": "A",
+    "prompt": "Where do shared cross-module types live?",
+    "groundTruth": "In a root-level types.ts file",
+    "sourceSession": "session-04-preferences",
+    "compactionRetains": true
+  },
+  {
+    "id": "A07",
+    "category": "A",
+    "prompt": "What is the maximum allowed function length?",
+    "groundTruth": "30 lines maximum per function",
+    "sourceSession": "session-06-code-review",
+    "compactionRetains": false
+  },
+  {
+    "id": "A08",
+    "category": "A",
+    "prompt": "Where is the Redis client singleton defined?",
+    "groundTruth": "src/lib/redis.ts",
+    "sourceSession": "session-05-redis-caching",
+    "compactionRetains": false
+  },
+  {
+    "id": "A09",
+    "category": "A",
+    "prompt": "What format should error messages follow?",
+    "groundTruth": "{module}.{function}: {description} — e.g. redis.connect: Failed to connect",
+    "sourceSession": "session-06-code-review",
+    "compactionRetains": false
+  },
+  {
+    "id": "A10",
+    "category": "A",
+    "prompt": "Where are Zod validators stored?",
+    "groundTruth": "In src/validation/ directory, one file per domain (e.g. src/validation/user.ts)",
+    "sourceSession": "session-02-architecture",
+    "compactionRetains": true
+  },
+  {
+    "id": "A11",
+    "category": "A",
+    "prompt": "What Redis package is used instead of the default redis package?",
+    "groundTruth": "ioredis — chosen for better TypeScript support and cluster handling",
+    "sourceSession": "session-05-redis-caching",
+    "compactionRetains": true
+  },
+  {
+    "id": "A12",
+    "category": "A",
+    "prompt": "What caused the JWT authentication to break?",
+    "groundTruth": "The JWT secret was read at module import time (const JWT_SECRET = process.env.JWT_SECRET) before dotenv.config() was called, resulting in undefined",
+    "sourceSession": "session-07-jwt-debugging",
+    "compactionRetains": true
+  },
+  {
+    "id": "A13",
+    "category": "A",
+    "prompt": "What custom span attributes are added for OpenTelemetry tracing?",
+    "groundTruth": "app.request_id (from X-Request-ID header or generated UUID) and app.user_id (authenticated user ID)",
+    "sourceSession": "session-08-planning",
+    "compactionRetains": false
+  },
+  {
+    "id": "A14",
+    "category": "A",
+    "prompt": "What WebSocket connection states are defined?",
+    "groundTruth": "CONNECTING, OPEN, CLOSING, CLOSED — using a ConnectionState enum",
+    "sourceSession": "session-03-bug-fix",
+    "compactionRetains": false
+  },
+  {
+    "id": "A15",
+    "category": "A",
+    "prompt": "What rate limiting package was chosen?",
+    "groundTruth": "express-rate-limit",
+    "sourceSession": "session-08-planning",
+    "compactionRetains": true
+  },
+
+  {
+    "id": "B01",
+    "category": "B",
+    "prompt": "Why was Zod chosen over Joi for validation?",
+    "groundTruth": "TypeScript inference — Zod lets you define the schema once and get the type via z.infer, while Joi requires maintaining separate TypeScript interfaces that can drift",
+    "sourceSession": "session-02-architecture",
+    "compactionRetains": true
+  },
+  {
+    "id": "B02",
+    "category": "B",
+    "prompt": "Why was Drizzle ORM chosen over Prisma?",
+    "groundTruth": "Bundle size — Prisma adds ~10MB for its query engine binary while Drizzle is ~50KB pure TypeScript. Drizzle also has SQL-like syntax with less abstraction.",
+    "sourceSession": "session-08-planning",
+    "compactionRetains": true
+  },
+  {
+    "id": "B03",
+    "category": "B",
+    "prompt": "Why is SCAN used instead of KEYS for Redis cache invalidation?",
+    "groundTruth": "KEYS blocks the entire Redis instance on large datasets, while SCAN iterates incrementally keeping Redis responsive",
+    "sourceSession": "session-05-redis-caching",
+    "compactionRetains": false
+  },
+  {
+    "id": "B04",
+    "category": "B",
+    "prompt": "Why was the lazy getter approach chosen for the JWT secret over moving dotenv.config()?",
+    "groundTruth": "Moving dotenv.config() to the top of index.ts is fragile because import order matters. A lazy getter reads the value at runtime, so it always runs after the environment is configured.",
+    "sourceSession": "session-07-jwt-debugging",
+    "compactionRetains": false
+  },
+  {
+    "id": "B05",
+    "category": "B",
+    "prompt": "Why are default exports banned?",
+    "groundTruth": "Default exports make refactoring harder because the import name isn't tied to the export name, and they have worse IDE auto-import support",
+    "sourceSession": "session-04-preferences",
+    "compactionRetains": true
+  },
+  {
+    "id": "B06",
+    "category": "B",
+    "prompt": "Why was vitest chosen over jest?",
+    "groundTruth": "Native ESM support and faster execution",
+    "sourceSession": "session-01-project-setup",
+    "compactionRetains": true
+  },
+  {
+    "id": "B07",
+    "category": "B",
+    "prompt": "Why are 'as' type assertions banned in TypeScript?",
+    "groundTruth": "They are type-safety escape hatches that hide bugs. Type guards or discriminated unions should be used instead. The only exception is 'as const' which narrows types.",
+    "sourceSession": "session-06-code-review",
+    "compactionRetains": false
+  },
+  {
+    "id": "B08",
+    "category": "B",
+    "prompt": "Why does the architecture use .parse() instead of .safeParse() at API boundaries?",
+    "groundTruth": "Validation errors should throw immediately at API boundaries to catch bad data early. safeParse() is reserved for optional/user-facing validation where all errors need to be collected.",
+    "sourceSession": "session-02-architecture",
+    "compactionRetains": false
+  },
+  {
+    "id": "B09",
+    "category": "B",
+    "prompt": "Why is the dev server on a non-default port?",
+    "groundTruth": "Another service is already using port 3000 locally, so the dev server was configured to use 3001",
+    "sourceSession": "session-01-project-setup",
+    "compactionRetains": false
+  },
+  {
+    "id": "B10",
+    "category": "B",
+    "prompt": "Why was ioredis chosen over the default redis package?",
+    "groundTruth": "Better TypeScript support and cluster handling capabilities",
+    "sourceSession": "session-05-redis-caching",
+    "compactionRetains": true
+  },
+
+  {
+    "id": "C01",
+    "category": "C",
+    "prompt": "Should we use named or default exports?",
+    "groundTruth": "Named exports only, never default exports. An ESLint no-default-export rule enforces this.",
+    "sourceSession": "session-04-preferences",
+    "compactionRetains": true
+  },
+  {
+    "id": "C02",
+    "category": "C",
+    "prompt": "Is auto-committing allowed in scripts or automation?",
+    "groundTruth": "No, never auto-commit. The user always wants to review changes before committing. Automation should stop at staging changes at most.",
+    "sourceSession": "session-04-preferences",
+    "compactionRetains": true
+  },
+  {
+    "id": "C03",
+    "category": "C",
+    "prompt": "Can I use an 'as' type assertion to cast this API response?",
+    "groundTruth": "No — 'as' assertions are banned except 'as const'. Use a type guard function or fix the types instead.",
+    "sourceSession": "session-06-code-review",
+    "compactionRetains": false
+  },
+  {
+    "id": "C04",
+    "category": "C",
+    "prompt": "What package manager and runtime does this project use?",
+    "groundTruth": "Bun — used as both the runtime and package manager",
+    "sourceSession": "session-01-project-setup",
+    "compactionRetains": true
+  },
+  {
+    "id": "C05",
+    "category": "C",
+    "prompt": "Where should a new type that's used by two modules be placed?",
+    "groundTruth": "In the root-level types.ts file. Only module-specific types that are used within a single module stay local.",
+    "sourceSession": "session-04-preferences",
+    "compactionRetains": true
+  },
+  {
+    "id": "C06",
+    "category": "C",
+    "prompt": "What testing framework does the project use?",
+    "groundTruth": "Vitest with globals option enabled (no explicit imports for describe/it/expect needed)",
+    "sourceSession": "session-01-project-setup",
+    "compactionRetains": true
+  },
+  {
+    "id": "C07",
+    "category": "C",
+    "prompt": "Should pre-commit hooks modify files automatically?",
+    "groundTruth": "No — pre-commit hooks should lint and check but never modify files automatically. The user always reviews and commits manually.",
+    "sourceSession": "session-04-preferences",
+    "compactionRetains": false
+  },
+  {
+    "id": "C08",
+    "category": "C",
+    "prompt": "How should switch statements be handled when they approach the 30-line function limit?",
+    "groundTruth": "Refactor them into lookup maps to keep functions under the 30-line maximum",
+    "sourceSession": "session-06-code-review",
+    "compactionRetains": false
+  },
+  {
+    "id": "C09",
+    "category": "C",
+    "prompt": "What validation method should be used at internal API boundaries?",
+    "groundTruth": "Zod .parse() — which throws ZodError on invalid input. .safeParse() is only for user-facing validation.",
+    "sourceSession": "session-02-architecture",
+    "compactionRetains": false
+  },
+  {
+    "id": "C10",
+    "category": "C",
+    "prompt": "What tracing format is used for observability?",
+    "groundTruth": "OpenTelemetry with OTLP export format, using @opentelemetry/sdk-node with auto-instrumentation for Express, HTTP, and ioredis",
+    "sourceSession": "session-08-planning",
+    "compactionRetains": true
+  },
+
+  {
+    "id": "D01",
+    "category": "D",
+    "prompt": "What testing and validation tools does the project use?",
+    "groundTruth": "Vitest for testing (chosen for native ESM support) and Zod for validation (chosen for TypeScript inference). Both emphasize TypeScript-first design.",
+    "sourceSession": "session-01-project-setup,session-02-architecture",
+    "compactionRetains": true
+  },
+  {
+    "id": "D02",
+    "category": "D",
+    "prompt": "How does the project handle environment variables safely, given the JWT bug?",
+    "groundTruth": "Environment variables should not be read at import time. Use lazy getter functions that read at runtime after dotenv.config() has run. Add startup validation that fails fast if required vars are missing.",
+    "sourceSession": "session-07-jwt-debugging,session-01-project-setup",
+    "compactionRetains": false
+  },
+  {
+    "id": "D03",
+    "category": "D",
+    "prompt": "What are all the TypeScript strictness rules enforced in this project?",
+    "groundTruth": "tsconfig strict mode (ES2022), no default exports (ESLint rule), no 'as' assertions (except 'as const'), 30-line max functions, error messages must include operation name",
+    "sourceSession": "session-01-project-setup,session-04-preferences,session-06-code-review",
+    "compactionRetains": false
+  },
+  {
+    "id": "D04",
+    "category": "D",
+    "prompt": "What infrastructure services are being added and what packages support them?",
+    "groundTruth": "Redis caching (ioredis, src/lib/redis.ts), rate limiting (express-rate-limit), database ORM (Drizzle, chosen over Prisma for bundle size), distributed tracing (OpenTelemetry with OTLP)",
+    "sourceSession": "session-05-redis-caching,session-08-planning",
+    "compactionRetains": false
+  },
+  {
+    "id": "D05",
+    "category": "D",
+    "prompt": "How do the code review standards and the JWT bug relate to error handling?",
+    "groundTruth": "Error messages must include operation name (module.function: description format from code review). The JWT fix added startup validation that throws with this format (auth.getJwtSecret: JWT_SECRET environment variable is not set) to fail fast rather than silently using an empty string.",
+    "sourceSession": "session-06-code-review,session-07-jwt-debugging",
+    "compactionRetains": false
+  }
+]

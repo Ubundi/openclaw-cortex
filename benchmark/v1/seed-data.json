@@ -1,0 +1,250 @@
+[
+  {
+    "id": "session-01-project-setup",
+    "description": "Project setup — TypeScript, bun, vitest, port 3001, tsconfig ES2022/strict",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Let's set up the project. I want to use TypeScript with bun as the runtime and package manager."
+      },
+      {
+        "role": "assistant",
+        "content": "Great choice. I'll initialize with `bun init` and set up TypeScript. For the tsconfig, I'd recommend targeting ES2022 with strict mode enabled — that gives us top-level await and modern JS features while keeping type safety tight."
+      },
+      {
+        "role": "user",
+        "content": "Yes, ES2022 strict. Also set up vitest for testing — I prefer it over jest because of native ESM support and the faster execution."
+      },
+      {
+        "role": "assistant",
+        "content": "Done. I've configured vitest in `vitest.config.ts` with the globals option enabled so you don't need explicit imports for describe/it/expect. The test script is `bun run test`. I also added a `test:watch` script for development."
+      },
+      {
+        "role": "user",
+        "content": "Perfect. One more thing — the dev server should run on port 3001, not the default 3000. We have another service using 3000 locally."
+      },
+      {
+        "role": "assistant",
+        "content": "Updated the dev server config to use port 3001. I've set it in `src/config.ts` as the default and also added a `PORT` environment variable override so it can be changed in different environments."
+      }
+    ]
+  },
+  {
+    "id": "session-02-architecture",
+    "description": "Architecture — Zod over Joi for validation, validators in src/validation/",
+    "messages": [
+      {
+        "role": "user",
+        "content": "I need to add input validation. Should we use Zod or Joi?"
+      },
+      {
+        "role": "assistant",
+        "content": "I'd recommend Zod for this project. The main advantage is TypeScript inference — you define the schema once and get the type automatically via `z.infer<typeof schema>`. With Joi you'd have to maintain separate TypeScript interfaces that can drift out of sync."
+      },
+      {
+        "role": "user",
+        "content": "Good point about the inference. Let's go with Zod. Where should we put the validators?"
+      },
+      {
+        "role": "assistant",
+        "content": "I suggest a dedicated `src/validation/` directory. Each domain gets its own file — for example `src/validation/user.ts`, `src/validation/project.ts`. We export both the schema and the inferred type from each file. This keeps validation concerns separated from business logic."
+      },
+      {
+        "role": "user",
+        "content": "That works. Make sure we use `.parse()` not `.safeParse()` for internal API boundaries — I want validation errors to throw immediately so we catch bad data early."
+      },
+      {
+        "role": "assistant",
+        "content": "Agreed. I'll use `.parse()` at API boundaries which throws `ZodError` on invalid input. We can catch those in the error middleware and return a 400 with structured error details. For optional/user-facing validation where we want to collect all errors, we'll use `.safeParse()` explicitly."
+      }
+    ]
+  },
+  {
+    "id": "session-03-bug-fix",
+    "description": "Bug fix — WebSocket race condition with heartbeat timer (30s ping, 5s pong timeout)",
+    "messages": [
+      {
+        "role": "user",
+        "content": "There's a bug where WebSocket connections are dropping randomly after a few minutes. The server logs show 'connection closed abnormally' but no error details."
+      },
+      {
+        "role": "assistant",
+        "content": "This sounds like a classic heartbeat race condition. Let me check the WebSocket handler... I see the issue. The `onClose` handler clears the heartbeat timer, but if a `pong` response arrives after the connection is already marked as closing, it tries to reset a timer that's been cleared. This can cause the connection state to become inconsistent."
+      },
+      {
+        "role": "user",
+        "content": "How should we fix it?"
+      },
+      {
+        "role": "assistant",
+        "content": "We need to add a proper heartbeat mechanism with two intervals: a 30-second ping interval and a 5-second pong timeout. When the ping fires, we set a `waitingForPong` flag and start a 5-second timer. If the pong arrives, clear the timer and reset the flag. If the 5-second timer fires without a pong, terminate the connection. Also, we need to guard the `onClose` handler to check if timers exist before clearing them."
+      },
+      {
+        "role": "user",
+        "content": "That makes sense. Also add a connection state enum so we don't have boolean flags flying around."
+      },
+      {
+        "role": "assistant",
+        "content": "Good call. I've added a `ConnectionState` enum with `CONNECTING`, `OPEN`, `CLOSING`, `CLOSED` states. The heartbeat logic only runs when state is `OPEN`, and all timer operations check the state first. The ping interval is 30 seconds, pong timeout is 5 seconds, and the `terminate()` call properly transitions through `CLOSING` to `CLOSED` to prevent any race conditions."
+      }
+    ]
+  },
+  {
+    "id": "session-04-preferences",
+    "description": "Preferences — named exports only, no auto-commit, shared types in root types.ts",
+    "messages": [
+      {
+        "role": "user",
+        "content": "A few coding preferences I want to establish. First: always use named exports, never default exports. Default exports make refactoring harder because the import name isn't tied to the export name."
+      },
+      {
+        "role": "assistant",
+        "content": "Understood. I'll use named exports exclusively. This also means better IDE support for auto-imports since the name is always consistent. I'll add an ESLint rule `no-default-export` to enforce this across the codebase."
+      },
+      {
+        "role": "user",
+        "content": "Second: never auto-commit. I always want to review changes before committing. Don't run git commit in any scripts or automation."
+      },
+      {
+        "role": "assistant",
+        "content": "Noted — no auto-commits. Any automation will stop at staging changes at most, and I'll always let you review and commit manually. This applies to pre-commit hooks too — they should lint and check but never modify files automatically."
+      },
+      {
+        "role": "user",
+        "content": "Third: shared types should live in a root-level `types.ts` file, not scattered across modules. If a type is used by more than one module, it goes in `types.ts`."
+      },
+      {
+        "role": "assistant",
+        "content": "Got it. `types.ts` at the project root will be the single source of truth for cross-module types. Module-specific types that are only used within that module can stay local, but anything shared gets hoisted to `types.ts`. I'll keep it organized with section comments grouping related types."
+      }
+    ]
+  },
+  {
+    "id": "session-05-redis-caching",
+    "description": "Redis caching — ioredis, TTL 300s, key format cache:{entity}:{id}, client in src/lib/redis.ts",
+    "messages": [
+      {
+        "role": "user",
+        "content": "We need to add Redis caching. Use the ioredis package — it has better TypeScript support and cluster handling than the default redis package."
+      },
+      {
+        "role": "assistant",
+        "content": "I'll set up ioredis. The client will be initialized in `src/lib/redis.ts` as a singleton export. Connection config will come from environment variables: `REDIS_HOST` (default localhost), `REDIS_PORT` (default 6379), and `REDIS_PASSWORD` (optional)."
+      },
+      {
+        "role": "user",
+        "content": "Use a 300 second TTL for all cached values. And I want a consistent key format: `cache:{entity}:{id}`. So a cached user with ID 42 would be `cache:user:42`."
+      },
+      {
+        "role": "assistant",
+        "content": "Perfect. I'll create a helper function `cacheKey(entity: string, id: string | number): string` that enforces the `cache:{entity}:{id}` format. The TTL of 300 seconds (5 minutes) will be the default for all `set` operations. I'll also add a `withCache<T>()` wrapper that checks cache first, calls the data source on miss, and populates the cache on the way back."
+      },
+      {
+        "role": "user",
+        "content": "Good. Also add a cache invalidation helper that accepts an entity type and invalidates all keys matching that pattern using SCAN — don't use KEYS in production, it blocks."
+      },
+      {
+        "role": "assistant",
+        "content": "Smart — `KEYS` can block the entire Redis instance on large datasets. I'll implement `invalidateByEntity(entity: string)` using `SCAN` with a `MATCH` pattern of `cache:{entity}:*` and a `COUNT` of 100 per iteration. Each batch of matched keys gets deleted with `DEL`. This keeps Redis responsive during bulk invalidation."
+      }
+    ]
+  },
+  {
+    "id": "session-06-code-review",
+    "description": "Code review — 30-line max functions, no default exports, error messages include operation name, no 'as' assertions",
+    "messages": [
+      {
+        "role": "user",
+        "content": "I want to establish code review standards. Functions should be no longer than 30 lines. If a function exceeds that, it should be split."
+      },
+      {
+        "role": "assistant",
+        "content": "I'll enforce a 30-line maximum per function. This naturally encourages single-responsibility and makes functions easier to test. Edge case: some switch statements might push close to the limit, but those can usually be refactored into lookup maps."
+      },
+      {
+        "role": "user",
+        "content": "Right. Also: every error message must include the operation name. So instead of 'Failed to connect' it should be 'redis.connect: Failed to connect'. This makes log searching much easier."
+      },
+      {
+        "role": "assistant",
+        "content": "Great pattern. I'll use the format `{module}.{function}: {description}` for all error messages. For example: `cache.invalidateByEntity: SCAN failed after 3 retries`. This gives immediate context in logs without needing a stack trace."
+      },
+      {
+        "role": "user",
+        "content": "One more: absolutely no `as` type assertions in TypeScript. If you need a type assertion, use a type guard function or fix the types. The only exception is `as const` for literal types."
+      },
+      {
+        "role": "assistant",
+        "content": "Agreed — `as` assertions are type-safety escape hatches that hide bugs. I'll use type guards (`function isUser(x: unknown): x is User`) or discriminated unions instead. The `as const` exception makes sense since that actually narrows types rather than widening them. I'll add an ESLint rule to catch `as` assertions in code review."
+      }
+    ]
+  },
+  {
+    "id": "session-07-jwt-debugging",
+    "description": "JWT debugging — secret read at import time before dotenv loaded, fix: lazy getter or early dotenv.config()",
+    "messages": [
+      {
+        "role": "user",
+        "content": "The JWT authentication is broken. Tokens are being rejected even though they should be valid. I've verified the secret is correct in the .env file."
+      },
+      {
+        "role": "assistant",
+        "content": "I found the issue. The JWT secret is being read at module import time with `const JWT_SECRET = process.env.JWT_SECRET`. But `dotenv.config()` is called in `src/index.ts` which runs after the auth module is imported. So `JWT_SECRET` is `undefined` when the module loads, and all token verification fails because it's signing with `undefined`."
+      },
+      {
+        "role": "user",
+        "content": "Ah, classic import-time vs runtime issue. What's the best fix?"
+      },
+      {
+        "role": "assistant",
+        "content": "Two good options: (1) Move `dotenv.config()` to the very top of `src/index.ts` before any other imports — but this is fragile because import order matters. (2) Better: use a lazy getter function like `function getJwtSecret(): string { return process.env.JWT_SECRET ?? '' }` and call it at runtime instead of import time. This way the value is always read after the environment is configured."
+      },
+      {
+        "role": "user",
+        "content": "Go with the lazy getter approach. Also add a startup check that throws if JWT_SECRET is empty — I don't want silent failures where tokens are signed with an empty string."
+      },
+      {
+        "role": "assistant",
+        "content": "Done. The `getJwtSecret()` function now throws `auth.getJwtSecret: JWT_SECRET environment variable is not set` if the value is empty or undefined. I also added a startup validation in `src/index.ts` that calls `getJwtSecret()` early to fail fast on boot rather than on the first auth request."
+      }
+    ]
+  },
+  {
+    "id": "session-08-planning",
+    "description": "Planning — express-rate-limit, Drizzle ORM over Prisma for bundle size, OpenTelemetry tracing",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Let's plan the next sprint. I want to add rate limiting, a proper ORM, and observability tracing."
+      },
+      {
+        "role": "assistant",
+        "content": "For rate limiting, I suggest `express-rate-limit`. It's the most widely used Express middleware for this, supports memory and Redis stores, and has a simple configuration API. We can set up different limits for auth endpoints (stricter) vs general API (more lenient)."
+      },
+      {
+        "role": "user",
+        "content": "Good. For ORM — I've been comparing Prisma and Drizzle. I'm leaning toward Drizzle because Prisma's binary engine bloats the bundle size significantly."
+      },
+      {
+        "role": "assistant",
+        "content": "Drizzle is a solid choice for this project. The bundle size difference is dramatic — Prisma adds ~10MB for its query engine binary, while Drizzle is a pure TypeScript library at around 50KB. Drizzle also gives you SQL-like syntax that maps closely to actual queries, so there's less abstraction hiding what's happening. Migrations are handled by `drizzle-kit`."
+      },
+      {
+        "role": "user",
+        "content": "And for tracing, use OpenTelemetry. I want distributed tracing across our microservices."
+      },
+      {
+        "role": "assistant",
+        "content": "I'll set up OpenTelemetry with `@opentelemetry/sdk-node` and the auto-instrumentation packages for Express, HTTP, and ioredis. We'll export traces in OTLP format so they can go to Jaeger, Grafana Tempo, or any OTLP-compatible backend. The key spans to instrument are: incoming HTTP requests, outgoing API calls, Redis operations, and database queries. Each span will include relevant metadata like route, status code, and query duration."
+      },
+      {
+        "role": "user",
+        "content": "Make sure we add custom span attributes for the user ID and request ID so we can trace requests across services."
+      },
+      {
+        "role": "assistant",
+        "content": "Absolutely. I'll create a middleware that extracts the `X-Request-ID` header (or generates a UUID if missing) and the authenticated user ID, then attaches both as span attributes: `app.request_id` and `app.user_id`. These propagate automatically to all child spans via OpenTelemetry context, so any downstream service call or database query will carry the same trace context."
+      }
+    ]
+  }
+]

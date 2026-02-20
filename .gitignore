@@ -26,3 +26,6 @@ pnpm-debug.log*
 
 # Internal architecture docs (not public)
 docs/
+
+# Benchmark run results
+benchmark/v1/results/*.json
