@@ -2,7 +2,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import plugin from "../../src/core/plugin.js";
 import { CortexClient } from "../../src/cortex/client.js";
 import { FileSyncWatcher } from "../../src/features/sync/watcher.js";
-import { PeriodicReflect } from "../../src/features/reflect/service.js";
 import { RetryQueue } from "../../src/shared/queue/retry-queue.js";
 
 type HookHandler = (...args: any[]) => any;
@@ -53,10 +52,6 @@ async function flushMicrotasks() {
 
 function mockClientHealth() {
   vi.spyOn(CortexClient.prototype, "healthCheck").mockResolvedValue(true);
-  vi.spyOn(CortexClient.prototype, "warmup").mockResolvedValue({
-    tenant_id: "tenant-test",
-    already_warm: true,
-  });
 }
 
 describe("plugin lifecycle contract", () => {
@@ -73,7 +68,6 @@ describe("plugin lifecycle contract", () => {
     const { api, hooks, services } = makeApi({
       apiKey: "sk-test",
       fileSync: false,
-      reflectIntervalMs: 0,
     });
 
     plugin.register(api as any);
@@ -88,22 +82,18 @@ describe("plugin lifecycle contract", () => {
     expect(services[0]?.id).toBe("cortex-services");
 
     expect(CortexClient.prototype.healthCheck).toHaveBeenCalledOnce();
-    expect(CortexClient.prototype.warmup).toHaveBeenCalledOnce();
   });
 
-  it("service start/stop initializes retry queue, file sync, and reflect", async () => {
+  it("service start/stop initializes retry queue and file sync", async () => {
     const retryStart = vi.spyOn(RetryQueue.prototype, "start").mockImplementation(() => {});
     const retryStop = vi.spyOn(RetryQueue.prototype, "stop").mockImplementation(() => {});
     const watcherStart = vi.spyOn(FileSyncWatcher.prototype, "start").mockImplementation(() => {});
     const watcherStop = vi.spyOn(FileSyncWatcher.prototype, "stop").mockImplementation(() => {});
-    const reflectStart = vi.spyOn(PeriodicReflect.prototype, "start").mockImplementation(() => {});
-    const reflectStop = vi.spyOn(PeriodicReflect.prototype, "stop").mockImplementation(() => {});
 
     const { api, services } = makeApi({
       apiKey: "sk-test",
       fileSync: true,
       transcriptSync: true,
-      reflectIntervalMs: 1000,
     });
 
     plugin.register(api as any);
@@ -115,11 +105,9 @@ describe("plugin lifecycle contract", () => {
     expect(() => service.start?.({ workspaceDir: "/tmp/workspace" })).not.toThrow();
     expect(retryStart).toHaveBeenCalledOnce();
     expect(watcherStart).toHaveBeenCalledOnce();
-    expect(reflectStart).toHaveBeenCalledOnce();
 
     expect(() => service.stop?.call(service)).not.toThrow();
     expect(watcherStop).toHaveBeenCalledOnce();
-    expect(reflectStop).toHaveBeenCalledOnce();
     expect(retryStop).toHaveBeenCalledOnce();
 
     expect(() => service.stop?.call(service)).not.toThrow();
@@ -128,12 +116,10 @@ describe("plugin lifecycle contract", () => {
   it("service start is idempotent and does not duplicate background services", async () => {
     const retryStart = vi.spyOn(RetryQueue.prototype, "start").mockImplementation(() => {});
     const watcherStart = vi.spyOn(FileSyncWatcher.prototype, "start").mockImplementation(() => {});
-    const reflectStart = vi.spyOn(PeriodicReflect.prototype, "start").mockImplementation(() => {});
 
     const { api, services } = makeApi({
       apiKey: "sk-test",
       fileSync: true,
-      reflectIntervalMs: 1000,
     });
 
     plugin.register(api as any);
@@ -145,7 +131,6 @@ describe("plugin lifecycle contract", () => {
 
     expect(retryStart).toHaveBeenCalledOnce();
     expect(watcherStart).toHaveBeenCalledOnce();
-    expect(reflectStart).toHaveBeenCalledOnce();
   });
 
   it("logs warning and skips file sync when workspaceDir is missing", async () => {
@@ -155,7 +140,6 @@ describe("plugin lifecycle contract", () => {
     const { api, services, logger } = makeApi({
       apiKey: "sk-test",
       fileSync: true,
-      reflectIntervalMs: 0,
     });
 
     plugin.register(api as any);
@@ -171,16 +155,15 @@ describe("plugin lifecycle contract", () => {
 
   it("stop logs recall latency summary after recall handler runs", async () => {
     vi.spyOn(RetryQueue.prototype, "stop").mockImplementation(() => {});
-    vi.spyOn(CortexClient.prototype, "retrieve").mockResolvedValue({
-      results: [
-        { node_id: "n1", type: "FACT", content: "User prefers TypeScript", score: 0.9 },
+    vi.spyOn(CortexClient.prototype, "recall").mockResolvedValue({
+      memories: [
+        { content: "User prefers TypeScript", confidence: 0.9, when: null, session_id: null, entities: [] },
       ],
     });
 
     const { api, hooks, services, logger } = makeApi({
       apiKey: "sk-test",
       fileSync: false,
-      reflectIntervalMs: 0,
       recallTimeoutMs: 500,
     });
 
@@ -202,7 +185,6 @@ describe("plugin lifecycle contract", () => {
     const { api, hooks, services, logger } = makeApi({
       // apiKey intentionally missing
       fileSync: false,
-      reflectIntervalMs: 0,
     });
 
     plugin.register(api as any);

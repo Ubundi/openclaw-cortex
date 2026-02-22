@@ -1,0 +1,352 @@
+[
+  {
+    "id": "F01",
+    "category": "F",
+    "prompt": "What port does the Arclight API server run on in development?",
+    "groundTruth": "Port 4000. The PORT env var defaults to 4000, chosen to avoid conflict with Vite's default port 3000.",
+    "sourceSession": "s01"
+  },
+  {
+    "id": "F02",
+    "category": "F",
+    "prompt": "What is the default Redis cache TTL we use?",
+    "groundTruth": "600 seconds (10 minutes). This is the default TTL for cache entries using ioredis.",
+    "sourceSession": "s16"
+  },
+  {
+    "id": "F03",
+    "category": "F",
+    "prompt": "What is the key naming convention for Redis cache entries?",
+    "groundTruth": "arclight:{entity}:{id} — for example, arclight:user:abc123 or arclight:team:xyz789. This namespaces all keys under the arclight prefix.",
+    "sourceSession": "s16"
+  },
+  {
+    "id": "F04",
+    "category": "F",
+    "prompt": "What package manager does this project use?",
+    "groundTruth": "bun. It was chosen for fast installs and built-in TypeScript transpilation.",
+    "sourceSession": "s01"
+  },
+  {
+    "id": "F05",
+    "category": "F",
+    "prompt": "What URL prefix do all API routes use?",
+    "groundTruth": "/api/v1 — all endpoints are prefixed with /api/v1.",
+    "sourceSession": "s05"
+  },
+  {
+    "id": "F06",
+    "category": "F",
+    "prompt": "What TypeScript compilation target is configured?",
+    "groundTruth": "ES2022. This is what Bun and Node 18+ support natively, avoiding unnecessary downcompilation.",
+    "sourceSession": "s01"
+  },
+  {
+    "id": "F07",
+    "category": "F",
+    "prompt": "What test runner do we use?",
+    "groundTruth": "vitest — chosen because it is Vite-compatible, faster than Jest, and has native ESM support.",
+    "sourceSession": "s06"
+  },
+  {
+    "id": "F08",
+    "category": "F",
+    "prompt": "How long are S3 presigned upload URLs valid for?",
+    "groundTruth": "15 minutes. Presigned PUT URLs expire after 15 minutes.",
+    "sourceSession": "s12"
+  },
+  {
+    "id": "F09",
+    "category": "F",
+    "prompt": "What is the default rate limit for most API endpoints?",
+    "groundTruth": "100 requests per 15-minute window per IP. Auth endpoints get 1000 per 15-minute window.",
+    "sourceSession": "s14"
+  },
+  {
+    "id": "F10",
+    "category": "F",
+    "prompt": "What is the default Pino log level?",
+    "groundTruth": "'info'. The log level is set from the LOG_LEVEL env var, defaulting to 'info'.",
+    "sourceSession": "s15"
+  },
+  {
+    "id": "F11",
+    "category": "F",
+    "prompt": "What is the file naming convention for TypeScript source files?",
+    "groundTruth": "kebab-case — for example, user-profile.ts, auth-middleware.ts.",
+    "sourceSession": "s44"
+  },
+  {
+    "id": "F12",
+    "category": "F",
+    "prompt": "What is the database connection pool size for background workers?",
+    "groundTruth": "max 10 connections. The pg pool for background workers is configured with { max: 10 }.",
+    "sourceSession": "s30"
+  },
+  {
+    "id": "F13",
+    "category": "F",
+    "prompt": "Where is the Redis client instance defined?",
+    "groundTruth": "src/lib/redis.ts. The ioredis client is created there and exported as a singleton.",
+    "sourceSession": "s16"
+  },
+  {
+    "id": "F14",
+    "category": "F",
+    "prompt": "What is the required format for error messages?",
+    "groundTruth": "Errors must include the operation name: throw new Error(`${operation}: ${message}`). For example: throw new Error('createUser: email already exists').",
+    "sourceSession": "s23"
+  },
+  {
+    "id": "F15",
+    "category": "F",
+    "prompt": "What response envelope shape do all API endpoints return?",
+    "groundTruth": "{ data, error, meta }. Data is the payload (null on errors). Error is { code, message } (null on success). Meta holds pagination info.",
+    "sourceSession": "s05"
+  },
+  {
+    "id": "R01",
+    "category": "R",
+    "prompt": "Why did we choose Fastify over Express for the API server?",
+    "groundTruth": "Fastify is schema-first with built-in request/response validation via JSON Schema, giving TypeScript types from the same definition. It is also faster than Express. Express would have required adding a separate validation layer.",
+    "sourceSession": "s01"
+  },
+  {
+    "id": "R02",
+    "category": "R",
+    "prompt": "Why did we pick Drizzle ORM over Prisma?",
+    "groundTruth": "Prisma bundles a ~10MB query engine binary that causes problems in serverless environments. Drizzle is ~50KB, ships plain TypeScript, requires no code generation step, and produces more predictable SQL.",
+    "sourceSession": "s02"
+  },
+  {
+    "id": "R03",
+    "category": "R",
+    "prompt": "Why did we switch from JWT to iron-session for authentication?",
+    "groundTruth": "JWT tokens were being decoded by frontend JavaScript, exposing the user data structure (role, teamId, email). HS256 is a signature not encryption — the payload is visible to anyone with the token. iron-session encrypts the session data so the client only ever sees ciphertext.",
+    "sourceSession": "s25"
+  },
+  {
+    "id": "R04",
+    "category": "R",
+    "prompt": "Why did we switch from Resend to SendGrid for email?",
+    "groundTruth": "The compliance team required all third-party vendors to be SOC 2 Type 2 certified. Resend does not hold that certification. SendGrid does.",
+    "sourceSession": "s26"
+  },
+  {
+    "id": "R05",
+    "category": "R",
+    "prompt": "Why did we replace the custom background job queue with BullMQ?",
+    "groundTruth": "The custom setTimeout-based queue did not support job priorities, retries with configurable backoff, or failed job retention. Failed jobs were silently disappearing with no visibility.",
+    "sourceSession": "s27"
+  },
+  {
+    "id": "R06",
+    "category": "R",
+    "prompt": "Why do we use vitest instead of Jest?",
+    "groundTruth": "vitest is Vite-compatible, significantly faster than Jest on large codebases, and has native ESM support without extra transform configuration.",
+    "sourceSession": "s06"
+  },
+  {
+    "id": "R07",
+    "category": "R",
+    "prompt": "Why do we use presigned URLs for file uploads instead of routing uploads through the backend?",
+    "groundTruth": "Presigned S3 PUT URLs let the client upload directly to S3 without the file bytes going through the API server. This avoids memory pressure on the backend and removes the API server from the hot path for large uploads.",
+    "sourceSession": "s12"
+  },
+  {
+    "id": "R08",
+    "category": "R",
+    "prompt": "Why do we require conventional commits?",
+    "groundTruth": "Conventional commits keep the git log readable and enable automated changelog generation. They also provide structure for the PR template and squash merge strategy.",
+    "sourceSession": "s07"
+  },
+  {
+    "id": "R09",
+    "category": "R",
+    "prompt": "Why do we use environment variable validation with Zod at startup?",
+    "groundTruth": "To fail fast on missing required vars and get typed access to configuration. If a required env var is missing, the app throws a clear error at startup listing what's missing rather than failing mysteriously at runtime.",
+    "sourceSession": "s08"
+  },
+  {
+    "id": "R10",
+    "category": "R",
+    "prompt": "Why are UUID primary keys used instead of serial integers?",
+    "groundTruth": "UUIDs are safe to expose in URLs, work across distributed systems, and don't leak row count. Serial integers expose information about volume and ordering.",
+    "sourceSession": "s09"
+  },
+  {
+    "id": "E01",
+    "category": "E",
+    "prompt": "What authentication mechanism do we currently use?",
+    "groundTruth": "iron-session with encrypted cookies. We switched from JWT in week 4 because JWTs were exposing user data structure to the client. iron-session stores encrypted session data in the arclight_session cookie.",
+    "sourceSession": "s25"
+  },
+  {
+    "id": "E02",
+    "category": "E",
+    "prompt": "What email service do we use today?",
+    "groundTruth": "SendGrid. We switched from Resend after the compliance team required a SOC 2 Type 2 certified vendor. The API key env var is SENDGRID_API_KEY.",
+    "sourceSession": "s26"
+  },
+  {
+    "id": "E03",
+    "category": "E",
+    "prompt": "What system handles background job processing now?",
+    "groundTruth": "BullMQ. We replaced the custom setTimeout-based queue with BullMQ, which runs on our existing Redis instance. Queue definitions are in src/queues/ and worker definitions in src/workers/.",
+    "sourceSession": "s27"
+  },
+  {
+    "id": "E04",
+    "category": "E",
+    "prompt": "How long do user auth sessions last?",
+    "groundTruth": "7 days. iron-session cookies have maxAge set to 7 * 24 * 60 * 60 (7 days). This matches the refresh token lifetime we had with the previous JWT approach.",
+    "sourceSession": "s41"
+  },
+  {
+    "id": "E05",
+    "category": "E",
+    "prompt": "What environment variable holds the email service API key?",
+    "groundTruth": "SENDGRID_API_KEY. It was previously RESEND_API_KEY when we used Resend, but was renamed when we migrated to SendGrid.",
+    "sourceSession": "s26"
+  },
+  {
+    "id": "E06",
+    "category": "E",
+    "prompt": "Where is authentication session configuration defined?",
+    "groundTruth": "src/lib/session.ts. This file contains the SessionData interface (userId, teamId, role), the iron-session config (cookie name arclight_session, httpOnly, secure, sameSite:strict), and the getSession helper.",
+    "sourceSession": "s41"
+  },
+  {
+    "id": "E07",
+    "category": "E",
+    "prompt": "How do we apply database schema changes?",
+    "groundTruth": "Using drizzle-kit only: bun drizzle-kit generate to create migration SQL from schema.ts, then bun drizzle-kit migrate to apply it. Never make manual DDL changes to the database. Migration files are committed to git.",
+    "sourceSession": "s28"
+  },
+  {
+    "id": "E08",
+    "category": "E",
+    "prompt": "What packages were removed during the dependency audit?",
+    "groundTruth": "body-parser (Fastify handles content-type parsing), lodash (replaced with native JS), and moment (already replaced by date-fns but still in package.json).",
+    "sourceSession": "s32"
+  },
+  {
+    "id": "E09",
+    "category": "E",
+    "prompt": "What does our CI/CD pipeline currently do when a PR is opened?",
+    "groundTruth": "Lint, type-check (tsc --noEmit), run vitest tests, and build. All must pass before merge. Uses bun for package installation. Deploys to staging on merge to main.",
+    "sourceSession": "s35"
+  },
+  {
+    "id": "E10",
+    "category": "E",
+    "prompt": "What approach do we use for feature flags?",
+    "groundTruth": "Environment variables. Flags are defined as FEATURE_{NAME}=1 to enable, accessed via config.features object. App-specific vars use ARCLIGHT_ prefix. All flags documented in .env.example. No third-party service is used yet.",
+    "sourceSession": "s31"
+  },
+  {
+    "id": "S01",
+    "category": "S",
+    "prompt": "What naming conventions have we established for this codebase? Give me a complete summary.",
+    "groundTruth": "Files: kebab-case (user-profile.ts). Types/interfaces: PascalCase (UserProfile). Variables/functions: camelCase (getUserProfile). Constants: UPPER_SNAKE_CASE (MAX_RETRY_ATTEMPTS). Database tables: snake_case plural (user_events, team_members). Columns: snake_case (created_at). Env vars: UPPER_SNAKE_CASE; app-specific vars use ARCLIGHT_ prefix.",
+    "sourceSession": "s44"
+  },
+  {
+    "id": "S02",
+    "category": "S",
+    "prompt": "What code quality and review standards have we agreed on across the project?",
+    "groundTruth": "80% test coverage target (vitest, v8 provider). PRs must include tests for any new API endpoint. Max 400-line diff per PR. Conventional commit messages required. No force push to main. Squash merge strategy. PR template with testing checklist.",
+    "sourceSession": "s06, s07, s36"
+  },
+  {
+    "id": "S03",
+    "category": "S",
+    "prompt": "What security practices have we established?",
+    "groundTruth": "DOMPurify for user-generated HTML on the frontend. All DB queries via Drizzle parameterized builder (no raw SQL interpolation). CSP and other security headers via @fastify/helmet. Dependency vulnerability scanning (npm audit) in CI. Iron-session with encrypted cookies for auth. Stripe webhook signature verification with raw body.",
+    "sourceSession": "s37, s13, s25"
+  },
+  {
+    "id": "S04",
+    "category": "S",
+    "prompt": "What observability tools do we have set up?",
+    "groundTruth": "Pino structured logging (JSON in production, pretty in development, level from LOG_LEVEL env). OpenTelemetry tracing via @opentelemetry/sdk-node with Fastify and pg auto-instrumentation, exported to Jaeger locally via OTEL_EXPORTER_OTLP_ENDPOINT. Request IDs propagated in all log entries. Service name: arclight-api via OTEL_SERVICE_NAME.",
+    "sourceSession": "s15, s33"
+  },
+  {
+    "id": "S05",
+    "category": "S",
+    "prompt": "Summarize all the Redis-related decisions we've made in this project.",
+    "groundTruth": "Client: ioredis, instance in src/lib/redis.ts, connection from REDIS_URL. Key format: arclight:{entity}:{id}. Default TTL: 600 seconds. Cache invalidation: clear keys on write/delete via clearUserCache() helper. BullMQ also uses Redis for background job queues (separate connections, bull:{queueName}: prefix). Rate limiting currently uses in-memory store.",
+    "sourceSession": "s16, s20, s27"
+  },
+  {
+    "id": "S06",
+    "category": "S",
+    "prompt": "What Git and PR workflow conventions are we following?",
+    "groundTruth": "Conventional commits (feat:, fix:, docs:, refactor:, test:, chore:). Squash merge to main. No force push to main. Feature branches required. Max 400-line diff per PR. PR template with description and testing checklist. GitHub Actions CI must pass before merge.",
+    "sourceSession": "s07, s36"
+  },
+  {
+    "id": "S07",
+    "category": "S",
+    "prompt": "What third-party services are we integrated with?",
+    "groundTruth": "Stripe (payments, webhooks, idempotency keys). SendGrid (transactional email, via SENDGRID_API_KEY). AWS S3 (file uploads via presigned URLs, bucket from S3_BUCKET env). Redis/ioredis (caching + BullMQ queues). Neon (PostgreSQL serverless driver for request handlers). GitHub Actions (CI/CD). Jaeger (local tracing via OpenTelemetry).",
+    "sourceSession": "s10, s26, s12, s16, s02, s35, s33"
+  },
+  {
+    "id": "S08",
+    "category": "S",
+    "prompt": "What performance targets and measurement approach have we established?",
+    "groundTruth": "Targets: p50 < 50ms, p99 < 500ms for standard API endpoints. Write-heavy endpoints (session ingestion) allow p99 < 1000ms. Measurement: k6 load tests at 50 concurrent users for 5 minutes. Baseline stored in docs/performance/baseline.json. Run before major releases and compare against baseline; investigate if p99 regresses more than 20%.",
+    "sourceSession": "s40"
+  },
+  {
+    "id": "T01",
+    "category": "T",
+    "prompt": "What was the most recent change to our authentication system?",
+    "groundTruth": "Removal of all JWT code (week 6). The jsonwebtoken package was removed, src/lib/auth.ts deleted, and the /api/v1/auth/refresh endpoint removed. iron-session configuration was formalized in src/lib/session.ts with SessionData interface (userId, teamId, role) and cookie name arclight_session.",
+    "sourceSession": "s41"
+  },
+  {
+    "id": "T02",
+    "category": "T",
+    "prompt": "What was the most recent performance issue we investigated and resolved?",
+    "groundTruth": "Synchronous JSON parsing blocking the event loop during analytics session ingestion (week 4). Diagnosed with clinic.js Flame profiler. Fixed by capping request payload at 500KB and requiring clients to batch — event loop lag dropped back under 5ms.",
+    "sourceSession": "s29"
+  },
+  {
+    "id": "T03",
+    "category": "T",
+    "prompt": "What was the last major infrastructure addition to the project?",
+    "groundTruth": "Database backup automation (week 5, day 36): daily pg_dump to S3 via GitHub Actions scheduled cron workflow (2am UTC), 30-day S3 lifecycle retention, restore procedure documented in docs/runbooks/db-restore.md.",
+    "sourceSession": "s38"
+  },
+  {
+    "id": "T04",
+    "category": "T",
+    "prompt": "What error handling standard was most recently established or discussed?",
+    "groundTruth": "All Error objects must include the operation name in the message: throw new Error(`${operation}: ${message}`). An AppError class in src/lib/errors.ts adds code and operation fields. Never catch and silently swallow errors — either handle or rethrow.",
+    "sourceSession": "s23"
+  },
+  {
+    "id": "T05",
+    "category": "T",
+    "prompt": "What was the most recent decision about API versioning?",
+    "groundTruth": "Keep /api/v1. Only add /api/v2 when there is a genuinely breaking change (not just additions). Do not deprecate v1 until v2 has been stable for 3 months. Include an X-API-Version response header in every API response.",
+    "sourceSession": "s43"
+  },
+  {
+    "id": "T06",
+    "category": "T",
+    "prompt": "What did we decide to build in Q3?",
+    "groundTruth": "Three things: real-time analytics dashboard via WebSockets (using @fastify/websocket with Redis Pub/Sub for multi-instance state sync), billing v2 with Stripe usage-based meters, and API key authentication for external integrations alongside the existing iron-session auth. Possible addition of read replicas for analytics queries.",
+    "sourceSession": "s45"
+  },
+  {
+    "id": "T07",
+    "category": "T",
+    "prompt": "What was the most recent security improvement made to the project?",
+    "groundTruth": "Security audit in week 5: added DOMPurify for user-generated HTML on the frontend, confirmed all DB queries go through Drizzle (no raw SQL interpolation), added CSP and security headers via @fastify/helmet, and added npm audit to GitHub Actions CI for dependency vulnerability scanning.",
+    "sourceSession": "s37"
+  }
+]

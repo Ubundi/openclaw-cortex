@@ -8,7 +8,6 @@ import { createCaptureHandler } from "../features/capture/handler.js";
 import { FileSyncWatcher } from "../features/sync/watcher.js";
 import { RetryQueue } from "../shared/queue/retry-queue.js";
 import { LatencyMetrics } from "../shared/metrics/latency-metrics.js";
-import { PeriodicReflect } from "../features/reflect/service.js";
 
 /**
  * Derives a workspace-scoped namespace from the workspace directory path.
@@ -63,14 +62,9 @@ async function bootstrapClient(client: CortexClient, logger: Logger): Promise<vo
       logger.warn("Cortex health check failed — API may be unreachable");
       return;
     }
-
     logger.info("Cortex health check passed");
-    const warmup = await client.warmup();
-    logger.info(
-      `Cortex warmup: ${warmup.already_warm ? "already warm" : "initialized"} (tenant: ${warmup.tenant_id})`,
-    );
   } catch {
-    logger.warn("Cortex warmup failed — first ingest may be slow");
+    logger.warn("Cortex health check failed — API may be unreachable");
   }
 }
 
@@ -105,12 +99,10 @@ const plugin = {
     let namespace = config.namespace;
     let started = false;
     let watcher: FileSyncWatcher | null = null;
-    let reflect: PeriodicReflect | null = null;
 
-    api.logger.info(`Cortex plugin registered (recallMode=${config.recallMode}, namespace=${namespace})`);
+    api.logger.info(`Cortex plugin registered (namespace=${namespace})`);
 
-    // Async health check + warmup — validate connection and pre-init the tenant's
-    // Cortex instance so the first ingest doesn't pay the cold-start cost.
+    // Async health check — validate connection
     void bootstrapClient(client, api.logger);
 
     // Auto-Recall: inject relevant memories before every agent turn
@@ -119,7 +111,7 @@ const plugin = {
     // Auto-Capture: extract facts after agent responses
     api.on("agent_end", createCaptureHandler(client, config, api.logger, retryQueue));
 
-    // Services: retry queue, file sync, periodic reflect
+    // Services: retry queue, file sync
     api.registerService({
       id: "cortex-services",
       start(ctx) {
@@ -157,20 +149,6 @@ const plugin = {
           }
         }
 
-        // Periodic reflect (memory consolidation)
-        if (config.reflectIntervalMs > 0) {
-          const newReflect = new PeriodicReflect(
-            client,
-            api.logger,
-            config.reflectIntervalMs,
-          );
-          newReflect.start();
-          reflect = newReflect;
-          api.logger.info(
-            `Cortex periodic reflect started (every ${config.reflectIntervalMs / 1000}s)`,
-          );
-        }
-
         api.logger.info("Cortex services started");
       },
       stop() {
@@ -179,8 +157,6 @@ const plugin = {
 
         watcher?.stop();
         watcher = null;
-        reflect?.stop();
-        reflect = null;
         retryQueue.stop();
 
         const summary = recallMetrics.summary();

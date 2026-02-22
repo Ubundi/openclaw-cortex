@@ -9,12 +9,10 @@ function makeConfig(overrides: Partial<CortexConfig> = {}): CortexConfig {
     baseUrl: "https://api.example.com",
     autoRecall: true,
     autoCapture: true,
-    recallTopK: 5,
+    recallLimit: 10,
     recallTimeoutMs: 500,
-    recallMode: "fast" as const,
     fileSync: true,
     transcriptSync: true,
-    reflectIntervalMs: 3_600_000,
     ...overrides,
     namespace: overrides.namespace ?? "test",
   };
@@ -28,10 +26,10 @@ const logger = {
 };
 
 describe("createCaptureHandler", () => {
-  it("ingests conversation on successful agent end", async () => {
-    const ingestPromise = Promise.resolve({ job_id: "job-1", status: "pending" });
-    const ingestMock = vi.fn().mockReturnValue(ingestPromise);
-    const client = { submitIngestConversation: ingestMock } as unknown as CortexClient;
+  it("remembers conversation on successful agent end", async () => {
+    const rememberPromise = Promise.resolve({ session_id: "sess-1", memories_created: 2, entities_found: [], facts: [] });
+    const rememberMock = vi.fn().mockReturnValue(rememberPromise);
+    const client = { rememberConversation: rememberMock } as unknown as CortexClient;
 
     const handler = createCaptureHandler(client, makeConfig(), logger);
 
@@ -47,9 +45,9 @@ describe("createCaptureHandler", () => {
     );
 
     // Wait for fire-and-forget
-    await ingestPromise;
+    await rememberPromise;
 
-    expect(ingestMock).toHaveBeenCalledWith(
+    expect(rememberMock).toHaveBeenCalledWith(
       [
         { role: "user", content: "What is the deployment strategy for our backend?" },
         { role: "assistant", content: "The backend uses blue-green deployment on ECS Fargate with ALB." },
@@ -59,8 +57,8 @@ describe("createCaptureHandler", () => {
   });
 
   it("skips when autoCapture is disabled", async () => {
-    const ingestMock = vi.fn();
-    const client = { submitIngestConversation: ingestMock } as unknown as CortexClient;
+    const rememberMock = vi.fn();
+    const client = { rememberConversation: rememberMock } as unknown as CortexClient;
     const handler = createCaptureHandler(client, makeConfig({ autoCapture: false }), logger);
 
     await handler(
@@ -68,12 +66,12 @@ describe("createCaptureHandler", () => {
       {},
     );
 
-    expect(ingestMock).not.toHaveBeenCalled();
+    expect(rememberMock).not.toHaveBeenCalled();
   });
 
   it("skips on failed agent run", async () => {
-    const ingestMock = vi.fn();
-    const client = { submitIngestConversation: ingestMock } as unknown as CortexClient;
+    const rememberMock = vi.fn();
+    const client = { rememberConversation: rememberMock } as unknown as CortexClient;
     const handler = createCaptureHandler(client, makeConfig(), logger);
 
     await handler(
@@ -81,12 +79,12 @@ describe("createCaptureHandler", () => {
       {},
     );
 
-    expect(ingestMock).not.toHaveBeenCalled();
+    expect(rememberMock).not.toHaveBeenCalled();
   });
 
   it("skips when messages are too short", async () => {
-    const ingestMock = vi.fn();
-    const client = { submitIngestConversation: ingestMock } as unknown as CortexClient;
+    const rememberMock = vi.fn();
+    const client = { rememberConversation: rememberMock } as unknown as CortexClient;
     const handler = createCaptureHandler(client, makeConfig(), logger);
 
     await handler(
@@ -100,13 +98,13 @@ describe("createCaptureHandler", () => {
       {},
     );
 
-    expect(ingestMock).not.toHaveBeenCalled();
+    expect(rememberMock).not.toHaveBeenCalled();
   });
 
   it("handles array content blocks", async () => {
-    const ingestPromise = Promise.resolve({ job_id: "job-1", status: "pending" });
-    const ingestMock = vi.fn().mockReturnValue(ingestPromise);
-    const client = { submitIngestConversation: ingestMock } as unknown as CortexClient;
+    const rememberPromise = Promise.resolve({ session_id: null, memories_created: 1, entities_found: [], facts: [] });
+    const rememberMock = vi.fn().mockReturnValue(rememberPromise);
+    const client = { rememberConversation: rememberMock } as unknown as CortexClient;
 
     const handler = createCaptureHandler(client, makeConfig(), logger);
 
@@ -126,9 +124,9 @@ describe("createCaptureHandler", () => {
       {},
     );
 
-    await ingestPromise;
+    await rememberPromise;
 
-    const callArgs = ingestMock.mock.calls[0][0];
+    const callArgs = rememberMock.mock.calls[0][0];
     expect(callArgs[1].content).toBe(
       "The project uses PostgreSQL with pgvector for embedding storage.",
     );

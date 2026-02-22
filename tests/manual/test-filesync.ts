@@ -44,12 +44,10 @@ const api = {
     baseUrl: "https://q5p64iw9c9.execute-api.us-east-1.amazonaws.com/prod",
     autoRecall: true,
     autoCapture: false,
-    recallTopK: 10,
+    recallLimit: 10,
     recallTimeoutMs: 10000,
-    recallMode: "fast",
     fileSync: true,
     transcriptSync: true,
-    reflectIntervalMs: 0,
     namespace: "manual-test",
   },
   logger: {

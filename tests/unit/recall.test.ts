@@ -9,13 +9,10 @@ function makeConfig(overrides: Partial<CortexConfig> = {}): CortexConfig {
     baseUrl: "https://api.example.com",
     autoRecall: true,
     autoCapture: true,
-    recallTopK: 5,
+    recallLimit: 10,
     recallTimeoutMs: 500,
-    recallMode: "fast" as const,
-    recallQueryType: "combined" as const,
     fileSync: true,
     transcriptSync: true,
-    reflectIntervalMs: 3_600_000,
     ...overrides,
     namespace: overrides.namespace ?? "test",
   };
@@ -31,10 +28,10 @@ const logger = {
 describe("createRecallHandler", () => {
   it("returns prependContext with formatted memories", async () => {
     const client = {
-      retrieve: vi.fn().mockResolvedValue({
-        results: [
-          { node_id: "n1", type: "FACT", content: "User likes TypeScript", score: 0.92 },
-          { node_id: "n2", type: "FACT", content: "Project uses Postgres", score: 0.85 },
+      recall: vi.fn().mockResolvedValue({
+        memories: [
+          { content: "User likes TypeScript", confidence: 0.92, when: null, session_id: null, entities: [] },
+          { content: "Project uses Postgres", confidence: 0.85, when: null, session_id: null, entities: [] },
         ],
       }),
     } as unknown as CortexClient;
@@ -49,28 +46,28 @@ describe("createRecallHandler", () => {
   });
 
   it("returns undefined when autoRecall is disabled", async () => {
-    const client = { retrieve: vi.fn() } as unknown as CortexClient;
+    const client = { recall: vi.fn() } as unknown as CortexClient;
     const handler = createRecallHandler(client, makeConfig({ autoRecall: false }), logger);
 
     const result = await handler({ prompt: "test prompt" }, {});
 
     expect(result).toBeUndefined();
-    expect(client.retrieve).not.toHaveBeenCalled();
+    expect(client.recall).not.toHaveBeenCalled();
   });
 
   it("returns undefined for short prompts", async () => {
-    const client = { retrieve: vi.fn() } as unknown as CortexClient;
+    const client = { recall: vi.fn() } as unknown as CortexClient;
     const handler = createRecallHandler(client, makeConfig(), logger);
 
     const result = await handler({ prompt: "hi" }, {});
 
     expect(result).toBeUndefined();
-    expect(client.retrieve).not.toHaveBeenCalled();
+    expect(client.recall).not.toHaveBeenCalled();
   });
 
-  it("returns undefined when no results", async () => {
+  it("returns undefined when no memories", async () => {
     const client = {
-      retrieve: vi.fn().mockResolvedValue({ results: [] }),
+      recall: vi.fn().mockResolvedValue({ memories: [] }),
     } as unknown as CortexClient;
 
     const handler = createRecallHandler(client, makeConfig(), logger);
@@ -82,7 +79,7 @@ describe("createRecallHandler", () => {
   it("handles timeout gracefully", async () => {
     const abortError = new DOMException("aborted", "AbortError");
     const client = {
-      retrieve: vi.fn().mockRejectedValue(abortError),
+      recall: vi.fn().mockRejectedValue(abortError),
     } as unknown as CortexClient;
 
     const handler = createRecallHandler(client, makeConfig(), logger);
@@ -93,7 +90,7 @@ describe("createRecallHandler", () => {
 
   it("handles network errors gracefully", async () => {
     const client = {
-      retrieve: vi.fn().mockRejectedValue(new Error("Network error")),
+      recall: vi.fn().mockRejectedValue(new Error("Network error")),
     } as unknown as CortexClient;
 
     const handler = createRecallHandler(client, makeConfig(), logger);
@@ -103,39 +100,18 @@ describe("createRecallHandler", () => {
     expect(logger.warn).toHaveBeenCalled();
   });
 
-  it("maps recallMode 'balanced' to 'fast' in API call", async () => {
+  it("passes recallLimit to client.recall", async () => {
     const client = {
-      retrieve: vi.fn().mockResolvedValue({ results: [] }),
+      recall: vi.fn().mockResolvedValue({ memories: [] }),
     } as unknown as CortexClient;
 
-    const handler = createRecallHandler(client, makeConfig({ recallMode: "balanced" }), logger);
+    const handler = createRecallHandler(client, makeConfig({ recallLimit: 15 }), logger);
     await handler({ prompt: "some query here" }, {});
 
-    expect(client.retrieve).toHaveBeenCalledWith(
+    expect(client.recall).toHaveBeenCalledWith(
       "some query here",
-      5,
-      "fast", // balanced maps to fast
       500,
-      "combined",
-      { referenceDate: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/) },
-    );
-  });
-
-  it("passes 'full' mode through unchanged", async () => {
-    const client = {
-      retrieve: vi.fn().mockResolvedValue({ results: [] }),
-    } as unknown as CortexClient;
-
-    const handler = createRecallHandler(client, makeConfig({ recallMode: "full" }), logger);
-    await handler({ prompt: "some query here" }, {});
-
-    expect(client.retrieve).toHaveBeenCalledWith(
-      "some query here",
-      5,
-      "full",
-      500,
-      "combined",
-      { referenceDate: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/) },
+      { limit: 15 },
     );
   });
 });

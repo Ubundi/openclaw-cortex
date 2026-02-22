@@ -1,7 +1,7 @@
 /**
  * Persistence proof — verifies that captured data actually lands in Cortex.
  *
- * 1. Ingest a conversation with a unique marker
+ * 1. Remember a conversation with a unique marker
  * 2. Wait for Cortex to index it
  * 3. Recall using that marker
  * 4. Assert the marker appears in recalled memories
@@ -26,17 +26,17 @@ const WAIT_SECONDS = 15;
 async function main() {
   console.log(`Marker: ${MARKER}\n`);
 
-  // Step 1: Ingest
-  console.log("1. Ingesting conversation with unique marker...");
-  const ingestResult = await client.ingestConversation(
+  // Step 1: Remember
+  console.log("1. Remembering conversation with unique marker...");
+  const rememberResult = await client.rememberConversation(
     [
       { role: "user", content: `The secret project codename is ${MARKER} and it uses Rust for the backend.` },
       { role: "assistant", content: `Got it! I've noted that the project codename is ${MARKER} and the backend is written in Rust.` },
     ],
     `persistence-test-${Date.now()}`,
   );
-  console.log(`   Ingested: ${ingestResult.facts.length} facts, ${ingestResult.entities.length} entities, ${ingestResult.nodes_created} nodes created`);
-  console.log(`   Facts: ${JSON.stringify(ingestResult.facts)}`);
+  console.log(`   Remembered: ${rememberResult.memories_created} memories, entities: ${rememberResult.entities_found.join(", ")}`);
+  console.log(`   Facts: ${JSON.stringify(rememberResult.facts)}`);
 
   // Step 2: Wait for indexing
   console.log(`\n2. Waiting ${WAIT_SECONDS}s for Cortex to index...`);
@@ -48,28 +48,27 @@ async function main() {
 
   // Step 3: Recall
   console.log("\n3. Recalling with marker query...");
-  const retrieveResult = await client.retrieve(
+  const recallResult = await client.recall(
     `What is the project codename ${MARKER}?`,
-    10,
-    "fast",
     10000,
+    { limit: 10 },
   );
-  console.log(`   Retrieved ${retrieveResult.results.length} results`);
+  console.log(`   Recalled ${recallResult.memories.length} memories`);
 
   // Step 4: Check
   console.log("\n4. Checking for marker in results...");
-  const match = retrieveResult.results.find((r) =>
-    r.content.includes(MARKER),
+  const match = recallResult.memories.find((m) =>
+    m.content.includes(MARKER),
   );
 
   if (match) {
     console.log(`\n   PASS — Data persisted and retrieved successfully.`);
-    console.log(`   Match: "${match.content}" (score: ${match.score})`);
+    console.log(`   Match: "${match.content}" (confidence: ${match.confidence})`);
   } else {
     console.log(`\n   FAIL — Marker "${MARKER}" not found in recall results.`);
     console.log("   Results returned:");
-    for (const r of retrieveResult.results) {
-      console.log(`     [${r.score.toFixed(2)}] ${r.content}`);
+    for (const m of recallResult.memories) {
+      console.log(`     [${m.confidence.toFixed(2)}] ${m.content}`);
     }
   }
 }

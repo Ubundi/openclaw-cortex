@@ -53,16 +53,16 @@ export class TranscriptsSync {
 
       const referenceDate = new Date().toISOString().slice(0, 10);
 
-      const doIngest = () =>
-        this.client.submitIngestConversation(messages, sessionId, referenceDate).then((res) => {
-          this.logger.debug?.(`Transcript sync: submitted ingest job ${res.job_id} for ${filename}`);
+      const doRemember = () =>
+        this.client.rememberConversation(messages, sessionId, undefined, referenceDate).then((res) => {
+          this.logger.debug?.(`Transcript sync: remembered ${res.memories_created} memories for ${filename}`);
         });
 
       try {
-        await doIngest();
+        await doRemember();
       } catch (err) {
         this.logger.warn(`Transcript sync failed for ${filename}, queuing for retry: ${String(err)}`);
-        this.retryQueue?.enqueue(doIngest, `transcript-${filename}`);
+        this.retryQueue?.enqueue(doRemember, `transcript-${filename}`);
       }
     } catch (err) {
       this.logger.warn(`Transcript sync read failed for ${filename}: ${String(err)}`);

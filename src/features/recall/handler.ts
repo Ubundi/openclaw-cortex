@@ -1,4 +1,4 @@
-import type { CortexClient, QueryType } from "../../cortex/client.js";
+import type { CortexClient } from "../../cortex/client.js";
 import type { CortexConfig } from "../../core/config/schema.js";
 import { formatMemories } from "./formatter.js";
 import { LatencyMetrics } from "../../shared/metrics/latency-metrics.js";
@@ -62,31 +62,23 @@ export function createRecallHandler(
     const start = Date.now();
 
     try {
-      // recallMode maps to Cortex API mode parameter:
-      // "fast" = BM25 + semantic only (~80-150ms server-side)
-      // "balanced" = adds light reranking (~150-300ms)
-      // "full" = adds graph traversal + full reranker (~300-600ms)
-      const apiMode = config.recallMode === "balanced" ? "fast" : config.recallMode;
-      const response = await client.retrieve(
+      const response = await client.recall(
         prompt,
-        config.recallTopK,
-        apiMode as "fast" | "full",
         config.recallTimeoutMs,
-        config.recallQueryType as QueryType,
-        { referenceDate: new Date().toISOString() },
+        { limit: config.recallLimit },
       );
 
       const elapsed = Date.now() - start;
       recallMetrics.record(elapsed);
       consecutiveFailures = 0; // reset on success
 
-      if (!response.results?.length) return;
+      if (!response.memories?.length) return;
 
-      const formatted = formatMemories(response.results);
+      const formatted = formatMemories(response.memories);
       if (!formatted) return;
 
       logger.debug?.(
-        `Cortex recall: ${response.results.length} memories in ${elapsed}ms`,
+        `Cortex recall: ${response.memories.length} memories in ${elapsed}ms`,
       );
       return { prependContext: formatted };
     } catch (err) {

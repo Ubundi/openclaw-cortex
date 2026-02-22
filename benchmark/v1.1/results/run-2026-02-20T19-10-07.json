@@ -1,0 +1,2284 @@
+{
+  "timestamp": "2026-02-20T19:10:07.581Z",
+  "config": {
+    "llmModel": "gpt-4o-mini",
+    "judgeModel": "gpt-4.1-mini",
+    "dryRun": true,
+    "namespace": "benchmark-v1.1",
+    "namespaceBase": "benchmark-v1.1",
+    "namespaceSuffix": null,
+    "debugReport": false,
+    "answerConcurrency": 4,
+    "judgeConcurrency": 4,
+    "judgePasses": 1,
+    "shuffleSeed": 1337,
+    "shufflePrompts": false,
+    "gitCommit": "22cc320",
+    "promptOrder": [
+      "F01",
+      "F02",
+      "F03",
+      "F04",
+      "F05",
+      "F06",
+      "F07",
+      "F08",
+      "F09",
+      "F10",
+      "F11",
+      "F12",
+      "F13",
+      "F14",
+      "F15",
+      "R01",
+      "R02",
+      "R03",
+      "R04",
+      "R05",
+      "R06",
+      "R07",
+      "R08",
+      "R09",
+      "R10",
+      "E01",
+      "E02",
+      "E03",
+      "E04",
+      "E05",
+      "E06",
+      "E07",
+      "E08",
+      "E09",
+      "E10",
+      "S01",
+      "S02",
+      "S03",
+      "S04",
+      "S05",
+      "S06",
+      "S07",
+      "S08",
+      "T01",
+      "T02",
+      "T03",
+      "T04",
+      "T05",
+      "T06",
+      "T07"
+    ],
+    "embedModel": "text-embedding-3-small",
+    "chunkCount": 135,
+    "topK": 8
+  },
+  "seedJobIds": [
+    "dry-run-job-0",
+    "dry-run-job-1",
+    "dry-run-job-2",
+    "dry-run-job-3",
+    "dry-run-job-4",
+    "dry-run-job-5",
+    "dry-run-job-6",
+    "dry-run-job-7",
+    "dry-run-job-8",
+    "dry-run-job-9",
+    "dry-run-job-10",
+    "dry-run-job-11",
+    "dry-run-job-12",
+    "dry-run-job-13",
+    "dry-run-job-14",
+    "dry-run-job-15",
+    "dry-run-job-16",
+    "dry-run-job-17",
+    "dry-run-job-18",
+    "dry-run-job-19",
+    "dry-run-job-20",
+    "dry-run-job-21",
+    "dry-run-job-22",
+    "dry-run-job-23",
+    "dry-run-job-24",
+    "dry-run-job-25",
+    "dry-run-job-26",
+    "dry-run-job-27",
+    "dry-run-job-28",
+    "dry-run-job-29",
+    "dry-run-job-30",
+    "dry-run-job-31",
+    "dry-run-job-32",
+    "dry-run-job-33",
+    "dry-run-job-34",
+    "dry-run-job-35",
+    "dry-run-job-36",
+    "dry-run-job-37",
+    "dry-run-job-38",
+    "dry-run-job-39",
+    "dry-run-job-40",
+    "dry-run-job-41",
+    "dry-run-job-42",
+    "dry-run-job-43",
+    "dry-run-job-44"
+  ],
+  "retrievals": [
+    {
+      "promptId": "F01",
+      "naiveResults": [
+        {
+          "chunkId": "dry:0",
+          "sessionId": "s01",
+          "sessionDescription": "Week 1",
+          "content": "Synthetic chunk for F01",
+          "score": 0.82
+        }
+      ],
+      "cortexResults": [
+        {
+          "node_id": "dry-1",
+          "type": "FACT",
+          "content": "Synthetic fact for F01",
+          "score": 0.91
+        }
+      ],
+      "cortexLatencyMs": 250
+    },
+    {
+      "promptId": "F02",
+      "naiveResults": [
+        {
+          "chunkId": "dry:0",
+          "sessionId": "s01",
+          "sessionDescription": "Week 1",
+          "content": "Synthetic chunk for F02",
+          "score": 0.82
+        }
+      ],
+      "cortexResults": [
+        {
+          "node_id": "dry-1",
+          "type": "FACT",
+          "content": "Synthetic fact for F02",
+          "score": 0.91
+        }
+      ],
+      "cortexLatencyMs": 250
+    },
+    {
+      "promptId": "F03",
+      "naiveResults": [
+        {
+          "chunkId": "dry:0",
+          "sessionId": "s01",
+          "sessionDescription": "Week 1",
+          "content": "Synthetic chunk for F03",
+          "score": 0.82
+        }
+      ],
+      "cortexResults": [
+        {
+          "node_id": "dry-1",
+          "type": "FACT",
+          "content": "Synthetic fact for F03",
+          "score": 0.91
+        }
+      ],
+      "cortexLatencyMs": 250
+    },
+    {
+      "promptId": "F04",
+      "naiveResults": [
+        {
+          "chunkId": "dry:0",
+          "sessionId": "s01",
+          "sessionDescription": "Week 1",
+          "content": "Synthetic chunk for F04",
+          "score": 0.82
+        }
+      ],
+      "cortexResults": [
+        {
+          "node_id": "dry-1",
+          "type": "FACT",
+          "content": "Synthetic fact for F04",
+          "score": 0.91
+        }
+      ],
+      "cortexLatencyMs": 250
+    },
+    {
+      "promptId": "F05",
+      "naiveResults": [
+        {
+          "chunkId": "dry:0",
+          "sessionId": "s01",
+          "sessionDescription": "Week 1",
+          "content": "Synthetic chunk for F05",
+          "score": 0.82
+        }
+      ],
+      "cortexResults": [
+        {
+          "node_id": "dry-1",
+          "type": "FACT",
+          "content": "Synthetic fact for F05",
+          "score": 0.91
+        }
+      ],
+      "cortexLatencyMs": 250
+    },
+    {
+      "promptId": "F06",
+      "naiveResults": [
+        {
+          "chunkId": "dry:0",
+          "sessionId": "s01",
+          "sessionDescription": "Week 1",
+          "content": "Synthetic chunk for F06",
+          "score": 0.82
+        }
+      ],
+      "cortexResults": [
+        {
+          "node_id": "dry-1",
+          "type": "FACT",
+          "content": "Synthetic fact for F06",
+          "score": 0.91
+        }
+      ],
+      "cortexLatencyMs": 250
+    },
+    {
+      "promptId": "F07",
+      "naiveResults": [
+        {
+          "chunkId": "dry:0",
+          "sessionId": "s01",
+          "sessionDescription": "Week 1",
+          "content": "Synthetic chunk for F07",
+          "score": 0.82
+        }
+      ],
+      "cortexResults": [
+        {
+          "node_id": "dry-1",
+          "type": "FACT",
+          "content": "Synthetic fact for F07",
+          "score": 0.91
+        }
+      ],
+      "cortexLatencyMs": 250
+    },
+    {
+      "promptId": "F08",
+      "naiveResults": [
+        {
+          "chunkId": "dry:0",
+          "sessionId": "s01",
+          "sessionDescription": "Week 1",
+          "content": "Synthetic chunk for F08",
+          "score": 0.82
+        }
+      ],
+      "cortexResults": [
+        {
+          "node_id": "dry-1",
+          "type": "FACT",
+          "content": "Synthetic fact for F08",
+          "score": 0.91
+        }
+      ],
+      "cortexLatencyMs": 250
+    },
+    {
+      "promptId": "F09",
+      "naiveResults": [
+        {
+          "chunkId": "dry:0",
+          "sessionId": "s01",
+          "sessionDescription": "Week 1",
+          "content": "Synthetic chunk for F09",
+          "score": 0.82
+        }
+      ],
+      "cortexResults": [
+        {
+          "node_id": "dry-1",
+          "type": "FACT",
+          "content": "Synthetic fact for F09",
+          "score": 0.91
+        }
+      ],
+      "cortexLatencyMs": 250
+    },
+    {
+      "promptId": "F10",
+      "naiveResults": [
+        {
+          "chunkId": "dry:0",
+          "sessionId": "s01",
+          "sessionDescription": "Week 1",
+          "content": "Synthetic chunk for F10",
+          "score": 0.82
+        }
+      ],
+      "cortexResults": [
+        {
+          "node_id": "dry-1",
+          "type": "FACT",
+          "content": "Synthetic fact for F10",
+          "score": 0.91
+        }
+      ],
+      "cortexLatencyMs": 250
+    },
+    {
+      "promptId": "F11",
+      "naiveResults": [
+        {
+          "chunkId": "dry:0",
+          "sessionId": "s01",
+          "sessionDescription": "Week 1",
+          "content": "Synthetic chunk for F11",
+          "score": 0.82
+        }
+      ],
+      "cortexResults": [
+        {
+          "node_id": "dry-1",
+          "type": "FACT",
+          "content": "Synthetic fact for F11",
+          "score": 0.91
+        }
+      ],
+      "cortexLatencyMs": 250
+    },
+    {
+      "promptId": "F12",
+      "naiveResults": [
+        {
+          "chunkId": "dry:0",
+          "sessionId": "s01",
+          "sessionDescription": "Week 1",
+          "content": "Synthetic chunk for F12",
+          "score": 0.82
+        }
+      ],
+      "cortexResults": [
+        {
+          "node_id": "dry-1",
+          "type": "FACT",
+          "content": "Synthetic fact for F12",
+          "score": 0.91
+        }
+      ],
+      "cortexLatencyMs": 250
+    },
+    {
+      "promptId": "F13",
+      "naiveResults": [
+        {
+          "chunkId": "dry:0",
+          "sessionId": "s01",
+          "sessionDescription": "Week 1",
+          "content": "Synthetic chunk for F13",
+          "score": 0.82
+        }
+      ],
+      "cortexResults": [
+        {
+          "node_id": "dry-1",
+          "type": "FACT",
+          "content": "Synthetic fact for F13",
+          "score": 0.91
+        }
+      ],
+      "cortexLatencyMs": 250
+    },
+    {
+      "promptId": "F14",
+      "naiveResults": [
+        {
+          "chunkId": "dry:0",
+          "sessionId": "s01",
+          "sessionDescription": "Week 1",
+          "content": "Synthetic chunk for F14",
+          "score": 0.82
+        }
+      ],
+      "cortexResults": [
+        {
+          "node_id": "dry-1",
+          "type": "FACT",
+          "content": "Synthetic fact for F14",
+          "score": 0.91
+        }
+      ],
+      "cortexLatencyMs": 250
+    },
+    {
+      "promptId": "F15",
+      "naiveResults": [
+        {
+          "chunkId": "dry:0",
+          "sessionId": "s01",
+          "sessionDescription": "Week 1",
+          "content": "Synthetic chunk for F15",
+          "score": 0.82
+        }
+      ],
+      "cortexResults": [
+        {
+          "node_id": "dry-1",
+          "type": "FACT",
+          "content": "Synthetic fact for F15",
+          "score": 0.91
+        }
+      ],
+      "cortexLatencyMs": 250
+    },
+    {
+      "promptId": "R01",
+      "naiveResults": [
+        {
+          "chunkId": "dry:0",
+          "sessionId": "s01",
+          "sessionDescription": "Week 1",
+          "content": "Synthetic chunk for R01",
+          "score": 0.82
+        }
+      ],
+      "cortexResults": [
+        {
+          "node_id": "dry-1",
+          "type": "FACT",
+          "content": "Synthetic fact for R01",
+          "score": 0.91
+        }
+      ],
+      "cortexLatencyMs": 250
+    },
+    {
+      "promptId": "R02",
+      "naiveResults": [
+        {
+          "chunkId": "dry:0",
+          "sessionId": "s01",
+          "sessionDescription": "Week 1",
+          "content": "Synthetic chunk for R02",
+          "score": 0.82
+        }
+      ],
+      "cortexResults": [
+        {
+          "node_id": "dry-1",
+          "type": "FACT",
+          "content": "Synthetic fact for R02",
+          "score": 0.91
+        }
+      ],
+      "cortexLatencyMs": 250
+    },
+    {
+      "promptId": "R03",
+      "naiveResults": [
+        {
+          "chunkId": "dry:0",
+          "sessionId": "s01",
+          "sessionDescription": "Week 1",
+          "content": "Synthetic chunk for R03",
+          "score": 0.82
+        }
+      ],
+      "cortexResults": [
+        {
+          "node_id": "dry-1",
+          "type": "FACT",
+          "content": "Synthetic fact for R03",
+          "score": 0.91
+        }
+      ],
+      "cortexLatencyMs": 250
+    },
+    {
+      "promptId": "R04",
+      "naiveResults": [
+        {
+          "chunkId": "dry:0",
+          "sessionId": "s01",
+          "sessionDescription": "Week 1",
+          "content": "Synthetic chunk for R04",
+          "score": 0.82
+        }
+      ],
+      "cortexResults": [
+        {
+          "node_id": "dry-1",
+          "type": "FACT",
+          "content": "Synthetic fact for R04",
+          "score": 0.91
+        }
+      ],
+      "cortexLatencyMs": 250
+    },
+    {
+      "promptId": "R05",
+      "naiveResults": [
+        {
+          "chunkId": "dry:0",
+          "sessionId": "s01",
+          "sessionDescription": "Week 1",
+          "content": "Synthetic chunk for R05",
+          "score": 0.82
+        }
+      ],
+      "cortexResults": [
+        {
+          "node_id": "dry-1",
+          "type": "FACT",
+          "content": "Synthetic fact for R05",
+          "score": 0.91
+        }
+      ],
+      "cortexLatencyMs": 250
+    },
+    {
+      "promptId": "R06",
+      "naiveResults": [
+        {
+          "chunkId": "dry:0",
+          "sessionId": "s01",
+          "sessionDescription": "Week 1",
+          "content": "Synthetic chunk for R06",
+          "score": 0.82
+        }
+      ],
+      "cortexResults": [
+        {
+          "node_id": "dry-1",
+          "type": "FACT",
+          "content": "Synthetic fact for R06",
+          "score": 0.91
+        }
+      ],
+      "cortexLatencyMs": 250
+    },
+    {
+      "promptId": "R07",
+      "naiveResults": [
+        {
+          "chunkId": "dry:0",
+          "sessionId": "s01",
+          "sessionDescription": "Week 1",
+          "content": "Synthetic chunk for R07",
+          "score": 0.82
+        }
+      ],
+      "cortexResults": [
+        {
+          "node_id": "dry-1",
+          "type": "FACT",
+          "content": "Synthetic fact for R07",
+          "score": 0.91
+        }
+      ],
+      "cortexLatencyMs": 250
+    },
+    {
+      "promptId": "R08",
+      "naiveResults": [
+        {
+          "chunkId": "dry:0",
+          "sessionId": "s01",
+          "sessionDescription": "Week 1",
+          "content": "Synthetic chunk for R08",
+          "score": 0.82
+        }
+      ],
+      "cortexResults": [
+        {
+          "node_id": "dry-1",
+          "type": "FACT",
+          "content": "Synthetic fact for R08",
+          "score": 0.91
+        }
+      ],
+      "cortexLatencyMs": 250
+    },
+    {
+      "promptId": "R09",
+      "naiveResults": [
+        {
+          "chunkId": "dry:0",
+          "sessionId": "s01",
+          "sessionDescription": "Week 1",
+          "content": "Synthetic chunk for R09",
+          "score": 0.82
+        }
+      ],
+      "cortexResults": [
+        {
+          "node_id": "dry-1",
+          "type": "FACT",
+          "content": "Synthetic fact for R09",
+          "score": 0.91
+        }
+      ],
+      "cortexLatencyMs": 250
+    },
+    {
+      "promptId": "R10",
+      "naiveResults": [
+        {
+          "chunkId": "dry:0",
+          "sessionId": "s01",
+          "sessionDescription": "Week 1",
+          "content": "Synthetic chunk for R10",
+          "score": 0.82
+        }
+      ],
+      "cortexResults": [
+        {
+          "node_id": "dry-1",
+          "type": "FACT",
+          "content": "Synthetic fact for R10",
+          "score": 0.91
+        }
+      ],
+      "cortexLatencyMs": 250
+    },
+    {
+      "promptId": "E01",
+      "naiveResults": [
+        {
+          "chunkId": "dry:0",
+          "sessionId": "s01",
+          "sessionDescription": "Week 1",
+          "content": "Synthetic chunk for E01",
+          "score": 0.82
+        }
+      ],
+      "cortexResults": [
+        {
+          "node_id": "dry-1",
+          "type": "FACT",
+          "content": "Synthetic fact for E01",
+          "score": 0.91
+        }
+      ],
+      "cortexLatencyMs": 250
+    },
+    {
+      "promptId": "E02",
+      "naiveResults": [
+        {
+          "chunkId": "dry:0",
+          "sessionId": "s01",
+          "sessionDescription": "Week 1",
+          "content": "Synthetic chunk for E02",
+          "score": 0.82
+        }
+      ],
+      "cortexResults": [
+        {
+          "node_id": "dry-1",
+          "type": "FACT",
+          "content": "Synthetic fact for E02",
+          "score": 0.91
+        }
+      ],
+      "cortexLatencyMs": 250
+    },
+    {
+      "promptId": "E03",
+      "naiveResults": [
+        {
+          "chunkId": "dry:0",
+          "sessionId": "s01",
+          "sessionDescription": "Week 1",
+          "content": "Synthetic chunk for E03",
+          "score": 0.82
+        }
+      ],
+      "cortexResults": [
+        {
+          "node_id": "dry-1",
+          "type": "FACT",
+          "content": "Synthetic fact for E03",
+          "score": 0.91
+        }
+      ],
+      "cortexLatencyMs": 250
+    },
+    {
+      "promptId": "E04",
+      "naiveResults": [
+        {
+          "chunkId": "dry:0",
+          "sessionId": "s01",
+          "sessionDescription": "Week 1",
+          "content": "Synthetic chunk for E04",
+          "score": 0.82
+        }
+      ],
+      "cortexResults": [
+        {
+          "node_id": "dry-1",
+          "type": "FACT",
+          "content": "Synthetic fact for E04",
+          "score": 0.91
+        }
+      ],
+      "cortexLatencyMs": 250
+    },
+    {
+      "promptId": "E05",
+      "naiveResults": [
+        {
+          "chunkId": "dry:0",
+          "sessionId": "s01",
+          "sessionDescription": "Week 1",
+          "content": "Synthetic chunk for E05",
+          "score": 0.82
+        }
+      ],
+      "cortexResults": [
+        {
+          "node_id": "dry-1",
+          "type": "FACT",
+          "content": "Synthetic fact for E05",
+          "score": 0.91
+        }
+      ],
+      "cortexLatencyMs": 250
+    },
+    {
+      "promptId": "E06",
+      "naiveResults": [
+        {
+          "chunkId": "dry:0",
+          "sessionId": "s01",
+          "sessionDescription": "Week 1",
+          "content": "Synthetic chunk for E06",
+          "score": 0.82
+        }
+      ],
+      "cortexResults": [
+        {
+          "node_id": "dry-1",
+          "type": "FACT",
+          "content": "Synthetic fact for E06",
+          "score": 0.91
+        }
+      ],
+      "cortexLatencyMs": 250
+    },
+    {
+      "promptId": "E07",
+      "naiveResults": [
+        {
+          "chunkId": "dry:0",
+          "sessionId": "s01",
+          "sessionDescription": "Week 1",
+          "content": "Synthetic chunk for E07",
+          "score": 0.82
+        }
+      ],
+      "cortexResults": [
+        {
+          "node_id": "dry-1",
+          "type": "FACT",
+          "content": "Synthetic fact for E07",
+          "score": 0.91
+        }
+      ],
+      "cortexLatencyMs": 250
+    },
+    {
+      "promptId": "E08",
+      "naiveResults": [
+        {
+          "chunkId": "dry:0",
+          "sessionId": "s01",
+          "sessionDescription": "Week 1",
+          "content": "Synthetic chunk for E08",
+          "score": 0.82
+        }
+      ],
+      "cortexResults": [
+        {
+          "node_id": "dry-1",
+          "type": "FACT",
+          "content": "Synthetic fact for E08",
+          "score": 0.91
+        }
+      ],
+      "cortexLatencyMs": 250
+    },
+    {
+      "promptId": "E09",
+      "naiveResults": [
+        {
+          "chunkId": "dry:0",
+          "sessionId": "s01",
+          "sessionDescription": "Week 1",
+          "content": "Synthetic chunk for E09",
+          "score": 0.82
+        }
+      ],
+      "cortexResults": [
+        {
+          "node_id": "dry-1",
+          "type": "FACT",
+          "content": "Synthetic fact for E09",
+          "score": 0.91
+        }
+      ],
+      "cortexLatencyMs": 250
+    },
+    {
+      "promptId": "E10",
+      "naiveResults": [
+        {
+          "chunkId": "dry:0",
+          "sessionId": "s01",
+          "sessionDescription": "Week 1",
+          "content": "Synthetic chunk for E10",
+          "score": 0.82
+        }
+      ],
+      "cortexResults": [
+        {
+          "node_id": "dry-1",
+          "type": "FACT",
+          "content": "Synthetic fact for E10",
+          "score": 0.91
+        }
+      ],
+      "cortexLatencyMs": 250
+    },
+    {
+      "promptId": "S01",
+      "naiveResults": [
+        {
+          "chunkId": "dry:0",
+          "sessionId": "s01",
+          "sessionDescription": "Week 1",
+          "content": "Synthetic chunk for S01",
+          "score": 0.82
+        }
+      ],
+      "cortexResults": [
+        {
+          "node_id": "dry-1",
+          "type": "FACT",
+          "content": "Synthetic fact for S01",
+          "score": 0.91
+        }
+      ],
+      "cortexLatencyMs": 250
+    },
+    {
+      "promptId": "S02",
+      "naiveResults": [
+        {
+          "chunkId": "dry:0",
+          "sessionId": "s01",
+          "sessionDescription": "Week 1",
+          "content": "Synthetic chunk for S02",
+          "score": 0.82
+        }
+      ],
+      "cortexResults": [
+        {
+          "node_id": "dry-1",
+          "type": "FACT",
+          "content": "Synthetic fact for S02",
+          "score": 0.91
+        }
+      ],
+      "cortexLatencyMs": 250
+    },
+    {
+      "promptId": "S03",
+      "naiveResults": [
+        {
+          "chunkId": "dry:0",
+          "sessionId": "s01",
+          "sessionDescription": "Week 1",
+          "content": "Synthetic chunk for S03",
+          "score": 0.82
+        }
+      ],
+      "cortexResults": [
+        {
+          "node_id": "dry-1",
+          "type": "FACT",
+          "content": "Synthetic fact for S03",
+          "score": 0.91
+        }
+      ],
+      "cortexLatencyMs": 250
+    },
+    {
+      "promptId": "S04",
+      "naiveResults": [
+        {
+          "chunkId": "dry:0",
+          "sessionId": "s01",
+          "sessionDescription": "Week 1",
+          "content": "Synthetic chunk for S04",
+          "score": 0.82
+        }
+      ],
+      "cortexResults": [
+        {
+          "node_id": "dry-1",
+          "type": "FACT",
+          "content": "Synthetic fact for S04",
+          "score": 0.91
+        }
+      ],
+      "cortexLatencyMs": 250
+    },
+    {
+      "promptId": "S05",
+      "naiveResults": [
+        {
+          "chunkId": "dry:0",
+          "sessionId": "s01",
+          "sessionDescription": "Week 1",
+          "content": "Synthetic chunk for S05",
+          "score": 0.82
+        }
+      ],
+      "cortexResults": [
+        {
+          "node_id": "dry-1",
+          "type": "FACT",
+          "content": "Synthetic fact for S05",
+          "score": 0.91
+        }
+      ],
+      "cortexLatencyMs": 250
+    },
+    {
+      "promptId": "S06",
+      "naiveResults": [
+        {
+          "chunkId": "dry:0",
+          "sessionId": "s01",
+          "sessionDescription": "Week 1",
+          "content": "Synthetic chunk for S06",
+          "score": 0.82
+        }
+      ],
+      "cortexResults": [
+        {
+          "node_id": "dry-1",
+          "type": "FACT",
+          "content": "Synthetic fact for S06",
+          "score": 0.91
+        }
+      ],
+      "cortexLatencyMs": 250
+    },
+    {
+      "promptId": "S07",
+      "naiveResults": [
+        {
+          "chunkId": "dry:0",
+          "sessionId": "s01",
+          "sessionDescription": "Week 1",
+          "content": "Synthetic chunk for S07",
+          "score": 0.82
+        }
+      ],
+      "cortexResults": [
+        {
+          "node_id": "dry-1",
+          "type": "FACT",
+          "content": "Synthetic fact for S07",
+          "score": 0.91
+        }
+      ],
+      "cortexLatencyMs": 250
+    },
+    {
+      "promptId": "S08",
+      "naiveResults": [
+        {
+          "chunkId": "dry:0",
+          "sessionId": "s01",
+          "sessionDescription": "Week 1",
+          "content": "Synthetic chunk for S08",
+          "score": 0.82
+        }
+      ],
+      "cortexResults": [
+        {
+          "node_id": "dry-1",
+          "type": "FACT",
+          "content": "Synthetic fact for S08",
+          "score": 0.91
+        }
+      ],
+      "cortexLatencyMs": 250
+    },
+    {
+      "promptId": "T01",
+      "naiveResults": [
+        {
+          "chunkId": "dry:0",
+          "sessionId": "s01",
+          "sessionDescription": "Week 1",
+          "content": "Synthetic chunk for T01",
+          "score": 0.82
+        }
+      ],
+      "cortexResults": [
+        {
+          "node_id": "dry-1",
+          "type": "FACT",
+          "content": "Synthetic fact for T01",
+          "score": 0.91
+        }
+      ],
+      "cortexLatencyMs": 250
+    },
+    {
+      "promptId": "T02",
+      "naiveResults": [
+        {
+          "chunkId": "dry:0",
+          "sessionId": "s01",
+          "sessionDescription": "Week 1",
+          "content": "Synthetic chunk for T02",
+          "score": 0.82
+        }
+      ],
+      "cortexResults": [
+        {
+          "node_id": "dry-1",
+          "type": "FACT",
+          "content": "Synthetic fact for T02",
+          "score": 0.91
+        }
+      ],
+      "cortexLatencyMs": 250
+    },
+    {
+      "promptId": "T03",
+      "naiveResults": [
+        {
+          "chunkId": "dry:0",
+          "sessionId": "s01",
+          "sessionDescription": "Week 1",
+          "content": "Synthetic chunk for T03",
+          "score": 0.82
+        }
+      ],
+      "cortexResults": [
+        {
+          "node_id": "dry-1",
+          "type": "FACT",
+          "content": "Synthetic fact for T03",
+          "score": 0.91
+        }
+      ],
+      "cortexLatencyMs": 250
+    },
+    {
+      "promptId": "T04",
+      "naiveResults": [
+        {
+          "chunkId": "dry:0",
+          "sessionId": "s01",
+          "sessionDescription": "Week 1",
+          "content": "Synthetic chunk for T04",
+          "score": 0.82
+        }
+      ],
+      "cortexResults": [
+        {
+          "node_id": "dry-1",
+          "type": "FACT",
+          "content": "Synthetic fact for T04",
+          "score": 0.91
+        }
+      ],
+      "cortexLatencyMs": 250
+    },
+    {
+      "promptId": "T05",
+      "naiveResults": [
+        {
+          "chunkId": "dry:0",
+          "sessionId": "s01",
+          "sessionDescription": "Week 1",
+          "content": "Synthetic chunk for T05",
+          "score": 0.82
+        }
+      ],
+      "cortexResults": [
+        {
+          "node_id": "dry-1",
+          "type": "FACT",
+          "content": "Synthetic fact for T05",
+          "score": 0.91
+        }
+      ],
+      "cortexLatencyMs": 250
+    },
+    {
+      "promptId": "T06",
+      "naiveResults": [
+        {
+          "chunkId": "dry:0",
+          "sessionId": "s01",
+          "sessionDescription": "Week 1",
+          "content": "Synthetic chunk for T06",
+          "score": 0.82
+        }
+      ],
+      "cortexResults": [
+        {
+          "node_id": "dry-1",
+          "type": "FACT",
+          "content": "Synthetic fact for T06",
+          "score": 0.91
+        }
+      ],
+      "cortexLatencyMs": 250
+    },
+    {
+      "promptId": "T07",
+      "naiveResults": [
+        {
+          "chunkId": "dry:0",
+          "sessionId": "s01",
+          "sessionDescription": "Week 1",
+          "content": "Synthetic chunk for T07",
+          "score": 0.82
+        }
+      ],
+      "cortexResults": [
+        {
+          "node_id": "dry-1",
+          "type": "FACT",
+          "content": "Synthetic fact for T07",
+          "score": 0.91
+        }
+      ],
+      "cortexLatencyMs": 250
+    }
+  ],
+  "answers": [
+    {
+      "promptId": "F01",
+      "condition": "naive",
+      "answer": "Based on the retrieved passages: Port 4000. The PORT env var defaults to 4000, chosen to avoi... (simplified)"
+    },
+    {
+      "promptId": "F01",
+      "condition": "cortex",
+      "answer": "Port 4000. The PORT env var defaults to 4000, chosen to avoid conflict with Vite's default port 3000."
+    },
+    {
+      "promptId": "F02",
+      "condition": "naive",
+      "answer": "Based on the retrieved passages: 600 seconds (10 minutes). This is the default TTL for cache ... (simplified)"
+    },
+    {
+      "promptId": "F02",
+      "condition": "cortex",
+      "answer": "600 seconds (10 minutes). This is the default TTL for cache entries using ioredis."
+    },
+    {
+      "promptId": "F03",
+      "condition": "naive",
+      "answer": "Based on the retrieved passages: arclight:{entity}:{id} — for example, arclight:user:abc123 o... (simplified)"
+    },
+    {
+      "promptId": "F03",
+      "condition": "cortex",
+      "answer": "arclight:{entity}:{id} — for example, arclight:user:abc123 or arclight:team:xyz789. This namespaces all keys under the arclight prefix."
+    },
+    {
+      "promptId": "F04",
+      "condition": "naive",
+      "answer": "Based on the retrieved passages: bun. It was chosen for fast installs and built-in TypeScript... (simplified)"
+    },
+    {
+      "promptId": "F04",
+      "condition": "cortex",
+      "answer": "bun. It was chosen for fast installs and built-in TypeScript transpilation."
+    },
+    {
+      "promptId": "F05",
+      "condition": "naive",
+      "answer": "Based on the retrieved passages: /api/v1 — all endpoints are prefixed with /api/v1.... (simplified)"
+    },
+    {
+      "promptId": "F05",
+      "condition": "cortex",
+      "answer": "/api/v1 — all endpoints are prefixed with /api/v1."
+    },
+    {
+      "promptId": "F06",
+      "condition": "naive",
+      "answer": "Based on the retrieved passages: ES2022. This is what Bun and Node 18+ support natively, avoi... (simplified)"
+    },
+    {
+      "promptId": "F06",
+      "condition": "cortex",
+      "answer": "ES2022. This is what Bun and Node 18+ support natively, avoiding unnecessary downcompilation."
+    },
+    {
+      "promptId": "F07",
+      "condition": "naive",
+      "answer": "Based on the retrieved passages: vitest — chosen because it is Vite-compatible, faster than J... (simplified)"
+    },
+    {
+      "promptId": "F07",
+      "condition": "cortex",
+      "answer": "vitest — chosen because it is Vite-compatible, faster than Jest, and has native ESM support."
+    },
+    {
+      "promptId": "F08",
+      "condition": "naive",
+      "answer": "Based on the retrieved passages: 15 minutes. Presigned PUT URLs expire after 15 minutes.... (simplified)"
+    },
+    {
+      "promptId": "F08",
+      "condition": "cortex",
+      "answer": "15 minutes. Presigned PUT URLs expire after 15 minutes."
+    },
+    {
+      "promptId": "F09",
+      "condition": "naive",
+      "answer": "Based on the retrieved passages: 100 requests per 15-minute window per IP. Auth endpoints get... (simplified)"
+    },
+    {
+      "promptId": "F09",
+      "condition": "cortex",
+      "answer": "100 requests per 15-minute window per IP. Auth endpoints get 1000 per 15-minute window."
+    },
+    {
+      "promptId": "F10",
+      "condition": "naive",
+      "answer": "Based on the retrieved passages: 'info'. The log level is set from the LOG_LEVEL env var, def... (simplified)"
+    },
+    {
+      "promptId": "F10",
+      "condition": "cortex",
+      "answer": "'info'. The log level is set from the LOG_LEVEL env var, defaulting to 'info'."
+    },
+    {
+      "promptId": "F11",
+      "condition": "naive",
+      "answer": "Based on the retrieved passages: kebab-case — for example, user-profile.ts, auth-middleware.t... (simplified)"
+    },
+    {
+      "promptId": "F11",
+      "condition": "cortex",
+      "answer": "kebab-case — for example, user-profile.ts, auth-middleware.ts."
+    },
+    {
+      "promptId": "F12",
+      "condition": "naive",
+      "answer": "Based on the retrieved passages: max 10 connections. The pg pool for background workers is co... (simplified)"
+    },
+    {
+      "promptId": "F12",
+      "condition": "cortex",
+      "answer": "max 10 connections. The pg pool for background workers is configured with { max: 10 }."
+    },
+    {
+      "promptId": "F13",
+      "condition": "naive",
+      "answer": "Based on the retrieved passages: src/lib/redis.ts. The ioredis client is created there and ex... (simplified)"
+    },
+    {
+      "promptId": "F13",
+      "condition": "cortex",
+      "answer": "src/lib/redis.ts. The ioredis client is created there and exported as a singleton."
+    },
+    {
+      "promptId": "F14",
+      "condition": "naive",
+      "answer": "Based on the retrieved passages: Errors must include the operation name: throw new Error(`${o... (simplified)"
+    },
+    {
+      "promptId": "F14",
+      "condition": "cortex",
+      "answer": "Errors must include the operation name: throw new Error(`${operation}: ${message}`). For example: throw new Error('createUser: email already exists')."
+    },
+    {
+      "promptId": "F15",
+      "condition": "naive",
+      "answer": "Based on the retrieved passages: { data, error, meta }. Data is the payload (null on errors).... (simplified)"
+    },
+    {
+      "promptId": "F15",
+      "condition": "cortex",
+      "answer": "{ data, error, meta }. Data is the payload (null on errors). Error is { code, message } (null on success). Meta holds pagination info."
+    },
+    {
+      "promptId": "R01",
+      "condition": "naive",
+      "answer": "Based on the retrieved passages: Fastify is schema-first with built-in request/response valid... (simplified)"
+    },
+    {
+      "promptId": "R01",
+      "condition": "cortex",
+      "answer": "Fastify is schema-first with built-in request/response validation via JSON Schema, giving TypeScript types from the same definition. It is also faster than Express. Express would have required adding a separate validation layer."
+    },
+    {
+      "promptId": "R02",
+      "condition": "naive",
+      "answer": "Based on the retrieved passages: Prisma bundles a ~10MB query engine binary that causes probl... (simplified)"
+    },
+    {
+      "promptId": "R02",
+      "condition": "cortex",
+      "answer": "Prisma bundles a ~10MB query engine binary that causes problems in serverless environments. Drizzle is ~50KB, ships plain TypeScript, requires no code generation step, and produces more predictable SQL."
+    },
+    {
+      "promptId": "R03",
+      "condition": "naive",
+      "answer": "Based on the retrieved passages: JWT tokens were being decoded by frontend JavaScript, exposi... (simplified)"
+    },
+    {
+      "promptId": "R03",
+      "condition": "cortex",
+      "answer": "JWT tokens were being decoded by frontend JavaScript, exposing the user data structure (role, teamId, email). HS256 is a signature not encryption — the payload is visible to anyone with the token. iron-session encrypts the session data so the client only ever sees ciphertext."
+    },
+    {
+      "promptId": "R04",
+      "condition": "naive",
+      "answer": "Based on the retrieved passages: The compliance team required all third-party vendors to be S... (simplified)"
+    },
+    {
+      "promptId": "R04",
+      "condition": "cortex",
+      "answer": "The compliance team required all third-party vendors to be SOC 2 Type 2 certified. Resend does not hold that certification. SendGrid does."
+    },
+    {
+      "promptId": "R05",
+      "condition": "naive",
+      "answer": "Based on the retrieved passages: The custom setTimeout-based queue did not support job priori... (simplified)"
+    },
+    {
+      "promptId": "R05",
+      "condition": "cortex",
+      "answer": "The custom setTimeout-based queue did not support job priorities, retries with configurable backoff, or failed job retention. Failed jobs were silently disappearing with no visibility."
+    },
+    {
+      "promptId": "R06",
+      "condition": "naive",
+      "answer": "Based on the retrieved passages: vitest is Vite-compatible, significantly faster than Jest on... (simplified)"
+    },
+    {
+      "promptId": "R06",
+      "condition": "cortex",
+      "answer": "vitest is Vite-compatible, significantly faster than Jest on large codebases, and has native ESM support without extra transform configuration."
+    },
+    {
+      "promptId": "R07",
+      "condition": "naive",
+      "answer": "Based on the retrieved passages: Presigned S3 PUT URLs let the client upload directly to S3 w... (simplified)"
+    },
+    {
+      "promptId": "R07",
+      "condition": "cortex",
+      "answer": "Presigned S3 PUT URLs let the client upload directly to S3 without the file bytes going through the API server. This avoids memory pressure on the backend and removes the API server from the hot path for large uploads."
+    },
+    {
+      "promptId": "R08",
+      "condition": "naive",
+      "answer": "Based on the retrieved passages: Conventional commits keep the git log readable and enable au... (simplified)"
+    },
+    {
+      "promptId": "R08",
+      "condition": "cortex",
+      "answer": "Conventional commits keep the git log readable and enable automated changelog generation. They also provide structure for the PR template and squash merge strategy."
+    },
+    {
+      "promptId": "R09",
+      "condition": "naive",
+      "answer": "Based on the retrieved passages: To fail fast on missing required vars and get typed access t... (simplified)"
+    },
+    {
+      "promptId": "R09",
+      "condition": "cortex",
+      "answer": "To fail fast on missing required vars and get typed access to configuration. If a required env var is missing, the app throws a clear error at startup listing what's missing rather than failing mysteriously at runtime."
+    },
+    {
+      "promptId": "R10",
+      "condition": "naive",
+      "answer": "Based on the retrieved passages: UUIDs are safe to expose in URLs, work across distributed sy... (simplified)"
+    },
+    {
+      "promptId": "R10",
+      "condition": "cortex",
+      "answer": "UUIDs are safe to expose in URLs, work across distributed systems, and don't leak row count. Serial integers expose information about volume and ordering."
+    },
+    {
+      "promptId": "E01",
+      "condition": "naive",
+      "answer": "Based on the retrieved passages: iron-session with encrypted cookies. We switched from JWT in... (simplified)"
+    },
+    {
+      "promptId": "E01",
+      "condition": "cortex",
+      "answer": "iron-session with encrypted cookies. We switched from JWT in week 4 because JWTs were exposing user data structure to the client. iron-session stores encrypted session data in the arclight_session cookie."
+    },
+    {
+      "promptId": "E02",
+      "condition": "naive",
+      "answer": "Based on the retrieved passages: SendGrid. We switched from Resend after the compliance team ... (simplified)"
+    },
+    {
+      "promptId": "E02",
+      "condition": "cortex",
+      "answer": "SendGrid. We switched from Resend after the compliance team required a SOC 2 Type 2 certified vendor. The API key env var is SENDGRID_API_KEY."
+    },
+    {
+      "promptId": "E03",
+      "condition": "naive",
+      "answer": "Based on the retrieved passages: BullMQ. We replaced the custom setTimeout-based queue with B... (simplified)"
+    },
+    {
+      "promptId": "E03",
+      "condition": "cortex",
+      "answer": "BullMQ. We replaced the custom setTimeout-based queue with BullMQ, which runs on our existing Redis instance. Queue definitions are in src/queues/ and worker definitions in src/workers/."
+    },
+    {
+      "promptId": "E04",
+      "condition": "naive",
+      "answer": "Based on the retrieved passages: 7 days. iron-session cookies have maxAge set to 7 * 24 * 60 ... (simplified)"
+    },
+    {
+      "promptId": "E04",
+      "condition": "cortex",
+      "answer": "7 days. iron-session cookies have maxAge set to 7 * 24 * 60 * 60 (7 days). This matches the refresh token lifetime we had with the previous JWT approach."
+    },
+    {
+      "promptId": "E05",
+      "condition": "naive",
+      "answer": "Based on the retrieved passages: SENDGRID_API_KEY. It was previously RESEND_API_KEY when we u... (simplified)"
+    },
+    {
+      "promptId": "E05",
+      "condition": "cortex",
+      "answer": "SENDGRID_API_KEY. It was previously RESEND_API_KEY when we used Resend, but was renamed when we migrated to SendGrid."
+    },
+    {
+      "promptId": "E06",
+      "condition": "naive",
+      "answer": "Based on the retrieved passages: src/lib/session.ts. This file contains the SessionData inter... (simplified)"
+    },
+    {
+      "promptId": "E06",
+      "condition": "cortex",
+      "answer": "src/lib/session.ts. This file contains the SessionData interface (userId, teamId, role), the iron-session config (cookie name arclight_session, httpOnly, secure, sameSite:strict), and the getSession helper."
+    },
+    {
+      "promptId": "E07",
+      "condition": "naive",
+      "answer": "Based on the retrieved passages: Using drizzle-kit only: bun drizzle-kit generate to create m... (simplified)"
+    },
+    {
+      "promptId": "E07",
+      "condition": "cortex",
+      "answer": "Using drizzle-kit only: bun drizzle-kit generate to create migration SQL from schema.ts, then bun drizzle-kit migrate to apply it. Never make manual DDL changes to the database. Migration files are committed to git."
+    },
+    {
+      "promptId": "E08",
+      "condition": "naive",
+      "answer": "Based on the retrieved passages: body-parser (Fastify handles content-type parsing), lodash (... (simplified)"
+    },
+    {
+      "promptId": "E08",
+      "condition": "cortex",
+      "answer": "body-parser (Fastify handles content-type parsing), lodash (replaced with native JS), and moment (already replaced by date-fns but still in package.json)."
+    },
+    {
+      "promptId": "E09",
+      "condition": "naive",
+      "answer": "Based on the retrieved passages: Lint, type-check (tsc --noEmit), run vitest tests, and build... (simplified)"
+    },
+    {
+      "promptId": "E09",
+      "condition": "cortex",
+      "answer": "Lint, type-check (tsc --noEmit), run vitest tests, and build. All must pass before merge. Uses bun for package installation. Deploys to staging on merge to main."
+    },
+    {
+      "promptId": "E10",
+      "condition": "naive",
+      "answer": "Based on the retrieved passages: Environment variables. Flags are defined as FEATURE_{NAME}=1... (simplified)"
+    },
+    {
+      "promptId": "E10",
+      "condition": "cortex",
+      "answer": "Environment variables. Flags are defined as FEATURE_{NAME}=1 to enable, accessed via config.features object. App-specific vars use ARCLIGHT_ prefix. All flags documented in .env.example. No third-party service is used yet."
+    },
+    {
+      "promptId": "S01",
+      "condition": "naive",
+      "answer": "Based on the retrieved passages: Files: kebab-case (user-profile.ts). Types/interfaces: Pasca... (simplified)"
+    },
+    {
+      "promptId": "S01",
+      "condition": "cortex",
+      "answer": "Files: kebab-case (user-profile.ts). Types/interfaces: PascalCase (UserProfile). Variables/functions: camelCase (getUserProfile). Constants: UPPER_SNAKE_CASE (MAX_RETRY_ATTEMPTS). Database tables: snake_case plural (user_events, team_members). Columns: snake_case (created_at). Env vars: UPPER_SNAKE_CASE; app-specific vars use ARCLIGHT_ prefix."
+    },
+    {
+      "promptId": "S02",
+      "condition": "naive",
+      "answer": "Based on the retrieved passages: 80% test coverage target (vitest, v8 provider). PRs must inc... (simplified)"
+    },
+    {
+      "promptId": "S02",
+      "condition": "cortex",
+      "answer": "80% test coverage target (vitest, v8 provider). PRs must include tests for any new API endpoint. Max 400-line diff per PR. Conventional commit messages required. No force push to main. Squash merge strategy. PR template with testing checklist."
+    },
+    {
+      "promptId": "S03",
+      "condition": "naive",
+      "answer": "Based on the retrieved passages: DOMPurify for user-generated HTML on the frontend. All DB qu... (simplified)"
+    },
+    {
+      "promptId": "S03",
+      "condition": "cortex",
+      "answer": "DOMPurify for user-generated HTML on the frontend. All DB queries via Drizzle parameterized builder (no raw SQL interpolation). CSP and other security headers via @fastify/helmet. Dependency vulnerability scanning (npm audit) in CI. Iron-session with encrypted cookies for auth. Stripe webhook signature verification with raw body."
+    },
+    {
+      "promptId": "S04",
+      "condition": "naive",
+      "answer": "Based on the retrieved passages: Pino structured logging (JSON in production, pretty in devel... (simplified)"
+    },
+    {
+      "promptId": "S04",
+      "condition": "cortex",
+      "answer": "Pino structured logging (JSON in production, pretty in development, level from LOG_LEVEL env). OpenTelemetry tracing via @opentelemetry/sdk-node with Fastify and pg auto-instrumentation, exported to Jaeger locally via OTEL_EXPORTER_OTLP_ENDPOINT. Request IDs propagated in all log entries. Service name: arclight-api via OTEL_SERVICE_NAME."
+    },
+    {
+      "promptId": "S05",
+      "condition": "naive",
+      "answer": "Based on the retrieved passages: Client: ioredis, instance in src/lib/redis.ts, connection fr... (simplified)"
+    },
+    {
+      "promptId": "S05",
+      "condition": "cortex",
+      "answer": "Client: ioredis, instance in src/lib/redis.ts, connection from REDIS_URL. Key format: arclight:{entity}:{id}. Default TTL: 600 seconds. Cache invalidation: clear keys on write/delete via clearUserCache() helper. BullMQ also uses Redis for background job queues (separate connections, bull:{queueName}: prefix). Rate limiting currently uses in-memory store."
+    },
+    {
+      "promptId": "S06",
+      "condition": "naive",
+      "answer": "Based on the retrieved passages: Conventional commits (feat:, fix:, docs:, refactor:, test:, ... (simplified)"
+    },
+    {
+      "promptId": "S06",
+      "condition": "cortex",
+      "answer": "Conventional commits (feat:, fix:, docs:, refactor:, test:, chore:). Squash merge to main. No force push to main. Feature branches required. Max 400-line diff per PR. PR template with description and testing checklist. GitHub Actions CI must pass before merge."
+    },
+    {
+      "promptId": "S07",
+      "condition": "naive",
+      "answer": "Based on the retrieved passages: Stripe (payments, webhooks, idempotency keys). SendGrid (tra... (simplified)"
+    },
+    {
+      "promptId": "S07",
+      "condition": "cortex",
+      "answer": "Stripe (payments, webhooks, idempotency keys). SendGrid (transactional email, via SENDGRID_API_KEY). AWS S3 (file uploads via presigned URLs, bucket from S3_BUCKET env). Redis/ioredis (caching + BullMQ queues). Neon (PostgreSQL serverless driver for request handlers). GitHub Actions (CI/CD). Jaeger (local tracing via OpenTelemetry)."
+    },
+    {
+      "promptId": "S08",
+      "condition": "naive",
+      "answer": "Based on the retrieved passages: Targets: p50 < 50ms, p99 < 500ms for standard API endpoints.... (simplified)"
+    },
+    {
+      "promptId": "S08",
+      "condition": "cortex",
+      "answer": "Targets: p50 < 50ms, p99 < 500ms for standard API endpoints. Write-heavy endpoints (session ingestion) allow p99 < 1000ms. Measurement: k6 load tests at 50 concurrent users for 5 minutes. Baseline stored in docs/performance/baseline.json. Run before major releases and compare against baseline; investigate if p99 regresses more than 20%."
+    },
+    {
+      "promptId": "T01",
+      "condition": "naive",
+      "answer": "Based on the retrieved passages: Removal of all JWT code (week 6). The jsonwebtoken package w... (simplified)"
+    },
+    {
+      "promptId": "T01",
+      "condition": "cortex",
+      "answer": "Removal of all JWT code (week 6). The jsonwebtoken package was removed, src/lib/auth.ts deleted, and the /api/v1/auth/refresh endpoint removed. iron-session configuration was formalized in src/lib/session.ts with SessionData interface (userId, teamId, role) and cookie name arclight_session."
+    },
+    {
+      "promptId": "T02",
+      "condition": "naive",
+      "answer": "Based on the retrieved passages: Synchronous JSON parsing blocking the event loop during anal... (simplified)"
+    },
+    {
+      "promptId": "T02",
+      "condition": "cortex",
+      "answer": "Synchronous JSON parsing blocking the event loop during analytics session ingestion (week 4). Diagnosed with clinic.js Flame profiler. Fixed by capping request payload at 500KB and requiring clients to batch — event loop lag dropped back under 5ms."
+    },
+    {
+      "promptId": "T03",
+      "condition": "naive",
+      "answer": "Based on the retrieved passages: Database backup automation (week 5, day 36): daily pg_dump t... (simplified)"
+    },
+    {
+      "promptId": "T03",
+      "condition": "cortex",
+      "answer": "Database backup automation (week 5, day 36): daily pg_dump to S3 via GitHub Actions scheduled cron workflow (2am UTC), 30-day S3 lifecycle retention, restore procedure documented in docs/runbooks/db-restore.md."
+    },
+    {
+      "promptId": "T04",
+      "condition": "naive",
+      "answer": "Based on the retrieved passages: All Error objects must include the operation name in the mes... (simplified)"
+    },
+    {
+      "promptId": "T04",
+      "condition": "cortex",
+      "answer": "All Error objects must include the operation name in the message: throw new Error(`${operation}: ${message}`). An AppError class in src/lib/errors.ts adds code and operation fields. Never catch and silently swallow errors — either handle or rethrow."
+    },
+    {
+      "promptId": "T05",
+      "condition": "naive",
+      "answer": "Based on the retrieved passages: Keep /api/v1. Only add /api/v2 when there is a genuinely bre... (simplified)"
+    },
+    {
+      "promptId": "T05",
+      "condition": "cortex",
+      "answer": "Keep /api/v1. Only add /api/v2 when there is a genuinely breaking change (not just additions). Do not deprecate v1 until v2 has been stable for 3 months. Include an X-API-Version response header in every API response."
+    },
+    {
+      "promptId": "T06",
+      "condition": "naive",
+      "answer": "Based on the retrieved passages: Three things: real-time analytics dashboard via WebSockets (... (simplified)"
+    },
+    {
+      "promptId": "T06",
+      "condition": "cortex",
+      "answer": "Three things: real-time analytics dashboard via WebSockets (using @fastify/websocket with Redis Pub/Sub for multi-instance state sync), billing v2 with Stripe usage-based meters, and API key authentication for external integrations alongside the existing iron-session auth. Possible addition of read replicas for analytics queries."
+    },
+    {
+      "promptId": "T07",
+      "condition": "naive",
+      "answer": "Based on the retrieved passages: Security audit in week 5: added DOMPurify for user-generated... (simplified)"
+    },
+    {
+      "promptId": "T07",
+      "condition": "cortex",
+      "answer": "Security audit in week 5: added DOMPurify for user-generated HTML on the frontend, confirmed all DB queries go through Drizzle (no raw SQL interpolation), added CSP and security headers via @fastify/helmet, and added npm audit to GitHub Actions CI for dependency vulnerability scanning."
+    }
+  ],
+  "judgments": [
+    {
+      "promptId": "F01",
+      "condition": "naive",
+      "score": 2,
+      "rationale": "[DRY-RUN] Synthetic score for naive"
+    },
+    {
+      "promptId": "F01",
+      "condition": "cortex",
+      "score": 3,
+      "rationale": "[DRY-RUN] Synthetic score for cortex"
+    },
+    {
+      "promptId": "F02",
+      "condition": "naive",
+      "score": 2,
+      "rationale": "[DRY-RUN] Synthetic score for naive"
+    },
+    {
+      "promptId": "F02",
+      "condition": "cortex",
+      "score": 3,
+      "rationale": "[DRY-RUN] Synthetic score for cortex"
+    },
+    {
+      "promptId": "F03",
+      "condition": "naive",
+      "score": 2,
+      "rationale": "[DRY-RUN] Synthetic score for naive"
+    },
+    {
+      "promptId": "F03",
+      "condition": "cortex",
+      "score": 3,
+      "rationale": "[DRY-RUN] Synthetic score for cortex"
+    },
+    {
+      "promptId": "F04",
+      "condition": "naive",
+      "score": 2,
+      "rationale": "[DRY-RUN] Synthetic score for naive"
+    },
+    {
+      "promptId": "F04",
+      "condition": "cortex",
+      "score": 3,
+      "rationale": "[DRY-RUN] Synthetic score for cortex"
+    },
+    {
+      "promptId": "F05",
+      "condition": "naive",
+      "score": 2,
+      "rationale": "[DRY-RUN] Synthetic score for naive"
+    },
+    {
+      "promptId": "F05",
+      "condition": "cortex",
+      "score": 3,
+      "rationale": "[DRY-RUN] Synthetic score for cortex"
+    },
+    {
+      "promptId": "F06",
+      "condition": "naive",
+      "score": 2,
+      "rationale": "[DRY-RUN] Synthetic score for naive"
+    },
+    {
+      "promptId": "F06",
+      "condition": "cortex",
+      "score": 3,
+      "rationale": "[DRY-RUN] Synthetic score for cortex"
+    },
+    {
+      "promptId": "F07",
+      "condition": "naive",
+      "score": 2,
+      "rationale": "[DRY-RUN] Synthetic score for naive"
+    },
+    {
+      "promptId": "F07",
+      "condition": "cortex",
+      "score": 3,
+      "rationale": "[DRY-RUN] Synthetic score for cortex"
+    },
+    {
+      "promptId": "F08",
+      "condition": "naive",
+      "score": 2,
+      "rationale": "[DRY-RUN] Synthetic score for naive"
+    },
+    {
+      "promptId": "F08",
+      "condition": "cortex",
+      "score": 3,
+      "rationale": "[DRY-RUN] Synthetic score for cortex"
+    },
+    {
+      "promptId": "F09",
+      "condition": "naive",
+      "score": 2,
+      "rationale": "[DRY-RUN] Synthetic score for naive"
+    },
+    {
+      "promptId": "F09",
+      "condition": "cortex",
+      "score": 3,
+      "rationale": "[DRY-RUN] Synthetic score for cortex"
+    },
+    {
+      "promptId": "F10",
+      "condition": "naive",
+      "score": 2,
+      "rationale": "[DRY-RUN] Synthetic score for naive"
+    },
+    {
+      "promptId": "F10",
+      "condition": "cortex",
+      "score": 3,
+      "rationale": "[DRY-RUN] Synthetic score for cortex"
+    },
+    {
+      "promptId": "F11",
+      "condition": "naive",
+      "score": 2,
+      "rationale": "[DRY-RUN] Synthetic score for naive"
+    },
+    {
+      "promptId": "F11",
+      "condition": "cortex",
+      "score": 3,
+      "rationale": "[DRY-RUN] Synthetic score for cortex"
+    },
+    {
+      "promptId": "F12",
+      "condition": "naive",
+      "score": 2,
+      "rationale": "[DRY-RUN] Synthetic score for naive"
+    },
+    {
+      "promptId": "F12",
+      "condition": "cortex",
+      "score": 3,
+      "rationale": "[DRY-RUN] Synthetic score for cortex"
+    },
+    {
+      "promptId": "F13",
+      "condition": "naive",
+      "score": 2,
+      "rationale": "[DRY-RUN] Synthetic score for naive"
+    },
+    {
+      "promptId": "F13",
+      "condition": "cortex",
+      "score": 3,
+      "rationale": "[DRY-RUN] Synthetic score for cortex"
+    },
+    {
+      "promptId": "F14",
+      "condition": "naive",
+      "score": 2,
+      "rationale": "[DRY-RUN] Synthetic score for naive"
+    },
+    {
+      "promptId": "F14",
+      "condition": "cortex",
+      "score": 3,
+      "rationale": "[DRY-RUN] Synthetic score for cortex"
+    },
+    {
+      "promptId": "F15",
+      "condition": "naive",
+      "score": 2,
+      "rationale": "[DRY-RUN] Synthetic score for naive"
+    },
+    {
+      "promptId": "F15",
+      "condition": "cortex",
+      "score": 3,
+      "rationale": "[DRY-RUN] Synthetic score for cortex"
+    },
+    {
+      "promptId": "R01",
+      "condition": "naive",
+      "score": 2,
+      "rationale": "[DRY-RUN] Synthetic score for naive"
+    },
+    {
+      "promptId": "R01",
+      "condition": "cortex",
+      "score": 3,
+      "rationale": "[DRY-RUN] Synthetic score for cortex"
+    },
+    {
+      "promptId": "R02",
+      "condition": "naive",
+      "score": 2,
+      "rationale": "[DRY-RUN] Synthetic score for naive"
+    },
+    {
+      "promptId": "R02",
+      "condition": "cortex",
+      "score": 3,
+      "rationale": "[DRY-RUN] Synthetic score for cortex"
+    },
+    {
+      "promptId": "R03",
+      "condition": "naive",
+      "score": 2,
+      "rationale": "[DRY-RUN] Synthetic score for naive"
+    },
+    {
+      "promptId": "R03",
+      "condition": "cortex",
+      "score": 3,
+      "rationale": "[DRY-RUN] Synthetic score for cortex"
+    },
+    {
+      "promptId": "R04",
+      "condition": "naive",
+      "score": 2,
+      "rationale": "[DRY-RUN] Synthetic score for naive"
+    },
+    {
+      "promptId": "R04",
+      "condition": "cortex",
+      "score": 3,
+      "rationale": "[DRY-RUN] Synthetic score for cortex"
+    },
+    {
+      "promptId": "R05",
+      "condition": "naive",
+      "score": 2,
+      "rationale": "[DRY-RUN] Synthetic score for naive"
+    },
+    {
+      "promptId": "R05",
+      "condition": "cortex",
+      "score": 3,
+      "rationale": "[DRY-RUN] Synthetic score for cortex"
+    },
+    {
+      "promptId": "R06",
+      "condition": "naive",
+      "score": 2,
+      "rationale": "[DRY-RUN] Synthetic score for naive"
+    },
+    {
+      "promptId": "R06",
+      "condition": "cortex",
+      "score": 3,
+      "rationale": "[DRY-RUN] Synthetic score for cortex"
+    },
+    {
+      "promptId": "R07",
+      "condition": "naive",
+      "score": 2,
+      "rationale": "[DRY-RUN] Synthetic score for naive"
+    },
+    {
+      "promptId": "R07",
+      "condition": "cortex",
+      "score": 3,
+      "rationale": "[DRY-RUN] Synthetic score for cortex"
+    },
+    {
+      "promptId": "R08",
+      "condition": "naive",
+      "score": 2,
+      "rationale": "[DRY-RUN] Synthetic score for naive"
+    },
+    {
+      "promptId": "R08",
+      "condition": "cortex",
+      "score": 3,
+      "rationale": "[DRY-RUN] Synthetic score for cortex"
+    },
+    {
+      "promptId": "R09",
+      "condition": "naive",
+      "score": 2,
+      "rationale": "[DRY-RUN] Synthetic score for naive"
+    },
+    {
+      "promptId": "R09",
+      "condition": "cortex",
+      "score": 3,
+      "rationale": "[DRY-RUN] Synthetic score for cortex"
+    },
+    {
+      "promptId": "R10",
+      "condition": "naive",
+      "score": 2,
+      "rationale": "[DRY-RUN] Synthetic score for naive"
+    },
+    {
+      "promptId": "R10",
+      "condition": "cortex",
+      "score": 3,
+      "rationale": "[DRY-RUN] Synthetic score for cortex"
+    },
+    {
+      "promptId": "E01",
+      "condition": "naive",
+      "score": 2,
+      "rationale": "[DRY-RUN] Synthetic score for naive"
+    },
+    {
+      "promptId": "E01",
+      "condition": "cortex",
+      "score": 3,
+      "rationale": "[DRY-RUN] Synthetic score for cortex"
+    },
+    {
+      "promptId": "E02",
+      "condition": "naive",
+      "score": 2,
+      "rationale": "[DRY-RUN] Synthetic score for naive"
+    },
+    {
+      "promptId": "E02",
+      "condition": "cortex",
+      "score": 3,
+      "rationale": "[DRY-RUN] Synthetic score for cortex"
+    },
+    {
+      "promptId": "E03",
+      "condition": "naive",
+      "score": 2,
+      "rationale": "[DRY-RUN] Synthetic score for naive"
+    },
+    {
+      "promptId": "E03",
+      "condition": "cortex",
+      "score": 3,
+      "rationale": "[DRY-RUN] Synthetic score for cortex"
+    },
+    {
+      "promptId": "E04",
+      "condition": "naive",
+      "score": 2,
+      "rationale": "[DRY-RUN] Synthetic score for naive"
+    },
+    {
+      "promptId": "E04",
+      "condition": "cortex",
+      "score": 3,
+      "rationale": "[DRY-RUN] Synthetic score for cortex"
+    },
+    {
+      "promptId": "E05",
+      "condition": "naive",
+      "score": 2,
+      "rationale": "[DRY-RUN] Synthetic score for naive"
+    },
+    {
+      "promptId": "E05",
+      "condition": "cortex",
+      "score": 3,
+      "rationale": "[DRY-RUN] Synthetic score for cortex"
+    },
+    {
+      "promptId": "E06",
+      "condition": "naive",
+      "score": 2,
+      "rationale": "[DRY-RUN] Synthetic score for naive"
+    },
+    {
+      "promptId": "E06",
+      "condition": "cortex",
+      "score": 3,
+      "rationale": "[DRY-RUN] Synthetic score for cortex"
+    },
+    {
+      "promptId": "E07",
+      "condition": "naive",
+      "score": 2,
+      "rationale": "[DRY-RUN] Synthetic score for naive"
+    },
+    {
+      "promptId": "E07",
+      "condition": "cortex",
+      "score": 3,
+      "rationale": "[DRY-RUN] Synthetic score for cortex"
+    },
+    {
+      "promptId": "E08",
+      "condition": "naive",
+      "score": 2,
+      "rationale": "[DRY-RUN] Synthetic score for naive"
+    },
+    {
+      "promptId": "E08",
+      "condition": "cortex",
+      "score": 3,
+      "rationale": "[DRY-RUN] Synthetic score for cortex"
+    },
+    {
+      "promptId": "E09",
+      "condition": "naive",
+      "score": 2,
+      "rationale": "[DRY-RUN] Synthetic score for naive"
+    },
+    {
+      "promptId": "E09",
+      "condition": "cortex",
+      "score": 3,
+      "rationale": "[DRY-RUN] Synthetic score for cortex"
+    },
+    {
+      "promptId": "E10",
+      "condition": "naive",
+      "score": 2,
+      "rationale": "[DRY-RUN] Synthetic score for naive"
+    },
+    {
+      "promptId": "E10",
+      "condition": "cortex",
+      "score": 3,
+      "rationale": "[DRY-RUN] Synthetic score for cortex"
+    },
+    {
+      "promptId": "S01",
+      "condition": "naive",
+      "score": 2,
+      "rationale": "[DRY-RUN] Synthetic score for naive"
+    },
+    {
+      "promptId": "S01",
+      "condition": "cortex",
+      "score": 3,
+      "rationale": "[DRY-RUN] Synthetic score for cortex"
+    },
+    {
+      "promptId": "S02",
+      "condition": "naive",
+      "score": 2,
+      "rationale": "[DRY-RUN] Synthetic score for naive"
+    },
+    {
+      "promptId": "S02",
+      "condition": "cortex",
+      "score": 3,
+      "rationale": "[DRY-RUN] Synthetic score for cortex"
+    },
+    {
+      "promptId": "S03",
+      "condition": "naive",
+      "score": 2,
+      "rationale": "[DRY-RUN] Synthetic score for naive"
+    },
+    {
+      "promptId": "S03",
+      "condition": "cortex",
+      "score": 3,
+      "rationale": "[DRY-RUN] Synthetic score for cortex"
+    },
+    {
+      "promptId": "S04",
+      "condition": "naive",
+      "score": 2,
+      "rationale": "[DRY-RUN] Synthetic score for naive"
+    },
+    {
+      "promptId": "S04",
+      "condition": "cortex",
+      "score": 3,
+      "rationale": "[DRY-RUN] Synthetic score for cortex"
+    },
+    {
+      "promptId": "S05",
+      "condition": "naive",
+      "score": 2,
+      "rationale": "[DRY-RUN] Synthetic score for naive"
+    },
+    {
+      "promptId": "S05",
+      "condition": "cortex",
+      "score": 3,
+      "rationale": "[DRY-RUN] Synthetic score for cortex"
+    },
+    {
+      "promptId": "S06",
+      "condition": "naive",
+      "score": 2,
+      "rationale": "[DRY-RUN] Synthetic score for naive"
+    },
+    {
+      "promptId": "S06",
+      "condition": "cortex",
+      "score": 3,
+      "rationale": "[DRY-RUN] Synthetic score for cortex"
+    },
+    {
+      "promptId": "S07",
+      "condition": "naive",
+      "score": 2,
+      "rationale": "[DRY-RUN] Synthetic score for naive"
+    },
+    {
+      "promptId": "S07",
+      "condition": "cortex",
+      "score": 3,
+      "rationale": "[DRY-RUN] Synthetic score for cortex"
+    },
+    {
+      "promptId": "S08",
+      "condition": "naive",
+      "score": 2,
+      "rationale": "[DRY-RUN] Synthetic score for naive"
+    },
+    {
+      "promptId": "S08",
+      "condition": "cortex",
+      "score": 3,
+      "rationale": "[DRY-RUN] Synthetic score for cortex"
+    },
+    {
+      "promptId": "T01",
+      "condition": "naive",
+      "score": 2,
+      "rationale": "[DRY-RUN] Synthetic score for naive"
+    },
+    {
+      "promptId": "T01",
+      "condition": "cortex",
+      "score": 3,
+      "rationale": "[DRY-RUN] Synthetic score for cortex"
+    },
+    {
+      "promptId": "T02",
+      "condition": "naive",
+      "score": 2,
+      "rationale": "[DRY-RUN] Synthetic score for naive"
+    },
+    {
+      "promptId": "T02",
+      "condition": "cortex",
+      "score": 3,
+      "rationale": "[DRY-RUN] Synthetic score for cortex"
+    },
+    {
+      "promptId": "T03",
+      "condition": "naive",
+      "score": 2,
+      "rationale": "[DRY-RUN] Synthetic score for naive"
+    },
+    {
+      "promptId": "T03",
+      "condition": "cortex",
+      "score": 3,
+      "rationale": "[DRY-RUN] Synthetic score for cortex"
+    },
+    {
+      "promptId": "T04",
+      "condition": "naive",
+      "score": 2,
+      "rationale": "[DRY-RUN] Synthetic score for naive"
+    },
+    {
+      "promptId": "T04",
+      "condition": "cortex",
+      "score": 3,
+      "rationale": "[DRY-RUN] Synthetic score for cortex"
+    },
+    {
+      "promptId": "T05",
+      "condition": "naive",
+      "score": 2,
+      "rationale": "[DRY-RUN] Synthetic score for naive"
+    },
+    {
+      "promptId": "T05",
+      "condition": "cortex",
+      "score": 3,
+      "rationale": "[DRY-RUN] Synthetic score for cortex"
+    },
+    {
+      "promptId": "T06",
+      "condition": "naive",
+      "score": 2,
+      "rationale": "[DRY-RUN] Synthetic score for naive"
+    },
+    {
+      "promptId": "T06",
+      "condition": "cortex",
+      "score": 3,
+      "rationale": "[DRY-RUN] Synthetic score for cortex"
+    },
+    {
+      "promptId": "T07",
+      "condition": "naive",
+      "score": 2,
+      "rationale": "[DRY-RUN] Synthetic score for naive"
+    },
+    {
+      "promptId": "T07",
+      "condition": "cortex",
+      "score": 3,
+      "rationale": "[DRY-RUN] Synthetic score for cortex"
+    }
+  ],
+  "latency": {
+    "cortex": {
+      "count": 50,
+      "p50": 331,
+      "p95": 458,
+      "p99": 487
+    }
+  }
+}

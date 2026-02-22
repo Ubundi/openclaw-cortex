@@ -1,0 +1,1360 @@
+[
+  {
+    "id": "s01",
+    "description": "Week 1, Day 1 — Project kickoff: runtime, framework, TypeScript config",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Starting Arclight today — developer analytics platform, tracks coding sessions, PRs, deployments per engineer. Need to pick runtime and web framework. Leaning toward bun + Fastify."
+      },
+      {
+        "role": "assistant",
+        "content": "Good pairing. Bun gives you fast installs and built-in TypeScript transpilation — no tsx or ts-node needed. Fastify is schema-first, so you get request/response validation and TypeScript types from the same definition. For an analytics API with lots of structured data that's a significant DX win over Express."
+      },
+      {
+        "role": "user",
+        "content": "Confirmed — going with bun and Fastify. What TypeScript config makes sense here?"
+      },
+      {
+        "role": "assistant",
+        "content": "Use ES2022 as the target — that's what Bun and Node 18+ support natively. Enable strict, noUncheckedIndexedAccess, noImplicitReturns, and exactOptionalPropertyTypes. Set moduleResolution to bundler since Bun handles resolution. Output to dist/."
+      },
+      {
+        "role": "user",
+        "content": "What port should the API server listen on in dev?"
+      },
+      {
+        "role": "assistant",
+        "content": "Use 4000. Keep 3000 free — that's what Vite defaults to and you'll run the frontend alongside the API. Read PORT from env, defaulting to 4000."
+      },
+      {
+        "role": "user",
+        "content": "Directory structure thoughts?"
+      },
+      {
+        "role": "assistant",
+        "content": "Keep it simple for now: src/ with subdirectories routes/, db/, lib/, middleware/, and types/. App instance in src/app.ts, entry point in src/index.ts. Tests in tests/ at root mirroring src/. Don't over-structure before you know what you're building."
+      }
+    ]
+  },
+  {
+    "id": "s02",
+    "description": "Week 1, Day 2 — Database setup: PostgreSQL, Drizzle ORM, schema location",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Setting up the database layer. PostgreSQL for sure, but ORM choice: Drizzle vs Prisma. We used Prisma on the last project and the code-generation step was annoying."
+      },
+      {
+        "role": "assistant",
+        "content": "Go with Drizzle. Prisma bundles a ~10MB query engine binary that causes real problems in serverless environments, and the generate step adds friction to every schema change. Drizzle is ~50KB, ships plain TypeScript, no code generation required. You write the schema in TypeScript and get the types directly. The SQL it produces is also more predictable."
+      },
+      {
+        "role": "user",
+        "content": "Sold. Where should schema live? And we're using neon for the database since this will eventually run in edge functions."
+      },
+      {
+        "role": "assistant",
+        "content": "Schema goes in src/db/schema.ts. Migrations in src/db/migrations/. Use the neon serverless driver (@neondatabase/serverless) for the main request path — it works in edge environments. For local dev, neon provides a standard PostgreSQL connection string so you can use their service or docker-compose with a local Postgres."
+      },
+      {
+        "role": "user",
+        "content": "How should I think about the Drizzle client setup?"
+      },
+      {
+        "role": "assistant",
+        "content": "Put the db instance in src/db/index.ts. Initialize with the neon serverless HTTP driver for the request handler, and export it as a singleton. The schema you define in schema.ts gets passed to drizzle() so it knows the table shapes. Keep relations defined in schema.ts alongside the tables."
+      }
+    ]
+  },
+  {
+    "id": "s03",
+    "description": "Week 1, Day 3 — Authentication: JWT implementation",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Auth setup. Standard JWT approach — access + refresh tokens. What algorithm and expiries?"
+      },
+      {
+        "role": "assistant",
+        "content": "Use HS256 — it's symmetric so you don't need key management infrastructure for a solo project. Set access tokens to 24 hours and refresh tokens to 7 days. Secret from JWT_SECRET env var. Store the access token in an httpOnly cookie so JavaScript can't touch it."
+      },
+      {
+        "role": "user",
+        "content": "What about the refresh flow?"
+      },
+      {
+        "role": "assistant",
+        "content": "Add a POST /api/v1/auth/refresh endpoint. Client sends the refresh token cookie, server validates it, issues a new access token. If the refresh token is expired, return 401 and the client redirects to login. No blacklist for now — stateless is fine at this stage."
+      },
+      {
+        "role": "user",
+        "content": "Where should I put the JWT utility functions?"
+      },
+      {
+        "role": "assistant",
+        "content": "Put them in src/lib/auth.ts — signToken, verifyToken, refreshAccessToken. Keep the secret lazy: read process.env.JWT_SECRET inside the function rather than at module import time. That way dotenv.config() can load before the first call."
+      }
+    ]
+  },
+  {
+    "id": "s04",
+    "description": "Week 1, Day 4 — Frontend setup: React, Vite, state management",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Frontend time. React + Vite is the obvious choice. tailwindcss for styling. Anything else to decide upfront?"
+      },
+      {
+        "role": "assistant",
+        "content": "Decide on state management now so you don't refactor later. For local/global UI state use Zustand — it's minimal, no providers needed, and works well with TypeScript. For server state use TanStack Query (React Query) — it handles caching, refetching, and loading states for API calls. Don't use Redux for a project this size."
+      },
+      {
+        "role": "user",
+        "content": "Where does the frontend live in the monorepo?"
+      },
+      {
+        "role": "assistant",
+        "content": "Put it in frontend/ at the root, separate from src/ which is the API. The Vite dev server will proxy /api requests to localhost:4000. This keeps the frontend and backend clearly separated without going full monorepo tooling."
+      },
+      {
+        "role": "user",
+        "content": "Component library or raw tailwind?"
+      },
+      {
+        "role": "assistant",
+        "content": "Raw Tailwind for now with shadcn/ui for complex components like dialogs, dropdowns, date pickers. Shadcn gives you the component source directly in your project so you own the code, unlike a library dependency. Install components as you need them rather than the whole library."
+      }
+    ]
+  },
+  {
+    "id": "s05",
+    "description": "Week 1, Day 5 — API design: URL conventions, response shape, versioning",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Want to establish API conventions before I start building endpoints. Prefix, URL style, response format."
+      },
+      {
+        "role": "assistant",
+        "content": "Prefix everything with /api/v1 — the v1 buys you future flexibility without committing to anything. Use REST style: kebab-case URL segments (/api/v1/team-members, /api/v1/coding-sessions). Plural nouns for collections. Standard HTTP methods."
+      },
+      {
+        "role": "user",
+        "content": "Response envelope format?"
+      },
+      {
+        "role": "assistant",
+        "content": "Use a consistent envelope: { data, error, meta }. Data is the payload (null on errors). Error is { code, message } (null on success). Meta holds pagination info: { page, perPage, total }. Always return this shape even for simple responses so the client has one parsing pattern."
+      },
+      {
+        "role": "user",
+        "content": "Timestamps in responses — how should those be formatted?"
+      },
+      {
+        "role": "assistant",
+        "content": "ISO 8601 strings, always UTC. Never send Unix timestamps to the client — they're harder to debug and timezone-unsafe. The format is 2024-03-15T14:30:00Z. Fastify will serialize Date objects correctly if you register the default serializer."
+      }
+    ]
+  },
+  {
+    "id": "s06",
+    "description": "Week 1, Day 6 — Testing setup: vitest, playwright, coverage targets",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Setting up the test infrastructure. Jest vs vitest?"
+      },
+      {
+        "role": "assistant",
+        "content": "Use vitest. It's Vite-compatible which matters since we're using Bun with Vite on the frontend. It's significantly faster than Jest on large codebases, and it has native ESM support — no more transform configuration to get ES modules working. The API is Jest-compatible so any patterns you know transfer."
+      },
+      {
+        "role": "user",
+        "content": "What about end-to-end tests?"
+      },
+      {
+        "role": "assistant",
+        "content": "Playwright for e2e. It handles Chromium, Firefox, and WebKit, and its async API is clean. Don't over-invest in e2e early — prioritize integration tests for the API layer first. E2e tests are expensive to maintain."
+      },
+      {
+        "role": "user",
+        "content": "Coverage requirements?"
+      },
+      {
+        "role": "assistant",
+        "content": "Target 80% overall. Use the v8 coverage provider (built into Node, more accurate than Istanbul for modern code). Exclude src/db/migrations/, dist/, and any generated files from coverage. Run coverage in CI, fail the build below 80%."
+      }
+    ]
+  },
+  {
+    "id": "s07",
+    "description": "Week 1, Day 7 — Git workflow: conventional commits, PR process, merge strategy",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Establishing git conventions. Want to be disciplined here from the start."
+      },
+      {
+        "role": "assistant",
+        "content": "Use conventional commits: feat:, fix:, docs:, refactor:, test:, chore:. This keeps the git log readable and enables automated changelog generation later. Make it a hard requirement, not a suggestion."
+      },
+      {
+        "role": "user",
+        "content": "Branch protection and merge strategy?"
+      },
+      {
+        "role": "assistant",
+        "content": "No direct pushes to main. Feature branches for anything non-trivial. Squash merge strategy on GitHub — keeps main history clean, one commit per feature. Never force push to main. PR template with a short description field and a testing checklist."
+      },
+      {
+        "role": "user",
+        "content": "How strict should I be about PR size?"
+      },
+      {
+        "role": "assistant",
+        "content": "Aim to keep PRs under 400 lines of diff. Larger PRs get reviewed superficially — reviewers can't hold the whole change in their head. If a feature needs more than that, split it: infrastructure PR first, then the feature on top."
+      }
+    ]
+  },
+  {
+    "id": "s08",
+    "description": "Week 1, Day 7 — Environment configuration: Zod validation, dotenv, fail-fast",
+    "messages": [
+      {
+        "role": "user",
+        "content": "How should I handle environment variables? Want typed access and early failure if anything's missing."
+      },
+      {
+        "role": "assistant",
+        "content": "Use Zod to define and validate all env vars at startup. Create src/config/env.ts that imports dotenv and validates process.env against a Zod schema. If validation fails, throw with a clear error listing which vars are missing. Export the validated config object — never access process.env directly elsewhere in the codebase."
+      },
+      {
+        "role": "user",
+        "content": "What should be in the Zod schema for now?"
+      },
+      {
+        "role": "assistant",
+        "content": "Start with: PORT (number, default 4000), NODE_ENV (enum: development/production/test), DATABASE_URL (string), JWT_SECRET (string, min 32 chars), REDIS_URL (string), LOG_LEVEL (enum: trace/debug/info/warn/error, default info). Add service-specific vars as you add integrations."
+      },
+      {
+        "role": "user",
+        "content": "Should I maintain a .env.example file?"
+      },
+      {
+        "role": "assistant",
+        "content": "Yes, always. Keep .env.example committed with every key documented and a safe placeholder value. When you add a new required env var, update .env.example in the same commit. This is the onboarding guide for future contributors and your own future self after a month away."
+      }
+    ]
+  },
+  {
+    "id": "s09",
+    "description": "Week 2, Day 8 — User model: schema design, UUIDs, soft delete",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Designing the users table. What should it look like?"
+      },
+      {
+        "role": "assistant",
+        "content": "Use UUID primary keys — not serial integers. They're safe to expose in URLs, work across distributed systems, and don't leak row count. Columns: id (uuid, default gen_random_uuid()), email (text, unique, not null), name (text, not null), team_id (uuid, fk to teams), role (enum: admin/member), created_at (timestamptz, default now()), updated_at (timestamptz), deleted_at (timestamptz, nullable for soft delete)."
+      },
+      {
+        "role": "user",
+        "content": "Why soft delete instead of hard delete?"
+      },
+      {
+        "role": "assistant",
+        "content": "Analytics data refers to users — if you hard delete someone their session and PR data becomes orphaned or loses context. Soft delete lets you keep the audit trail while removing access. Filter deleted_at IS NULL in every query that shouldn't see deleted users. Drizzle makes this easy with a where condition on the repository layer."
+      },
+      {
+        "role": "user",
+        "content": "Email uniqueness — unique constraint on the column or a unique index?"
+      },
+      {
+        "role": "assistant",
+        "content": "Unique constraint is fine. In Drizzle that's uniqueIndex('users_email_unique').on(table.email). If you need case-insensitive uniqueness later, switch to a functional index on lower(email), but don't over-engineer it now."
+      }
+    ]
+  },
+  {
+    "id": "s10",
+    "description": "Week 2, Day 9 — Stripe billing integration: setup, webhooks, idempotency",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Adding Stripe for subscriptions. What do I need to be careful about?"
+      },
+      {
+        "role": "assistant",
+        "content": "Three things: webhook verification, idempotency, and idempotency. Your Stripe webhook handler must verify the signature using the STRIPE_WEBHOOK_SECRET env var before processing any event. Don't trust events that didn't come through Stripe's signature verification."
+      },
+      {
+        "role": "user",
+        "content": "What about idempotency?"
+      },
+      {
+        "role": "assistant",
+        "content": "For charge requests, always pass an idempotency key to the Stripe API. For webhooks, store the event ID in your DB and check before processing — Stripe can deliver the same event more than once. Your webhook handler should be idempotent: processing the same event twice should produce the same result."
+      },
+      {
+        "role": "user",
+        "content": "Where should the webhook endpoint live?"
+      },
+      {
+        "role": "assistant",
+        "content": "POST /api/v1/webhooks/stripe. This endpoint needs the raw body for signature verification — don't let Fastify parse the JSON before your handler can read the raw bytes. We'll need the @fastify/rawbody plugin for this."
+      }
+    ]
+  },
+  {
+    "id": "s11",
+    "description": "Week 2, Day 10 — Email service: choosing Resend, template approach",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Need to add transactional email. Resend vs SendGrid vs Postmark?"
+      },
+      {
+        "role": "assistant",
+        "content": "Go with Resend for now. It has the simplest API of the three — one function call, good TypeScript SDK, and a generous free tier. SendGrid has better compliance certifications and enterprise features but the API is significantly more complex. Postmark is reliable but expensive. Resend is the right choice for getting something working quickly."
+      },
+      {
+        "role": "user",
+        "content": "From address and how to organize templates?"
+      },
+      {
+        "role": "assistant",
+        "content": "Use noreply@arclight.dev as the from address. Don't do string templates for email HTML — write templates as TypeScript functions in src/email/templates/. Each template is a function that takes typed props and returns { subject, html, text }. This gives you type safety on the props and makes templates easy to test."
+      },
+      {
+        "role": "user",
+        "content": "API key in env?"
+      },
+      {
+        "role": "assistant",
+        "content": "Yes, RESEND_API_KEY. Add it to the Zod env schema as a required string. Add the Resend client instance to src/lib/email.ts and export a sendEmail() wrapper so the rest of the app doesn't import Resend directly — makes switching providers easier later."
+      }
+    ]
+  },
+  {
+    "id": "s12",
+    "description": "Week 2, Day 11 — File uploads: S3 presigned URLs, size limits, key format",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Adding file uploads — users can attach screenshots to sessions. Direct upload to S3 via presigned URLs I assume?"
+      },
+      {
+        "role": "assistant",
+        "content": "Correct — don't route uploads through the backend. Generate a presigned PUT URL on the server, return it to the client, and let the client upload directly to S3. The presigned URL expires after 15 minutes — that's enough time without leaving it open long."
+      },
+      {
+        "role": "user",
+        "content": "Any limits on file types or size?"
+      },
+      {
+        "role": "assistant",
+        "content": "Restrict to images (jpeg, png, gif, webp) and PDF. Set a 50MB size limit on the presigned URL using the content-length-range condition in the signed policy. Validate the MIME type on the server before generating the URL — don't trust the client's Content-Type."
+      },
+      {
+        "role": "user",
+        "content": "S3 key structure?"
+      },
+      {
+        "role": "assistant",
+        "content": "Use uploads/{userId}/{uuid}.{ext}. Generate a UUID for every upload — never use the original filename. This prevents path traversal issues and collisions. Bucket name comes from S3_BUCKET env var. Add that to the Zod schema."
+      }
+    ]
+  },
+  {
+    "id": "s13",
+    "description": "Week 2, Day 11 — Stripe webhook raw body bug and fix",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Stripe webhook signature verification is failing. Getting 'No signatures found matching the expected signature for payload' even when the request looks correct."
+      },
+      {
+        "role": "assistant",
+        "content": "This is the classic Fastify + Stripe issue. Fastify parses the request body as JSON before your route handler sees it. Stripe's webhook verification needs the raw bytes — not the parsed object. Once Fastify has parsed it, the raw bytes are gone."
+      },
+      {
+        "role": "user",
+        "content": "How do I fix it?"
+      },
+      {
+        "role": "assistant",
+        "content": "Register the @fastify/rawbody plugin. It adds request.rawBody alongside the parsed body. Pass request.rawBody to stripe.webhooks.constructEvent(rawBody, signatureHeader, webhookSecret). Make sure the plugin is registered before your route registration."
+      },
+      {
+        "role": "user",
+        "content": "Is there a cleaner way to handle this per-route rather than for the whole app?"
+      },
+      {
+        "role": "assistant",
+        "content": "You can scope rawBody to specific routes by passing the field option to the plugin. But for simplicity, registering it globally is fine — it only adds the rawBody field when the content type is text/plain or application/json, so it doesn't bloat every request. The important thing is it's registered before the webhook route."
+      }
+    ]
+  },
+  {
+    "id": "s14",
+    "description": "Week 2, Day 12 — Rate limiting: @fastify/rate-limit setup, limits by route",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Adding rate limiting before we open this up to real users. What setup makes sense?"
+      },
+      {
+        "role": "assistant",
+        "content": "Use the @fastify/rate-limit plugin — it integrates cleanly with Fastify's plugin system and supports per-route overrides. Register it globally with default limits, then override for specific routes that need different treatment."
+      },
+      {
+        "role": "user",
+        "content": "What should the default limits be?"
+      },
+      {
+        "role": "assistant",
+        "content": "100 requests per 15-minute window per IP for most endpoints. Auth-related endpoints like login and signup should be more permissive — set those to 1000 per 15-minute window since legitimate users might retry or have multiple tabs. Rate limit headers (X-RateLimit-Limit, X-RateLimit-Remaining) should be included in every response."
+      },
+      {
+        "role": "user",
+        "content": "Should I use Redis as the store for rate limit state?"
+      },
+      {
+        "role": "assistant",
+        "content": "Not yet. The default in-memory store is fine for a single-instance deployment. If you scale to multiple instances later, switch the store to Redis so limits are shared across instances. For now adding that complexity isn't worth it."
+      }
+    ]
+  },
+  {
+    "id": "s15",
+    "description": "Week 2, Day 13 — Structured logging: Pino setup, log levels, what not to log",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Logging setup. Fastify uses Pino internally — should I just use that directly?"
+      },
+      {
+        "role": "assistant",
+        "content": "Yes, use Pino. It's fast (10x faster than Winston in benchmarks), produces structured JSON that log aggregators can parse, and Fastify's built-in logger is already Pino. Configure log level from the LOG_LEVEL env var, defaulting to 'info'. Use pretty printing in development via pino-pretty."
+      },
+      {
+        "role": "user",
+        "content": "What should I never log?"
+      },
+      {
+        "role": "assistant",
+        "content": "Never log passwords, JWT tokens, session cookies, credit card numbers, or any PII like full names + email in combination. Log the user ID as an identifier, not personal details. Pino has a redact option where you can list field paths to automatically redact — use it for authorization headers and cookie values."
+      },
+      {
+        "role": "user",
+        "content": "How should request IDs work across the app?"
+      },
+      {
+        "role": "assistant",
+        "content": "Fastify generates a request ID for every request. Make sure it's propagated into every log entry for that request by using request.log.info() inside route handlers rather than the global logger. That way all log lines for a single request share the same reqId and you can trace through what happened."
+      }
+    ]
+  },
+  {
+    "id": "s16",
+    "description": "Week 2, Day 14 — Redis caching: ioredis, key conventions, TTL strategy",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Setting up Redis caching. ioredis?"
+      },
+      {
+        "role": "assistant",
+        "content": "Yes, ioredis. It's the most feature-complete Redis client for Node.js, has TypeScript types, and supports Redis Cluster and Sentinel if you need them later. Put the client instance in src/lib/redis.ts. Read REDIS_URL from the env config."
+      },
+      {
+        "role": "user",
+        "content": "Key naming convention?"
+      },
+      {
+        "role": "assistant",
+        "content": "Use arclight:{entity}:{id}. So a user cache entry would be arclight:user:abc123, a team would be arclight:team:xyz789. This namespaces all your keys so you can easily scan or flush them without affecting other applications using the same Redis instance."
+      },
+      {
+        "role": "user",
+        "content": "What TTL should I use by default?"
+      },
+      {
+        "role": "assistant",
+        "content": "600 seconds (10 minutes) as the default. For user profiles that change infrequently that's reasonable. Session-adjacent data might be shorter. For relatively static data like team configuration, you could go to 3600. Document the TTL rationale in a comment next to each cache set call — don't make future you guess why you picked a number."
+      }
+    ]
+  },
+  {
+    "id": "s17",
+    "description": "Week 3, Day 15 — Slow query investigation: missing index on user_events",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Dashboard is really slow — the coding sessions overview is taking 2-3 seconds to load. Any ideas?"
+      },
+      {
+        "role": "assistant",
+        "content": "Start with EXPLAIN ANALYZE on the query. Paste the slow query and its plan if you can. 2-3 seconds almost always means either a sequential scan on a large table or an N+1 problem."
+      },
+      {
+        "role": "user",
+        "content": "Here's the EXPLAIN ANALYZE output: Seq Scan on user_events (cost=0.00..24847.23 rows=342 width=64) Filter: ((team_id = $1) AND (created_at > $2)). Table has about 180k rows."
+      },
+      {
+        "role": "assistant",
+        "content": "Sequential scan on 180k rows filtered by team_id and created_at — that's your problem. You need a composite index on (team_id, created_at). Drizzle: index('user_events_team_created_idx').on(table.team_id, table.created_at). The column order matters: team_id first since you filter on equality, created_at second since you filter on a range."
+      },
+      {
+        "role": "user",
+        "content": "Added the index. Query is now 45ms. That was it."
+      },
+      {
+        "role": "assistant",
+        "content": "Good. That's 50x improvement. Worth making EXPLAIN ANALYZE your first debugging tool for any slow query before doing anything else. Also worth auditing other tables where you're filtering on multiple columns — this pattern will repeat."
+      }
+    ]
+  },
+  {
+    "id": "s18",
+    "description": "Week 3, Day 16 — N+1 query bug on team member listings",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Getting 50+ database queries when loading the team overview page. Classic N+1 I think."
+      },
+      {
+        "role": "assistant",
+        "content": "Almost certainly. Which data are you loading? If you're fetching a list of objects and then making separate queries for related data on each one, that's the pattern."
+      },
+      {
+        "role": "user",
+        "content": "Loading teams, then for each team fetching the member list separately. So one query for teams, N queries for members."
+      },
+      {
+        "role": "assistant",
+        "content": "Fix it with Drizzle's relational query API. Instead of db.select().from(teams) followed by a loop, use db.query.teams.findMany({ with: { members: true } }). Drizzle generates a single JOIN query or an efficient batch query depending on the relation type. You get teams with their members in one round trip."
+      },
+      {
+        "role": "user",
+        "content": "Do I need to set up relations in the schema first?"
+      },
+      {
+        "role": "assistant",
+        "content": "Yes — define relations in schema.ts alongside your table definitions. Use Drizzle's relations() function to declare the team-members relationship. Once that's in place, the with: { members: true } syntax in queries just works. Check the Drizzle docs for one-to-many relations — it's straightforward."
+      }
+    ]
+  },
+  {
+    "id": "s19",
+    "description": "Week 3, Day 17 — JWT secret loading bug: env var read at import time",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Auth is broken in production. Getting 'invalid signature' errors on every JWT verification. Works fine in development."
+      },
+      {
+        "role": "assistant",
+        "content": "Likely a secret loading timing issue. Where does your JWT_SECRET get read from process.env?"
+      },
+      {
+        "role": "user",
+        "content": "At the top of src/lib/auth.ts — const JWT_SECRET = process.env.JWT_SECRET. Oh. That's at module import time."
+      },
+      {
+        "role": "assistant",
+        "content": "That's the bug. If anything imports src/lib/auth.ts before dotenv.config() runs, JWT_SECRET is undefined. In development dotenv is loading from .env locally. In production the env vars might be injected differently and the timing differs. Fix: read process.env.JWT_SECRET inside the signToken and verifyToken functions, not at the module level."
+      },
+      {
+        "role": "user",
+        "content": "Fixed. But how do I make sure this doesn't happen again with other env vars?"
+      },
+      {
+        "role": "assistant",
+        "content": "Call dotenv.config() at the very top of src/index.ts before any other imports — the very first line. Then access env vars through your validated config object from src/config/env.ts rather than directly from process.env. The Zod validation in env.ts runs after dotenv has loaded, so if the secret is missing you get a clear error at startup instead of a runtime failure."
+      }
+    ]
+  },
+  {
+    "id": "s20",
+    "description": "Week 3, Day 17 — Cache invalidation bug: user profile updates not clearing cache",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Users are seeing stale profile data after updating their names. Cache invalidation bug."
+      },
+      {
+        "role": "assistant",
+        "content": "Classic. The cache key for user profiles — what is it? Should be arclight:user:{userId} following our convention."
+      },
+      {
+        "role": "user",
+        "content": "Yes, that's the key. I'm setting it on reads but I'm not clearing it when the profile is updated."
+      },
+      {
+        "role": "assistant",
+        "content": "Add cache clearing to every write operation that modifies user data. On update: await redis.del(`arclight:user:${userId}`). On delete: same. Pull that into a helper — clearUserCache(userId) in src/lib/cache.ts — so all the cache-clearing logic is in one place and can't be forgotten."
+      },
+      {
+        "role": "user",
+        "content": "Should I use cache-aside or write-through?"
+      },
+      {
+        "role": "assistant",
+        "content": "Cache-aside (read through, invalidate on write) is fine for our scale. Write-through is only worth the complexity if you have very high write throughput and can't tolerate even brief stale reads. For now: cache on read, clear on write. Document this pattern in a comment in cache.ts."
+      }
+    ]
+  },
+  {
+    "id": "s21",
+    "description": "Week 3, Day 18 — WebSocket memory leak: event listeners not cleaned up",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Memory is growing over time on the API server. Gradual leak. Using @fastify/websocket for live session updates."
+      },
+      {
+        "role": "assistant",
+        "content": "WebSocket leaks almost always come from event listeners not being cleaned up when connections close. Are you attaching listeners on the connection object and removing them when the socket closes?"
+      },
+      {
+        "role": "user",
+        "content": "I'm attaching listeners on connection but I don't have a cleanup handler."
+      },
+      {
+        "role": "assistant",
+        "content": "That's the leak. Every time a client connects and disconnects, those listeners stay attached. Fix: in your connection handler, register a 'close' event on the socket that removes all the listeners you added. Use socket.off(event, handler) with the same function reference — which means you need to keep references to your handlers."
+      },
+      {
+        "role": "user",
+        "content": "Good pattern for managing those references?"
+      },
+      {
+        "role": "assistant",
+        "content": "Use a WeakMap keyed on the socket to store the cleanup function: const cleanupMap = new WeakMap(). On connection: store cleanup; on close: retrieve and call it. The WeakMap ensures the socket object can be garbage collected once closed — no strong reference holding it alive."
+      }
+    ]
+  },
+  {
+    "id": "s22",
+    "description": "Week 3, Day 19 — Concurrent upload race condition and fix",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Got a bug report: two users uploading to the same session are occasionally overwriting each other's files."
+      },
+      {
+        "role": "assistant",
+        "content": "Are you using any user-provided filename component in the S3 key?"
+      },
+      {
+        "role": "user",
+        "content": "The path is uploads/{sessionId}/{originalFilename}. Oh I see it."
+      },
+      {
+        "role": "assistant",
+        "content": "Two users uploading profile.png to the same session will write to the same S3 key. One overwrites the other. We established the key format should be uploads/{userId}/{uuid}.{ext} — generate a UUID for every upload, never use the original filename. The original filename can be stored in your uploads table in the DB if you need to display it to the user."
+      },
+      {
+        "role": "user",
+        "content": "Fixed. While I'm here, is there any other S3 key injection risk?"
+      },
+      {
+        "role": "assistant",
+        "content": "Yes — don't use any user input as part of the S3 key, including sessionId unless it's a server-side generated UUID. If an attacker can control the key they can overwrite other objects or read objects at paths they shouldn't access. Keep the key generation fully server-side: UUID for the file, validated UUID for the userId from the auth session."
+      }
+    ]
+  },
+  {
+    "id": "s23",
+    "description": "Week 3, Day 20 — Error handling standards: operation names, AppError class",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Error handling is inconsistent across the codebase. Some errors have context, some don't. Want to standardize."
+      },
+      {
+        "role": "assistant",
+        "content": "Establish one rule: every Error thrown must include the operation name in the message. Format: throw new Error(`${operation}: ${message}`). For example: throw new Error(`createUser: email already exists`). This makes stack traces immediately actionable — you know which operation failed without digging through code."
+      },
+      {
+        "role": "user",
+        "content": "Should I create a custom AppError class?"
+      },
+      {
+        "role": "assistant",
+        "content": "Yes. Put it in src/lib/errors.ts. AppError extends Error with two extra fields: code (a string like USER_NOT_FOUND or UNAUTHORIZED) and operation (where it was thrown). The route handler maps AppError codes to HTTP status codes. Never catch and silently swallow errors — if you catch, you either handle it or rethrow."
+      },
+      {
+        "role": "user",
+        "content": "How should validation errors be handled?"
+      },
+      {
+        "role": "assistant",
+        "content": "Fastify's JSON Schema validation returns a structured 400 error automatically — you don't need to handle those manually. For business logic validation (user doesn't have permission, resource not found) throw AppError with the appropriate code. The global error handler in src/middleware/ converts AppError to the { data: null, error: { code, message } } response shape."
+      }
+    ]
+  },
+  {
+    "id": "s24",
+    "description": "Week 3, Day 21 — Performance review: reviewing all slow paths before week 4",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Doing a performance review before we start adding major features. What should I look at?"
+      },
+      {
+        "role": "assistant",
+        "content": "Three things: database query plans for any query that returns more than 100 rows, Redis hit rate to see if our caching is actually helping, and the Node event loop lag to see if we're doing anything synchronously that we shouldn't be."
+      },
+      {
+        "role": "user",
+        "content": "How do I check event loop lag?"
+      },
+      {
+        "role": "assistant",
+        "content": "Add a simple event loop lag sampler using perf_hooks. A lag above 10ms on a quiet server is a sign something is blocking the loop. Common culprits: large synchronous JSON parsing, crypto operations, or long loops. Log the p99 lag as part of your health check endpoint."
+      },
+      {
+        "role": "user",
+        "content": "Cache hit rate — how do I measure that?"
+      },
+      {
+        "role": "assistant",
+        "content": "Add hit/miss counters in your cache helper functions. Increment a Redis counter on each hit and miss — arclight:metrics:cache:hits and arclight:metrics:cache:misses. Expose those in your /api/health endpoint. A hit rate below 50% means either your TTLs are too short or the data you're caching isn't worth caching."
+      }
+    ]
+  },
+  {
+    "id": "s25",
+    "description": "Week 4, Day 22 — Auth migration: switching from JWT to iron-session",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Security review flagged something: our JWT tokens are being decoded by the frontend JS. The payload includes role, teamId, and email — the security reviewer said we're leaking our user model structure. They want us to switch to server-side sessions."
+      },
+      {
+        "role": "assistant",
+        "content": "They're right. When you store user data in a JWT the frontend can decode it (the base64 is just encoded, not encrypted with HS256 — HS256 is a signature, not encryption). Anyone who sees the token knows your data model. iron-session solves this: it encrypts the session data with a secret key and stores it in a cookie. The client only ever sees ciphertext."
+      },
+      {
+        "role": "user",
+        "content": "What does the migration look like?"
+      },
+      {
+        "role": "assistant",
+        "content": "Install iron-session. Create src/lib/session.ts — that's where the session config and the SessionData interface live. SessionData should have userId, teamId, and role — same fields we were putting in the JWT but now encrypted. Session expiry: 7 days, same as our JWT refresh token lifetime. Cookie name: arclight_session, httpOnly: true, secure: true in production, sameSite: strict."
+      },
+      {
+        "role": "user",
+        "content": "What env var do I use for the session secret?"
+      },
+      {
+        "role": "assistant",
+        "content": "SESSION_SECRET — must be at least 32 characters for iron-session's encryption. Add it to the Zod env schema. You can remove JWT_SECRET once the migration is complete. iron-session doesn't need a database — the encrypted cookie is the session store. This also means we don't need the /api/v1/auth/refresh endpoint anymore."
+      }
+    ]
+  },
+  {
+    "id": "s26",
+    "description": "Week 4, Day 23 — Email switch: Resend to SendGrid for compliance",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Compliance team just got back to us — they need all third-party vendors to be SOC 2 Type 2 certified. Resend doesn't qualify. We need to switch email to SendGrid."
+      },
+      {
+        "role": "assistant",
+        "content": "Makes sense — SendGrid is SOC 2 Type 2 certified. The API is more complex than Resend's but manageable. Since we wrapped the Resend calls behind sendEmail() in src/lib/email.ts, the migration should mostly be contained to that file."
+      },
+      {
+        "role": "user",
+        "content": "What changes in the env config?"
+      },
+      {
+        "role": "assistant",
+        "content": "Replace RESEND_API_KEY with SENDGRID_API_KEY in the Zod schema and .env.example. The from address stays the same — noreply@arclight.dev. Update src/lib/email.ts to use the SendGrid SDK (@sendgrid/mail) instead of the Resend client. The template functions in src/email/templates/ don't need changes — they just return { subject, html, text } which both SDKs accept."
+      },
+      {
+        "role": "user",
+        "content": "Do I need to verify the domain with SendGrid?"
+      },
+      {
+        "role": "assistant",
+        "content": "Yes — domain authentication in SendGrid dashboard. Set up the CNAME records they give you on your DNS. Without domain authentication your emails will hit spam or get rejected by strict mail servers. This is worth doing properly even if it takes an hour."
+      }
+    ]
+  },
+  {
+    "id": "s27",
+    "description": "Week 4, Day 24 — Background jobs: switching from custom queue to BullMQ",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Our custom setTimeout-based job queue is falling apart. Failed jobs silently disappear, we have no way to retry with backoff, and there's no visibility into what's queued. Need to replace it."
+      },
+      {
+        "role": "assistant",
+        "content": "BullMQ is the right choice here. It runs on Redis — which we already have — so no new infrastructure. It gives you job priorities, retries with configurable backoff, delayed jobs, and a dashboard (Bull Board) to see what's queued and failed. The custom queue was appropriate for getting started but you've outgrown it."
+      },
+      {
+        "role": "user",
+        "content": "How should I organize the code?"
+      },
+      {
+        "role": "assistant",
+        "content": "Queue definitions in src/queues/ — one file per queue (emailQueue, analyticsQueue, etc.). Worker definitions in src/workers/ — each worker imports the queue it processes. Separate the worker process from the API server if the work is CPU-intensive, but for our workload you can run them in the same process for now."
+      },
+      {
+        "role": "user",
+        "content": "Does BullMQ use the same Redis connection as our cache?"
+      },
+      {
+        "role": "assistant",
+        "content": "It can — BullMQ just needs a Redis URL and it manages its own key namespace (bull:{queueName}:{jobId}). Using the same REDIS_URL is fine. But BullMQ opens its own connections internally — it doesn't share the ioredis connection you set up for caching. That's by design; it manages connection lifecycle independently."
+      }
+    ]
+  },
+  {
+    "id": "s28",
+    "description": "Week 4, Day 25 — Database migrations workflow: drizzle-kit only, no manual changes",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Need to establish a clear migration workflow. People (meaning me) have been occasionally editing the database directly in development which is going to cause drift problems."
+      },
+      {
+        "role": "assistant",
+        "content": "Hard rule: all schema changes go through drizzle-kit. The workflow is: (1) edit schema.ts, (2) run bun drizzle-kit generate to create the migration SQL file, (3) run bun drizzle-kit migrate to apply it. Never edit migration files after they're generated. Never make manual DDL changes to the database."
+      },
+      {
+        "role": "user",
+        "content": "When do migrations run in production?"
+      },
+      {
+        "role": "assistant",
+        "content": "Run migrations as part of the deployment process, before the new app version starts accepting traffic. This ensures the schema is ready before the code that depends on it runs. If a migration fails, abort the deployment. Add a separate bun migrate script to package.json that's called in the CI deploy step."
+      },
+      {
+        "role": "user",
+        "content": "Should migration files be committed to git?"
+      },
+      {
+        "role": "assistant",
+        "content": "Yes, always. Migration files in src/db/migrations/ are committed. They're the record of every schema change in history. Never regenerate or reorder them — each migration has a timestamp prefix and they run in order. If you need to undo a change, create a new migration that reverts it."
+      }
+    ]
+  },
+  {
+    "id": "s29",
+    "description": "Week 4, Day 26 — Event loop profiling: sync JSON parsing blocking the loop",
+    "messages": [
+      {
+        "role": "user",
+        "content": "The event loop lag metrics I added are spiking to 80-200ms during analytics ingestion. That's bad. Using clinic.js to profile."
+      },
+      {
+        "role": "assistant",
+        "content": "Good choice — clinic.js Flame is good for this. The ingestion path is the suspect. What does the ingestion handler do with the incoming data?"
+      },
+      {
+        "role": "user",
+        "content": "It parses a large JSON payload (up to 5MB, lots of nested events), validates it with Zod, then writes to the DB. The clinic.js flame shows most time is in JSON.parse."
+      },
+      {
+        "role": "assistant",
+        "content": "JSON.parse is synchronous and blocks the event loop for the entire parse duration. A 5MB JSON parse can easily take 50-200ms. Fix: either set a smaller size limit (reject payloads over 500KB and batch at the client) or move the parse to a worker thread so the event loop stays free. The simplest fix is probably the size limit combined with client-side batching."
+      },
+      {
+        "role": "user",
+        "content": "We went with the size limit — max 500KB per request, client batches if needed. Event loop lag is back under 5ms."
+      },
+      {
+        "role": "assistant",
+        "content": "Good. Keep the clinic.js tooling available — run it before any major release to check for new blocking paths. The flame graph approach is much faster than trying to reason about event loop lag from code."
+      }
+    ]
+  },
+  {
+    "id": "s30",
+    "description": "Week 4, Day 27 — Connection pooling for background workers: pg pool setup",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Background workers are failing to connect to PostgreSQL. The neon serverless driver errors out in the worker context — it's not designed for long-lived connections."
+      },
+      {
+        "role": "assistant",
+        "content": "Correct — the neon serverless HTTP driver is designed for stateless edge function environments where each request is independent. Background workers are long-lived processes that need persistent connections. Use the pg package with a connection pool for workers."
+      },
+      {
+        "role": "user",
+        "content": "How do I set it up?"
+      },
+      {
+        "role": "assistant",
+        "content": "Add a DATABASE_POOL_URL env var — separate from DATABASE_URL which is the neon serverless connection string. This can be a standard PostgreSQL connection string. In src/db/pool.ts, create a pg Pool with { connectionString: config.databasePoolUrl, max: 10 }. Initialize it once at worker startup, then pass it to drizzle(pool). Reuse this pool for all worker queries."
+      },
+      {
+        "role": "user",
+        "content": "Max 10 connections — how did you pick that?"
+      },
+      {
+        "role": "assistant",
+        "content": "It's a reasonable default for a single worker process on a small database instance. neon's free tier has a 100-connection limit, and your serverless request handlers each use 1 connection briefly. Leaving 10 for the worker pool means 90 for serverless requests. If you add more worker processes, reduce this accordingly. Monitor pg_stat_activity if you hit connection limits."
+      }
+    ]
+  },
+  {
+    "id": "s31",
+    "description": "Week 5, Day 29 — Feature flags via environment variables",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Need a feature flag system to ship incomplete features to production without enabling them for all users. Don't want to add LaunchDarkly yet — too much overhead."
+      },
+      {
+        "role": "assistant",
+        "content": "Use environment variables for now. Define flags as FEATURE_{NAME}=1 to enable. Add them to the Zod env schema as optional booleans: z.coerce.boolean().default(false). Access them through the config object as config.features.realtimeDashboard. Document every flag in .env.example with a comment explaining what it controls."
+      },
+      {
+        "role": "user",
+        "content": "How do I handle the flag in the frontend?"
+      },
+      {
+        "role": "assistant",
+        "content": "Expose flags via a GET /api/v1/features endpoint — it returns the enabled features for the authenticated user. The frontend checks this on load. Never put secret information in feature flag names. The response only includes booleans — no implementation details."
+      },
+      {
+        "role": "user",
+        "content": "When does this approach break down?"
+      },
+      {
+        "role": "assistant",
+        "content": "When you need per-user or per-team targeting, percentage rollouts, or flag state without a redeploy. At that point, add LaunchDarkly or Unleash. For us right now, env vars are enough — you can flip a flag with a config change and restart, which is a 30-second operation."
+      }
+    ]
+  },
+  {
+    "id": "s32",
+    "description": "Week 5, Day 30 — Dependency audit: removing unused packages",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Running a dependency audit. Found a few packages that seem unused. Want to clean up."
+      },
+      {
+        "role": "assistant",
+        "content": "Use depcheck to find unused dependencies automatically — it scans your imports. Add it to your CI pipeline so you catch unused deps before they accumulate. What did you find?"
+      },
+      {
+        "role": "user",
+        "content": "body-parser (Fastify handles this itself), lodash (we have like 3 usages all of which could be native JS), and moment (replaced by date-fns months ago but the package is still in package.json)."
+      },
+      {
+        "role": "assistant",
+        "content": "Remove all three. body-parser was Fastify's content-type plugin is already doing this work. Replace the 3 lodash usages with native equivalents. moment is 232KB minified — removing it is a meaningful bundle size win. Check you're not importing it anywhere in a comment or string that depcheck would miss."
+      },
+      {
+        "role": "user",
+        "content": "Done. Also updated everything to the latest minor version. No breaking changes."
+      },
+      {
+        "role": "assistant",
+        "content": "Good habit. Minor version updates are generally safe and keep you from accumulating a large version gap that makes major updates painful. Add bun update to your regular maintenance schedule — monthly is usually right."
+      }
+    ]
+  },
+  {
+    "id": "s33",
+    "description": "Week 5, Day 31 — OpenTelemetry: tracing setup, Jaeger local, OTLP export",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Adding distributed tracing. We're going to need this when we scale. What's the right approach?"
+      },
+      {
+        "role": "assistant",
+        "content": "Use OpenTelemetry — it's the standard and avoids vendor lock-in. @opentelemetry/sdk-node for the Node SDK, with auto-instrumentation for Fastify (@opentelemetry/instrumentation-fastify) and PostgreSQL (@opentelemetry/instrumentation-pg). Traces will automatically include HTTP request spans and database query spans."
+      },
+      {
+        "role": "user",
+        "content": "Where do traces go locally?"
+      },
+      {
+        "role": "assistant",
+        "content": "Run Jaeger in docker-compose alongside your PostgreSQL and Redis containers. Export traces via OTLP to OTEL_EXPORTER_OTLP_ENDPOINT — set that in .env.development to point at localhost:4318 (Jaeger's OTLP port). In production you'll change this to your chosen backend (Datadog, Honeycomb, etc.) without code changes."
+      },
+      {
+        "role": "user",
+        "content": "Service name configuration?"
+      },
+      {
+        "role": "assistant",
+        "content": "Set OTEL_SERVICE_NAME to arclight-api. This is how your service is identified in the trace UI. Add it to .env.example. The SDK reads it automatically — you don't need to pass it in code if it's in the environment."
+      }
+    ]
+  },
+  {
+    "id": "s34",
+    "description": "Week 5, Day 32 — Docker local dev: docker-compose for PostgreSQL and Redis",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Setting up docker-compose for local development so new contributors can get the data layer running without installing anything natively."
+      },
+      {
+        "role": "assistant",
+        "content": "docker-compose.yml at the root. Services: postgres (postgres:15-alpine) on port 5432, redis (redis:7-alpine) on port 6379, and jaeger (jaegertracing/all-in-one) for local traces. Use named volumes for postgres and redis data so they survive restarts."
+      },
+      {
+        "role": "user",
+        "content": "Health checks?"
+      },
+      {
+        "role": "assistant",
+        "content": "Add health checks so dependent services wait for healthy dependencies. For postgres: test: ['CMD', 'pg_isready', '-U', 'postgres']. For redis: test: ['CMD', 'redis-cli', 'ping']. This prevents the app from starting before the database is ready to accept connections."
+      },
+      {
+        "role": "user",
+        "content": "Anything in .gitignore I should update?"
+      },
+      {
+        "role": "assistant",
+        "content": "Add .env.local and .env.development.local if you're not already ignoring them. docker-compose.yml should be committed — it's part of the developer setup. The docker data volumes are in /var/lib/docker and don't need .gitignore entries."
+      }
+    ]
+  },
+  {
+    "id": "s35",
+    "description": "Week 5, Day 33 — GitHub Actions CI: lint, test, build on PR; deploy on merge",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Setting up GitHub Actions CI. What should the pipeline do?"
+      },
+      {
+        "role": "assistant",
+        "content": "Two workflows: PR checks and deploy. PR checks: lint (biome or eslint), type-check (tsc --noEmit), tests (vitest), build (bun build). All must pass before merge. Use bun for package installation — it's much faster than npm in CI. Cache the bun store between runs."
+      },
+      {
+        "role": "user",
+        "content": "What triggers the deploy?"
+      },
+      {
+        "role": "assistant",
+        "content": "Deploy to staging on merge to main. Only deploy to production manually or on tag push — don't auto-deploy to production. The deploy workflow calls bun run migrate before starting the new version to apply any pending database migrations."
+      },
+      {
+        "role": "user",
+        "content": "Where do secrets go?"
+      },
+      {
+        "role": "assistant",
+        "content": "GitHub repository secrets. Never put secrets in workflow YAML files or source code. In the workflow, reference them as ${{ secrets.STRIPE_WEBHOOK_SECRET }} etc. Add each secret to the GitHub repo settings. Keep the .env.example as documentation of what's needed."
+      }
+    ]
+  },
+  {
+    "id": "s36",
+    "description": "Week 5, Day 34 — Code review standards: tests, PR size, commit messages",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Want to formalize code review expectations. Even for solo work this helps me stay disciplined."
+      },
+      {
+        "role": "assistant",
+        "content": "Three rules: any new API endpoint must have at least one test (integration test is fine), PR diffs must be under 400 lines (same as what we established in week 1), and the merge commit must be a valid conventional commit message. These are the non-negotiables."
+      },
+      {
+        "role": "user",
+        "content": "Should I add a PR template to enforce this?"
+      },
+      {
+        "role": "assistant",
+        "content": "Yes. .github/pull_request_template.md with: a description field, a checklist ([ ] Tests added/updated, [ ] .env.example updated if new env vars, [ ] Migration created if schema changed), and a reminder about the 400-line limit. The checklist won't be enforced automatically but the act of reading it reduces oversight."
+      },
+      {
+        "role": "user",
+        "content": "How strict should I be about the 400-line limit?"
+      },
+      {
+        "role": "assistant",
+        "content": "Treat it as a strong default, not an absolute rule. Infrastructure PRs (setting up a new library, adding configuration) can go over if the diff is mostly boilerplate. Feature PRs should stay under. If you're regularly going over, split more aggressively — it's almost always possible."
+      }
+    ]
+  },
+  {
+    "id": "s37",
+    "description": "Week 5, Day 35 — Security audit: input sanitization, CSP headers, dependency scanning",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Doing a security pass before the beta. What should I be looking at?"
+      },
+      {
+        "role": "assistant",
+        "content": "Three areas: input handling, HTTP headers, and dependency vulnerabilities. For input: any user-generated content rendered as HTML needs DOMPurify on the frontend. All DB queries go through Drizzle's parameterized query builder — no string interpolation. Check that you're not using any raw SQL methods."
+      },
+      {
+        "role": "user",
+        "content": "HTTP security headers?"
+      },
+      {
+        "role": "assistant",
+        "content": "Add @fastify/helmet — it sets Content-Security-Policy, X-Frame-Options, X-Content-Type-Options, and other security headers automatically. Configure CSP to restrict script sources to your own domain. This is one plugin registration and it meaningfully reduces the attack surface."
+      },
+      {
+        "role": "user",
+        "content": "Dependency scanning — npm audit?"
+      },
+      {
+        "role": "assistant",
+        "content": "Add bun audit (or npm audit, depending on Bun's support at the time) to your GitHub Actions CI. Fail on high-severity vulnerabilities. This catches known CVEs in your dependencies. Subscribe to security advisories for your critical dependencies — Stripe, sendgrid, fastify."
+      }
+    ]
+  },
+  {
+    "id": "s38",
+    "description": "Week 5, Day 36 — Database backups: pg_dump to S3 on a schedule",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Database backups. We don't have any automated backup yet which is bad."
+      },
+      {
+        "role": "assistant",
+        "content": "Use a GitHub Actions scheduled workflow. Run pg_dump daily, pipe the output (gzipped) to an S3 bucket. Trigger with schedule: - cron: '0 2 * * *' (2am UTC daily). The pg_dump command needs DATABASE_URL from GitHub secrets."
+      },
+      {
+        "role": "user",
+        "content": "How long to retain backups?"
+      },
+      {
+        "role": "assistant",
+        "content": "30 days. Set an S3 lifecycle rule on the backup bucket to automatically delete objects older than 30 days. That gives you a month to notice and recover from data corruption. Name backup files with the timestamp: arclight-backup-2024-03-15T02-00-00Z.sql.gz."
+      },
+      {
+        "role": "user",
+        "content": "Should I document the restore procedure?"
+      },
+      {
+        "role": "assistant",
+        "content": "Yes — write docs/runbooks/db-restore.md now, while you're thinking about it. Document: how to find the right backup in S3, how to decompress, how to run psql to restore, and how to verify the restore worked. Runbooks written before an incident are worth 10x more than ones written during one."
+      }
+    ]
+  },
+  {
+    "id": "s39",
+    "description": "Week 5, Day 37 — API documentation: OpenAPI spec from Fastify schemas",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Need API documentation. We have JSON Schema validation on all routes — can I generate OpenAPI from that?"
+      },
+      {
+        "role": "assistant",
+        "content": "Yes — that's one of Fastify's best features. Use @fastify/swagger to generate the OpenAPI spec automatically from the JSON Schema you've already defined on your routes. Register it with swagger options and it produces the spec at /api/openapi.json."
+      },
+      {
+        "role": "user",
+        "content": "Can I get a Swagger UI too?"
+      },
+      {
+        "role": "assistant",
+        "content": "Add @fastify/swagger-ui. Register it after @fastify/swagger and it serves the interactive Swagger UI at /api/docs. Point it at your /api/openapi.json spec. This gives you a live documentation page that's always in sync with your route definitions."
+      },
+      {
+        "role": "user",
+        "content": "How do I keep the version in the spec up to date?"
+      },
+      {
+        "role": "assistant",
+        "content": "Read the version from package.json in the swagger options: info: { title: 'Arclight API', version: packageJson.version }. That way the spec version tracks your package version automatically. Commit package.json version bumps alongside the changes they describe."
+      }
+    ]
+  },
+  {
+    "id": "s40",
+    "description": "Week 5, Day 38 — Performance baseline: targets, k6 load tests, baseline storage",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Want to establish performance targets before the beta launch. What should we aim for?"
+      },
+      {
+        "role": "assistant",
+        "content": "p50 under 50ms and p99 under 500ms for API endpoints under normal load. These are aggressive but achievable with the caching and indexing we've done. For write-heavy endpoints (session ingestion) p99 under 1000ms is more realistic."
+      },
+      {
+        "role": "user",
+        "content": "How do I measure this?"
+      },
+      {
+        "role": "assistant",
+        "content": "Use k6 for load testing. Write a k6 script that simulates typical user behavior: fetch team dashboard, load coding sessions, submit a new session. Run it at 50 concurrent users for 5 minutes. k6 outputs p50, p95, p99 automatically."
+      },
+      {
+        "role": "user",
+        "content": "Should I store the baseline results?"
+      },
+      {
+        "role": "assistant",
+        "content": "Yes — save the k6 summary JSON to docs/performance/baseline.json. Commit it. Before major releases, run the k6 test again and compare against the baseline. If p99 has regressed more than 20%, investigate before shipping. This gives you a quantitative check on performance regressions."
+      }
+    ]
+  },
+  {
+    "id": "s41",
+    "description": "Week 6, Day 36 — Auth refactor: removing JWT code post-migration, iron-session cleanup",
+    "messages": [
+      {
+        "role": "user",
+        "content": "The iron-session migration has been live for two weeks with no issues. Time to remove the old JWT code."
+      },
+      {
+        "role": "assistant",
+        "content": "Good. Remove: the jsonwebtoken package, src/lib/auth.ts (the old JWT utilities), and the /api/v1/auth/refresh endpoint. Also remove JWT_SECRET from the Zod env schema and .env.example. Iron-session is now the only auth mechanism."
+      },
+      {
+        "role": "user",
+        "content": "What's in src/lib/session.ts now?"
+      },
+      {
+        "role": "assistant",
+        "content": "The SessionData interface declaration: interface SessionData { userId: string; teamId: string; role: string }. The iron-session config: sessionOptions with cookieName 'arclight_session', password from SESSION_SECRET, and cookieOptions: { httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'strict' }. And a getSession helper that wraps the iron-session getIronSession call."
+      },
+      {
+        "role": "user",
+        "content": "How long are sessions valid?"
+      },
+      {
+        "role": "assistant",
+        "content": "7 days — set via cookieOptions.maxAge: 7 * 24 * 60 * 60. Same as the JWT refresh token lifetime we had before. Sessions are renewed on activity if you want sliding windows, but fixed expiry is simpler and more predictable for an analytics tool."
+      }
+    ]
+  },
+  {
+    "id": "s42",
+    "description": "Week 6, Day 37 — Test coverage audit: current state, gaps, plan to reach 80%",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Running coverage report. We're at 67%, target is 80%. What's uncovered?"
+      },
+      {
+        "role": "assistant",
+        "content": "What does vitest coverage show as the lowest-covered files?"
+      },
+      {
+        "role": "user",
+        "content": "Biggest gaps are src/workers/ (basically zero coverage) and src/routes/webhooks/ (also near zero). Everything else is pretty good."
+      },
+      {
+        "role": "assistant",
+        "content": "Those are the highest-risk untested areas — webhook handlers especially, since they handle money. Add integration tests for the happy path of each webhook type: checkout.session.completed, invoice.payment_failed. For workers, test the job processor functions directly (not the BullMQ wiring). Exclude src/db/migrations/, dist/, and src/generated/ from coverage — those shouldn't count against you."
+      },
+      {
+        "role": "user",
+        "content": "How do I test the webhook handlers without hitting real Stripe?"
+      },
+      {
+        "role": "assistant",
+        "content": "Construct the raw event body yourself and generate a valid Stripe signature using stripe.webhooks.generateTestHeaderString() — that's a real Stripe SDK utility for exactly this purpose. You get a properly signed test event without network calls. Pass the raw body and signature to your handler the same way production would."
+      }
+    ]
+  },
+  {
+    "id": "s43",
+    "description": "Week 6, Day 38 — API versioning strategy: /v1 retention, when to add /v2",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Revisiting the API versioning question from week 1. We have /api/v1 working. When should I add /api/v2?"
+      },
+      {
+        "role": "assistant",
+        "content": "Only when you have a genuinely breaking change — removing a field, changing a field type, changing required behavior. Adding fields is non-breaking and doesn't need a version bump. Don't version for organizational reasons — only for backward compatibility."
+      },
+      {
+        "role": "user",
+        "content": "If we add v2, what happens to v1?"
+      },
+      {
+        "role": "assistant",
+        "content": "Keep v1 running in parallel. Don't deprecate v1 until v2 has been stable for at least 3 months and you've given all API consumers time to migrate. When you do deprecate, add a Deprecation response header and set a sunset date at least 6 months out."
+      },
+      {
+        "role": "user",
+        "content": "Should I indicate the current version in responses?"
+      },
+      {
+        "role": "assistant",
+        "content": "Yes — add an X-API-Version response header with the current API version string. Include it in every response from the API. This helps clients detect when they've accidentally started calling a different version and makes debugging easier."
+      }
+    ]
+  },
+  {
+    "id": "s44",
+    "description": "Week 6, Day 39 — Naming conventions: comprehensive documentation of all conventions",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Want to write down all our naming conventions in one place. Let's settle any ambiguities."
+      },
+      {
+        "role": "assistant",
+        "content": "TypeScript files: kebab-case. So user-profile.ts, auth-middleware.ts, not userProfile.ts or UserProfile.ts. Types and interfaces: PascalCase — UserProfile, TeamMember, ApiResponse. Variables and functions: camelCase — getUserProfile, teamMemberId. Constants that are truly constant values: UPPER_SNAKE_CASE — MAX_RETRY_ATTEMPTS, DEFAULT_TTL_SECONDS."
+      },
+      {
+        "role": "user",
+        "content": "Database tables and columns?"
+      },
+      {
+        "role": "assistant",
+        "content": "Tables: snake_case plural — users, team_members, coding_sessions, user_events. Columns: snake_case — created_at, team_id, deleted_at. Foreign keys: {referenced_table_singular}_id — team_id, user_id. Junction tables: alphabetical combination — session_tags, not tag_sessions."
+      },
+      {
+        "role": "user",
+        "content": "Environment variables?"
+      },
+      {
+        "role": "assistant",
+        "content": "UPPER_SNAKE_CASE for all env vars. App-specific vars use an ARCLIGHT_ prefix: ARCLIGHT_FEATURE_REALTIME=1. Third-party service vars don't need the prefix — DATABASE_URL, REDIS_URL, STRIPE_WEBHOOK_SECRET, SENDGRID_API_KEY, SESSION_SECRET are fine as-is. Document all of them in .env.example."
+      }
+    ]
+  },
+  {
+    "id": "s45",
+    "description": "Week 6, Day 42 — Q3 planning: WebSockets, billing v2, API key auth, roadmap",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Planning Q3. What's on the technical roadmap?"
+      },
+      {
+        "role": "assistant",
+        "content": "Three big things. Real-time analytics dashboard via WebSockets — engineers want to see their session data update live. Billing v2 with Stripe usage-based meters — current flat subscriptions don't scale with team size. API key authentication for external integrations — teams want to pipe data from their CI/CD systems without using session cookies."
+      },
+      {
+        "role": "user",
+        "content": "Any infrastructure changes for the WebSocket work?"
+      },
+      {
+        "role": "assistant",
+        "content": "We already have @fastify/websocket installed from the memory leak work earlier. The challenge will be state synchronization — if you're behind a load balancer with multiple instances, WebSocket connections on different instances need to share state. Redis Pub/Sub is the standard approach for this."
+      },
+      {
+        "role": "user",
+        "content": "Any major stack changes planned?"
+      },
+      {
+        "role": "assistant",
+        "content": "No. We're not changing the core stack — bun, Fastify, Drizzle, PostgreSQL, Redis, iron-session. The only additions are the WebSocket real-time layer, Stripe meters for billing, and an API key table + middleware for external auth. Might consider adding read replicas for analytics queries if the load warrants it but not committing to that yet."
+      }
+    ]
+  }
+]

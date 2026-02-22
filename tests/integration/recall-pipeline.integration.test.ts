@@ -1,6 +1,6 @@
 /**
  * Integration test for the full recall pipeline:
- * prompt → CortexClient.retrieve → formatMemories → prependContext
+ * prompt → CortexClient.recall → formatMemories → prependContext
  *
  * Run with:
  *   CORTEX_API_KEY=sk-cortex-... npm run test:integration
@@ -17,7 +17,7 @@ const BASE_URL =
 
 const describeIf = (condition: boolean) => (condition ? describe : describe.skip);
 
-const TEST_NAMESPACE = `integration-test-recall-${Date.now()}`;
+const TEST_SESSION = `integration-test-recall-${Date.now()}`;
 
 describeIf(!!API_KEY)("Recall pipeline integration", () => {
   let client: CortexClient;
@@ -27,14 +27,11 @@ describeIf(!!API_KEY)("Recall pipeline integration", () => {
     baseUrl: BASE_URL,
     autoRecall: true,
     autoCapture: true,
-    recallTopK: 5,
+    recallLimit: 10,
     recallTimeoutMs: 5000,
-    recallMode: "fast",
-    recallQueryType: "combined",
     fileSync: true,
     transcriptSync: true,
-    reflectIntervalMs: 0,
-    namespace: TEST_NAMESPACE,
+    namespace: TEST_SESSION,
   };
 
   const logger = {
@@ -47,73 +44,40 @@ describeIf(!!API_KEY)("Recall pipeline integration", () => {
   beforeAll(async () => {
     client = new CortexClient(BASE_URL, API_KEY!);
 
-    // Submit seed jobs with retry, returning job_id on success
-    const submitWithRetry = async (fn: () => Promise<{ job_id: string; status: string }>, label: string): Promise<string | null> => {
-      for (let attempt = 1; attempt <= 3; attempt++) {
-        try {
-          const { job_id } = await fn();
-          console.log(`  Seed "${label}": submitted job ${job_id} (attempt ${attempt})`);
-          return job_id;
-        } catch (err) {
-          console.warn(`  Seed "${label}": attempt ${attempt} failed:`, (err as Error).message);
-          if (attempt < 3) await new Promise((r) => setTimeout(r, 5000 * attempt));
-        }
-      }
-      console.warn(`  Seed "${label}": all attempts failed, tests may return empty results`);
-      return null;
-    };
+    // Seed some memories using the Agent API
+    try {
+      await client.remember(
+        "The user's name is Alice and she works at Ubundi as a software engineer.",
+        TEST_SESSION,
+      );
+      console.log("  Seed: remembered text fact");
+    } catch (err) {
+      console.warn("  Seed text failed:", (err as Error).message);
+    }
 
-    // Poll a job until completed or failed
-    const pollUntilComplete = async (jobId: string, label: string): Promise<void> => {
-      const deadline = Date.now() + 60_000;
-      while (Date.now() < deadline) {
-        const status = await client.getJob(jobId);
-        if (status.status === "completed") {
-          console.log(`  Job "${label}" (${jobId}): completed`);
-          return;
-        }
-        if (status.status === "failed") {
-          console.warn(`  Job "${label}" failed: ${status.error ?? "unknown"}`);
-          return;
-        }
-        await new Promise((r) => setTimeout(r, 2_000));
-      }
-      console.warn(`  Job "${label}" timed out after 60s`);
-    };
+    try {
+      await client.rememberConversation(
+        [
+          { role: "user", content: "We decided to use TypeScript for the plugin" },
+          { role: "assistant", content: "Good choice. TypeScript gives us compile-time safety for the OpenClaw plugin API." },
+        ],
+        TEST_SESSION,
+      );
+      console.log("  Seed: remembered conversation");
+    } catch (err) {
+      console.warn("  Seed conversation failed:", (err as Error).message);
+    }
 
-    const [ingestJobId, conversationJobId] = await Promise.all([
-      submitWithRetry(
-        () => client.submitIngest(
-          "The user's name is Alice and she works at Ubundi as a software engineer.",
-          TEST_NAMESPACE,
-        ),
-        "ingest-fact",
-      ),
-      submitWithRetry(
-        () => client.submitIngestConversation(
-          [
-            { role: "user", content: "We decided to use TypeScript for the plugin" },
-            { role: "assistant", content: "Good choice. TypeScript gives us compile-time safety for the OpenClaw plugin API." },
-          ],
-          TEST_NAMESPACE,
-        ),
-        "ingest-conversation",
-      ),
-    ]);
-
-    // Wait for both jobs to finish processing before recall tests run
-    await Promise.all([
-      ingestJobId ? pollUntilComplete(ingestJobId, "ingest-fact") : Promise.resolve(),
-      conversationJobId ? pollUntilComplete(conversationJobId, "ingest-conversation") : Promise.resolve(),
-    ]);
-  }, 90_000);
+    // Small delay for indexing
+    await new Promise((r) => setTimeout(r, 3_000));
+  }, 60_000);
 
   it("recall handler returns prependContext with cortex_memories tag", async () => {
     const handler = createRecallHandler(client, config, logger);
 
     const result = await handler(
       { prompt: "Who is the user and where do they work?" },
-      { sessionKey: TEST_NAMESPACE },
+      { sessionKey: TEST_SESSION },
     );
 
     console.log("  Result:", JSON.stringify(result, null, 2)?.slice(0, 500));
@@ -121,9 +85,9 @@ describeIf(!!API_KEY)("Recall pipeline integration", () => {
     if (result?.prependContext) {
       expect(result.prependContext).toContain("<cortex_memories>");
       expect(result.prependContext).toContain("</cortex_memories>");
-      console.log("  ✓ prependContext contains cortex_memories tag");
+      console.log("  prependContext contains cortex_memories tag");
     } else {
-      console.log("  ⚠ No results returned (tenant may need more data or indexing time)");
+      console.log("  No results returned (tenant may need more data or indexing time)");
     }
   }, 15_000);
 

@@ -9,12 +9,10 @@ function makeConfig(overrides: Partial<CortexConfig> = {}): CortexConfig {
     baseUrl: "https://api.example.com",
     autoRecall: true,
     autoCapture: true,
-    recallTopK: 5,
+    recallLimit: 10,
     recallTimeoutMs: 500,
-    recallMode: "fast" as const,
     fileSync: true,
     transcriptSync: true,
-    reflectIntervalMs: 3_600_000,
     ...overrides,
     namespace: overrides.namespace ?? "test",
   };
@@ -38,8 +36,8 @@ describe("cold-start detection", () => {
   });
 
   it("disables recall after 3 consecutive failures", async () => {
-    const retrieveMock = vi.fn().mockRejectedValue(new DOMException("aborted", "AbortError"));
-    const client = { retrieve: retrieveMock } as unknown as CortexClient;
+    const recallMock = vi.fn().mockRejectedValue(new DOMException("aborted", "AbortError"));
+    const client = { recall: recallMock } as unknown as CortexClient;
 
     const handler = createRecallHandler(client, makeConfig(), logger);
 
@@ -53,14 +51,14 @@ describe("cold-start detection", () => {
     );
 
     // Next call should be skipped (cold-start cooldown)
-    retrieveMock.mockClear();
+    recallMock.mockClear();
     await handler({ prompt: "query four here" }, {});
-    expect(retrieveMock).not.toHaveBeenCalled();
+    expect(recallMock).not.toHaveBeenCalled();
   });
 
   it("re-enables recall after cooldown period", async () => {
-    const retrieveMock = vi.fn().mockRejectedValue(new DOMException("aborted", "AbortError"));
-    const client = { retrieve: retrieveMock } as unknown as CortexClient;
+    const recallMock = vi.fn().mockRejectedValue(new DOMException("aborted", "AbortError"));
+    const client = { recall: recallMock } as unknown as CortexClient;
 
     const handler = createRecallHandler(client, makeConfig(), logger);
 
@@ -73,25 +71,23 @@ describe("cold-start detection", () => {
     vi.advanceTimersByTime(31_000);
 
     // Now resolve successfully
-    retrieveMock.mockResolvedValueOnce({
-      results: [{ node_id: "n1", type: "FACT", content: "test memory", score: 0.9 }],
-      query: "test",
-      mode: "fast",
+    recallMock.mockResolvedValueOnce({
+      memories: [{ content: "test memory", confidence: 0.9, when: null, session_id: null, entities: [] }],
     });
 
     const result = await handler({ prompt: "query after cooldown" }, {});
-    expect(retrieveMock).toHaveBeenCalled();
+    expect(recallMock).toHaveBeenCalled();
     expect(result?.prependContext).toContain("test memory");
   });
 
   it("resets failure counter on success", async () => {
     let callCount = 0;
-    const retrieveMock = vi.fn().mockImplementation(async () => {
+    const recallMock = vi.fn().mockImplementation(async () => {
       callCount++;
       if (callCount <= 2) throw new DOMException("aborted", "AbortError");
-      return { results: [{ node_id: "n1", type: "FACT", content: "mem", score: 0.9 }] };
+      return { memories: [{ content: "mem", confidence: 0.9, when: null, session_id: null, entities: [] }] };
     });
-    const client = { retrieve: retrieveMock } as unknown as CortexClient;
+    const client = { recall: recallMock } as unknown as CortexClient;
 
     const handler = createRecallHandler(client, makeConfig(), logger);
 
@@ -103,20 +99,20 @@ describe("cold-start detection", () => {
     await handler({ prompt: "query three here" }, {});
 
     // 2 more failures — should NOT trigger cold-start (counter was reset)
-    retrieveMock.mockRejectedValue(new DOMException("aborted", "AbortError"));
+    recallMock.mockRejectedValue(new DOMException("aborted", "AbortError"));
     await handler({ prompt: "query four here" }, {});
     await handler({ prompt: "query five here" }, {});
 
     // Should still be callable (not in cooldown)
-    retrieveMock.mockClear();
-    retrieveMock.mockResolvedValueOnce({ results: [] });
+    recallMock.mockClear();
+    recallMock.mockResolvedValueOnce({ memories: [] });
     await handler({ prompt: "query six here" }, {});
-    expect(retrieveMock).toHaveBeenCalled();
+    expect(recallMock).toHaveBeenCalled();
   });
 
   it("exposes metrics on the handler", async () => {
     const client = {
-      retrieve: vi.fn().mockResolvedValue({ results: [] }),
+      recall: vi.fn().mockResolvedValue({ memories: [] }),
     } as unknown as CortexClient;
 
     const handler = createRecallHandler(client, makeConfig(), logger);

@@ -62,15 +62,15 @@ export class MemoryMdSync {
 
     if (!added.trim()) return;
 
-    const doIngest = () => this.client.submitIngest(added, this.sessionId).then((res) => {
-      this.logger.debug?.(`MEMORY.md sync: submitted ingest job ${res.job_id}`);
+    const doRemember = () => this.client.remember(added, this.sessionId).then((res) => {
+      this.logger.debug?.(`MEMORY.md sync: remembered ${res.memories_created} memories`);
     });
 
     try {
-      await doIngest();
+      await doRemember();
     } catch (err) {
-      this.logger.warn(`MEMORY.md sync ingest failed, queuing for retry: ${String(err)}`);
-      this.retryQueue?.enqueue(doIngest, `memory-md-${++this.syncCounter}`);
+      this.logger.warn(`MEMORY.md sync failed, queuing for retry: ${String(err)}`);
+      this.retryQueue?.enqueue(doRemember, `memory-md-${++this.syncCounter}`);
     }
   }
 

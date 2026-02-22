@@ -28,7 +28,7 @@ function makeLogger() {
 
 function makeClient(overrides: Partial<CortexClient> = {}): CortexClient {
   return {
-    submitIngest: vi.fn().mockResolvedValue({ job_id: "job-1", status: "pending" }),
+    remember: vi.fn().mockResolvedValue({ session_id: null, memories_created: 1, entities_found: [], facts: [] }),
     ...overrides,
   } as unknown as CortexClient;
 }
@@ -55,9 +55,10 @@ describe("DailyLogsSync", () => {
 
     await sync.onFileChange("/workspace/memory/2026-02-17.md", "2026-02-17.md");
 
-    expect(client.submitIngest).toHaveBeenCalledWith(
+    expect(client.remember).toHaveBeenCalledWith(
       "line1\nline2\n",
       "test-ns:daily:2026-02-17.md",
+      undefined,
       "2026-02-17",
     );
   });
@@ -73,8 +74,8 @@ describe("DailyLogsSync", () => {
     mockReadFile.mockResolvedValue("line1\nline2\nline3\n");
     await sync.onFileChange("/workspace/memory/log.md", "log.md");
 
-    expect(client.submitIngest).toHaveBeenCalledTimes(2);
-    const secondCall = (client.submitIngest as ReturnType<typeof vi.fn>).mock.calls[1];
+    expect(client.remember).toHaveBeenCalledTimes(2);
+    const secondCall = (client.remember as ReturnType<typeof vi.fn>).mock.calls[1];
     expect(secondCall[0]).toBe("line3\n");
   });
 
@@ -85,13 +86,13 @@ describe("DailyLogsSync", () => {
 
     mockReadFile.mockResolvedValue("existing content");
     await sync.onFileChange("/workspace/memory/log.md", "log.md");
-    (client.submitIngest as ReturnType<typeof vi.fn>).mockClear();
+    (client.remember as ReturnType<typeof vi.fn>).mockClear();
 
     // Same length, nothing new
     mockReadFile.mockResolvedValue("existing content   ");
     await sync.onFileChange("/workspace/memory/log.md", "log.md");
 
-    expect(client.submitIngest).not.toHaveBeenCalled();
+    expect(client.remember).not.toHaveBeenCalled();
   });
 
   it("rejects unsafe paths when allowedRoot is set", async () => {
@@ -103,7 +104,7 @@ describe("DailyLogsSync", () => {
 
     await sync.onFileChange("/etc/passwd", "passwd");
 
-    expect(client.submitIngest).not.toHaveBeenCalled();
+    expect(client.remember).not.toHaveBeenCalled();
     expect(logger.warn).toHaveBeenCalledWith(
       expect.stringContaining("rejected unsafe path"),
     );
@@ -124,7 +125,7 @@ describe("DailyLogsSync", () => {
 
   it("queues for retry when ingest fails", async () => {
     const client = makeClient({
-      submitIngest: vi.fn().mockRejectedValue(new Error("network error")),
+      remember: vi.fn().mockRejectedValue(new Error("network error")),
     });
     const logger = makeLogger();
     const retryQueue = makeRetryQueue();
@@ -145,7 +146,7 @@ describe("DailyLogsSync", () => {
 
   it("queues retry on repeated failures for the same file", async () => {
     const client = makeClient({
-      submitIngest: vi.fn().mockRejectedValue(new Error("still failing")),
+      remember: vi.fn().mockRejectedValue(new Error("still failing")),
     });
     const logger = makeLogger();
     const retryQueue = makeRetryQueue();
@@ -171,7 +172,7 @@ describe("DailyLogsSync", () => {
 
     await sync.onFileChange("/workspace/memory/missing.md", "missing.md");
 
-    expect(client.submitIngest).not.toHaveBeenCalled();
+    expect(client.remember).not.toHaveBeenCalled();
     expect(logger.warn).toHaveBeenCalledWith(
       expect.stringContaining("read failed"),
     );
@@ -184,7 +185,7 @@ describe("DailyLogsSync", () => {
 
     mockReadFile.mockResolvedValue("content");
     await sync.onFileChange("/workspace/memory/log.md", "log.md");
-    (client.submitIngest as ReturnType<typeof vi.fn>).mockClear();
+    (client.remember as ReturnType<typeof vi.fn>).mockClear();
 
     sync.stop();
 
@@ -192,6 +193,6 @@ describe("DailyLogsSync", () => {
     mockReadFile.mockResolvedValue("content");
     await sync.onFileChange("/workspace/memory/log.md", "log.md");
 
-    expect(client.submitIngest).toHaveBeenCalledWith("content", expect.any(String), undefined);
+    expect(client.remember).toHaveBeenCalledWith("content", expect.any(String), undefined, undefined);
   });
 });

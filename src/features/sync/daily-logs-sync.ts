@@ -42,15 +42,15 @@ export class DailyLogsSync {
       const sessionId = `${this.sessionPrefix}:daily:${filename}`;
       const referenceDate = extractDateFromFilename(filename);
 
-      const doIngest = () => this.client.submitIngest(newContent, sessionId, referenceDate).then((res) => {
-        this.logger.debug?.(`Daily log sync: submitted ingest job ${res.job_id} for ${filename}`);
+      const doRemember = () => this.client.remember(newContent, sessionId, undefined, referenceDate).then((res) => {
+        this.logger.debug?.(`Daily log sync: remembered ${res.memories_created} memories for ${filename}`);
       });
 
       try {
-        await doIngest();
+        await doRemember();
       } catch (err) {
         this.logger.warn(`Daily log sync failed for ${filename}, queuing for retry: ${String(err)}`);
-        this.retryQueue?.enqueue(doIngest, `daily-${filename}`);
+        this.retryQueue?.enqueue(doRemember, `daily-${filename}`);
       }
     } catch (err) {
       this.logger.warn(`Daily log sync read failed for ${filename}: ${String(err)}`);

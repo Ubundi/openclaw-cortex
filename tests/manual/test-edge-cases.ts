@@ -48,12 +48,10 @@ function createPluginApi(configOverrides: Record<string, unknown> = {}) {
       baseUrl: "https://q5p64iw9c9.execute-api.us-east-1.amazonaws.com/prod",
       autoRecall: true,
       autoCapture: true,
-      recallTopK: 3,
+      recallLimit: 10,
       recallTimeoutMs: 10000,
-      recallMode: "fast",
       fileSync: false,
       transcriptSync: false,
-      reflectIntervalMs: 0,
       ...configOverrides,
       namespace: configOverrides?.namespace ?? "manual-test",
     },
@@ -184,17 +182,11 @@ async function main() {
     assert("Missing apiKey logs config error", hasError);
     assert("No hooks registered on invalid config", Object.keys(hooks1).length === 0);
 
-    // Invalid recallMode
-    const { api: api2, logs: logs2 } = createPluginApi({ recallMode: "turbo" });
+    // Invalid recallLimit
+    const { api: api2, logs: logs2 } = createPluginApi({ recallLimit: -5 });
     plugin.register(api2);
     const hasError2 = logs2.some((l) => l.includes("[error]"));
-    assert("Invalid recallMode logs error", hasError2);
-
-    // Negative recallTopK
-    const { api: api3, hooks: hooks3 } = createPluginApi({ recallTopK: -5 });
-    plugin.register(api3);
-    // Should either reject or register — either way it shouldn't crash
-    assert("Negative recallTopK doesn't crash", true);
+    assert("Invalid recallLimit logs error", hasError2);
   }
 
   // =========================================================================

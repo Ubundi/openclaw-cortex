@@ -89,16 +89,16 @@ export function createCaptureHandler(
 
       const sessionId = ctx.sessionKey ?? ctx.sessionId;
 
-      const doIngest = async () => {
-        const res = await client.submitIngestConversation(normalized, sessionId);
-        logger.debug?.(`Cortex capture: submitted ingest job ${res.job_id}`);
+      const doRemember = async () => {
+        const res = await client.rememberConversation(normalized, sessionId);
+        logger.debug?.(`Cortex capture: remembered ${res.memories_created} memories`);
       };
 
       // Fire-and-forget with retry on failure
-      doIngest().catch((err) => {
+      doRemember().catch((err) => {
         logger.warn(`Cortex capture failed, queuing for retry: ${String(err)}`);
         if (retryQueue) {
-          retryQueue.enqueue(doIngest, `capture-${++captureCounter}`);
+          retryQueue.enqueue(doRemember, `capture-${++captureCounter}`);
         }
       });
     } catch (err) {

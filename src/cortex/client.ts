@@ -94,11 +94,54 @@ export interface JobSubmitResponse {
   status: string;
 }
 
+// --- Agent API Types ---
+
+export interface RecallMemory {
+  content: string;
+  confidence: number;
+  when: string | null;
+  session_id: string | null;
+  entities: string[];
+}
+
+export interface RecallResponse {
+  memories: RecallMemory[];
+}
+
+export interface RememberResponse {
+  session_id: string | null;
+  memories_created: number;
+  entities_found: string[];
+  facts: string[];
+}
+
+export interface ForgetResponse {
+  memories_removed: number;
+}
+
+export interface KnowledgeEntity {
+  name: string;
+  memory_count: number;
+  last_seen: string;
+}
+
+export interface KnowledgeResponse {
+  total_memories: number;
+  total_sessions: number;
+  maturity: "cold" | "warming" | "mature";
+  entities: KnowledgeEntity[];
+}
+
+// --- Internal API Defaults ---
 const DEFAULT_INGEST_TIMEOUT_MS = 45_000;
 const DEFAULT_SUBMIT_TIMEOUT_MS = 10_000;
 const DEFAULT_REFLECT_TIMEOUT_MS = 30_000;
 const DEFAULT_HEALTH_TIMEOUT_MS = 5_000;
 const DEFAULT_WARMUP_TIMEOUT_MS = 60_000;
+
+// --- Agent API Defaults ---
+const DEFAULT_REMEMBER_TIMEOUT_MS = 45_000;
+const DEFAULT_RECALL_TIMEOUT_MS = 10_000;
 
 export class CortexClient {
   constructor(
@@ -112,17 +155,26 @@ export class CortexClient {
     timeoutMs: number,
     label: string,
   ): Promise<T> {
+    return this.fetchRequest<T>(url, { method: "POST", body: JSON.stringify(body) }, timeoutMs, label);
+  }
+
+  private async fetchRequest<T>(
+    url: string,
+    init: RequestInit,
+    timeoutMs: number,
+    label: string,
+  ): Promise<T> {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
     try {
       const res = await fetch(url, {
-        method: "POST",
+        ...init,
         headers: {
           "x-api-key": this.apiKey,
           "Content-Type": "application/json",
+          ...init.headers,
         },
-        body: JSON.stringify(body),
         signal: controller.signal,
       });
 
@@ -282,6 +334,101 @@ export class CortexClient {
       { session_id: sessionId },
       timeoutMs,
       "reflect",
+    );
+  }
+
+  // --- Agent API Methods ---
+
+  async remember(
+    text: string,
+    sessionId?: string,
+    timeoutMs = DEFAULT_REMEMBER_TIMEOUT_MS,
+    referenceDate?: string,
+  ): Promise<RememberResponse> {
+    return this.fetchJsonWithTimeout<RememberResponse>(
+      `${this.baseUrl}/v1/remember`,
+      {
+        text,
+        session_id: sessionId ?? null,
+        reference_date: referenceDate ?? null,
+      },
+      timeoutMs,
+      "remember",
+    );
+  }
+
+  async rememberConversation(
+    messages: ConversationMessage[],
+    sessionId?: string,
+    timeoutMs = DEFAULT_REMEMBER_TIMEOUT_MS,
+    referenceDate?: string,
+  ): Promise<RememberResponse> {
+    return this.fetchJsonWithTimeout<RememberResponse>(
+      `${this.baseUrl}/v1/remember`,
+      {
+        messages,
+        session_id: sessionId ?? null,
+        reference_date: referenceDate ?? null,
+      },
+      timeoutMs,
+      "remember",
+    );
+  }
+
+  async recall(
+    query: string,
+    timeoutMs = DEFAULT_RECALL_TIMEOUT_MS,
+    options?: {
+      limit?: number;
+      context?: string;
+      sessionFilter?: string;
+    },
+  ): Promise<RecallResponse> {
+    return this.fetchJsonWithTimeout<RecallResponse>(
+      `${this.baseUrl}/v1/recall`,
+      {
+        query,
+        limit: options?.limit ?? undefined,
+        context: options?.context ?? undefined,
+        session_filter: options?.sessionFilter ?? undefined,
+      },
+      timeoutMs,
+      "recall",
+    );
+  }
+
+  async forgetSession(
+    sessionId: string,
+    timeoutMs = DEFAULT_RECALL_TIMEOUT_MS,
+  ): Promise<ForgetResponse> {
+    return this.fetchRequest<ForgetResponse>(
+      `${this.baseUrl}/v1/forget/session/${encodeURIComponent(sessionId)}`,
+      { method: "DELETE" },
+      timeoutMs,
+      "forget/session",
+    );
+  }
+
+  async forgetEntity(
+    entityName: string,
+    timeoutMs = DEFAULT_RECALL_TIMEOUT_MS,
+  ): Promise<ForgetResponse> {
+    return this.fetchRequest<ForgetResponse>(
+      `${this.baseUrl}/v1/forget/entity/${encodeURIComponent(entityName)}`,
+      { method: "DELETE" },
+      timeoutMs,
+      "forget/entity",
+    );
+  }
+
+  async knowledge(
+    timeoutMs = DEFAULT_RECALL_TIMEOUT_MS,
+  ): Promise<KnowledgeResponse> {
+    return this.fetchRequest<KnowledgeResponse>(
+      `${this.baseUrl}/v1/knowledge`,
+      { method: "GET" },
+      timeoutMs,
+      "knowledge",
     );
   }
 }
