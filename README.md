@@ -13,7 +13,6 @@
 - **Auto-Recall** — injects relevant memories before every agent turn via `before_agent_start` hook
 - **Auto-Capture** — extracts facts from conversations via `agent_end` hook
 - **File Sync** — watches `MEMORY.md`, daily logs, and session transcripts for background ingestion
-- **Periodic Reflect** — consolidates memories, resolves SUPERSEDES chains, detects contradictions
 - **Resilience** — retry queue with exponential backoff, cold-start detection, latency metrics
 
 > **Cortex availability:** Cortex is currently privately hosted and in early testing — it is not yet a public service. API keys are not self-serve; to request access email [matthew@ubundi.co.za](mailto:matthew@ubundi.co.za). A public sign-up is planned for the future.
@@ -82,12 +81,10 @@ Add to your `openclaw.json`:
           baseUrl: "https://q5p64iw9c9.execute-api.us-east-1.amazonaws.com/prod",
           autoRecall: true,
           autoCapture: true,
-          recallTopK: 5,
+          recallLimit: 10,
           recallTimeoutMs: 2000,
-          recallMode: "fast",
           fileSync: true,
           transcriptSync: true,
-          reflectIntervalMs: 3600000,
         },
       },
     },
@@ -115,25 +112,38 @@ Environment variables are supported via `${VAR_NAME}` syntax:
 
 All other options are pre-configured with sensible defaults and can be tuned via the OpenClaw plugin config UI.
 
-### Recall Modes
-
-| Mode       | What it does                         | Typical round-trip |
-| ---------- | ------------------------------------ | ------------------ |
-| `fast`     | BM25 + semantic search only          | ~600-1200ms        |
-| `balanced` | Adds light reranking                 | ~900-1600ms        |
-| `full`     | Adds graph traversal + full reranker | ~1100-1900ms       |
-
-Use `fast` (default) for auto-recall where latency matters. Use `full` for explicit recall via SKILL.md where depth matters more than speed.
-
-![Recall Modes](assets/readme_assets/Recall.png)
-
 ## How It Works
 
 ![Architecture](assets/readme_assets/Arch%20Diagram.png)
 
+## Source Layout
+
+```text
+src/
+  index.ts                  # Public package entrypoint
+  plugin/                   # Plugin wiring and config
+    index.ts
+    config/
+      schema.ts
+  adapters/                 # External service adapters
+    cortex/
+      client.ts
+  features/                 # Feature modules
+    capture/
+    recall/
+    sync/
+  internal/                 # Internal helpers (not stable public API)
+    fs/
+    metrics/
+    queue/
+    transcript/
+```
+
+For npm consumers, import from the package root (`@ubundi/openclaw-cortex`). Internal module paths are implementation details and may change between versions.
+
 ### Auto-Recall
 
-Before every agent turn, the plugin queries Cortex's `/v1/retrieve` endpoint and prepends results to the agent's context:
+Before every agent turn, the plugin queries Cortex's `/v1/recall` endpoint and prepends results to the agent's context:
 
 ```xml
 <cortex_memories>
@@ -146,7 +156,7 @@ If the request exceeds `recallTimeoutMs`, the agent proceeds without memories (s
 
 ### Auto-Capture
 
-After each successful agent turn, the plugin extracts the last 20 messages and sends them to Cortex's `/v1/ingest/conversation` endpoint. A heuristic skips trivial exchanges (short messages, system-only turns).
+After each successful agent turn, the plugin extracts the last 20 messages and sends them to Cortex's `/v1/remember` endpoint. A heuristic skips trivial exchanges (short messages, system-only turns).
 
 Capture is fire-and-forget — it never blocks the agent. Failed ingestions are queued for retry with exponential backoff (up to 5 retries).
 
@@ -160,16 +170,6 @@ The plugin watches OpenClaw's memory files and ingests changes into Cortex:
 
 Failed file sync operations are queued for retry, so transient network failures don't cause data loss.
 
-### Periodic Reflect
-
-Every `reflectIntervalMs` (default: 1 hour), the plugin calls Cortex's `/v1/reflect` endpoint to consolidate memories:
-
-- Scans entity-scoped fact clusters across sessions
-- Synthesizes high-level observation nodes that compress multi-session evidence
-- Observation nodes are stored as regular FACT nodes, retrievable through all recall channels
-
-Set `reflectIntervalMs: 0` to disable.
-
 ### Observability
 
 On shutdown, the plugin logs recall latency percentiles:
@@ -178,7 +178,7 @@ On shutdown, the plugin logs recall latency percentiles:
 Cortex recall latency (847 samples): p50=120ms p95=340ms p99=480ms
 ```
 
-Use this to tune `recallTimeoutMs` and `recallMode` for your deployment.
+Use this to tune `recallTimeoutMs` for your deployment.
 
 ![Observability](assets/readme_assets/Observability.png)
 
@@ -190,7 +190,7 @@ If both this plugin and the Cortex SKILL.md are active, the `<cortex_memories>` 
 
 - `apiKey` errors on startup: confirm `config.apiKey` is set and `${CORTEX_API_KEY}` resolves in your environment.
 - Plugin installed but no memory behavior: verify both `"enabled": true` and `"slots.memory": "@ubundi/openclaw-cortex"` in `openclaw.json`.
-- Frequent recall timeouts: increase `recallTimeoutMs` and/or set `recallMode` to `"fast"`.
+- Frequent recall timeouts: increase `recallTimeoutMs` (the plugin auto-adjusts the floor based on pipeline tier).
 - No useful memories returned: ensure prior sessions were captured (`autoCapture`) or file sync is enabled (`fileSync`, `transcriptSync`).
 
 ## Development
@@ -198,7 +198,7 @@ If both this plugin and the Cortex SKILL.md are active, the `<cortex_memories>` 
 ```bash
 npm install
 npm run build      # TypeScript → dist/
-npm test           # Run vitest (153 tests)
+npm test           # Run vitest (156 tests)
 npm run test:watch # Watch mode
 npm run test:integration # Live Cortex API tests (requires CORTEX_API_KEY)
 ```

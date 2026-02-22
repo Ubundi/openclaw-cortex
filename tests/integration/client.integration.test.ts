@@ -7,7 +7,7 @@
  * These tests are skipped if CORTEX_API_KEY is not set.
  */
 import { describe, it, expect, beforeAll } from "vitest";
-import { CortexClient } from "../../src/cortex/client.js";
+import { CortexClient } from "../../src/adapters/cortex/client.js";
 
 const API_KEY = process.env.CORTEX_API_KEY;
 const BASE_URL =

@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { FileSyncWatcher } from "../../src/features/sync/watcher.js";
-import type { CortexClient } from "../../src/cortex/client.js";
-import type { RetryQueue } from "../../src/shared/queue/retry-queue.js";
+import type { CortexClient } from "../../src/adapters/cortex/client.js";
+import type { RetryQueue } from "../../src/internal/queue/retry-queue.js";
 
 // Mock all sub-sync classes and fs.watch
 vi.mock("node:fs", () => {

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { LatencyMetrics } from "../../src/shared/metrics/latency-metrics.js";
+import { LatencyMetrics } from "../../src/internal/metrics/latency-metrics.js";
 
 describe("LatencyMetrics", () => {
   it("computes percentiles correctly", () => {

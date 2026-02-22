@@ -9,7 +9,7 @@
  * Usage:
  *   CORTEX_API_KEY=your-key npx tsx tests/manual/test-persistence.ts
  */
-import { CortexClient } from "../../src/cortex/client.js";
+import { CortexClient } from "../../src/adapters/cortex/client.js";
 
 const CORTEX_API_KEY = process.env.CORTEX_API_KEY;
 if (!CORTEX_API_KEY) {

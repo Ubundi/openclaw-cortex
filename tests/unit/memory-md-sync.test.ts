@@ -1,18 +1,18 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { MemoryMdSync } from "../../src/features/sync/memory-md-sync.js";
-import type { CortexClient } from "../../src/cortex/client.js";
-import type { RetryQueue } from "../../src/shared/queue/retry-queue.js";
+import type { CortexClient } from "../../src/adapters/cortex/client.js";
+import type { RetryQueue } from "../../src/internal/queue/retry-queue.js";
 
 vi.mock("node:fs/promises", () => ({
   readFile: vi.fn(),
 }));
 
-vi.mock("../../src/shared/fs/safe-path.js", () => ({
+vi.mock("../../src/internal/fs/safe-path.js", () => ({
   safePath: vi.fn(),
 }));
 
 import { readFile } from "node:fs/promises";
-import { safePath } from "../../src/shared/fs/safe-path.js";
+import { safePath } from "../../src/internal/fs/safe-path.js";
 
 const mockReadFile = readFile as ReturnType<typeof vi.fn>;
 const mockSafePath = safePath as ReturnType<typeof vi.fn>;

@@ -3,15 +3,15 @@ import { mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
-vi.mock("../../src/shared/fs/safe-path.js", async () => {
-  const actual = await vi.importActual("../../src/shared/fs/safe-path.js");
+vi.mock("../../src/internal/fs/safe-path.js", async () => {
+  const actual = await vi.importActual("../../src/internal/fs/safe-path.js");
   return actual;
 });
 
 import { MemoryMdSync } from "../../src/features/sync/memory-md-sync.js";
 import { DailyLogsSync } from "../../src/features/sync/daily-logs-sync.js";
 import { TranscriptsSync } from "../../src/features/sync/transcripts-sync.js";
-import type { CortexClient } from "../../src/cortex/client.js";
+import type { CortexClient } from "../../src/adapters/cortex/client.js";
 
 const workspaceDir = await mkdtemp(join(tmpdir(), "sync-safe-root-"));
 const outsideDir = await mkdtemp(join(tmpdir(), "sync-safe-outside-"));

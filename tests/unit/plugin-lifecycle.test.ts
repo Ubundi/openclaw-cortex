@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import plugin from "../../src/core/plugin.js";
-import { CortexClient } from "../../src/cortex/client.js";
+import plugin from "../../src/plugin/index.js";
+import { CortexClient } from "../../src/adapters/cortex/client.js";
 import { FileSyncWatcher } from "../../src/features/sync/watcher.js";
-import { RetryQueue } from "../../src/shared/queue/retry-queue.js";
+import { RetryQueue } from "../../src/internal/queue/retry-queue.js";
 
 type HookHandler = (...args: any[]) => any;
 
@@ -54,10 +54,24 @@ function mockClientHealth() {
   vi.spyOn(CortexClient.prototype, "healthCheck").mockResolvedValue(true);
 }
 
+function mockClientKnowledge(overrides: Partial<{
+  total_memories: number;
+  total_sessions: number;
+  maturity: "cold" | "warming" | "mature";
+}> = {}) {
+  vi.spyOn(CortexClient.prototype, "knowledge").mockResolvedValue({
+    total_memories: overrides.total_memories ?? 0,
+    total_sessions: overrides.total_sessions ?? 0,
+    maturity: overrides.maturity ?? "cold",
+    entities: [],
+  });
+}
+
 describe("plugin lifecycle contract", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockClientHealth();
+    mockClientKnowledge();
   });
 
   afterEach(() => {
@@ -154,6 +168,9 @@ describe("plugin lifecycle contract", () => {
   });
 
   it("stop logs recall latency summary after recall handler runs", async () => {
+    vi.restoreAllMocks();
+    mockClientHealth();
+    mockClientKnowledge({ total_memories: 10, total_sessions: 5, maturity: "warming" });
     vi.spyOn(RetryQueue.prototype, "stop").mockImplementation(() => {});
     vi.spyOn(CortexClient.prototype, "recall").mockResolvedValue({
       memories: [
@@ -168,7 +185,8 @@ describe("plugin lifecycle contract", () => {
     });
 
     plugin.register(api as any);
-    await flushMicrotasks();
+    // Wait for bootstrapClient to set knowledgeState.hasMemories = true
+    await new Promise((r) => setTimeout(r, 10));
 
     await hooks.before_agent_start[0](
       { prompt: "Tell me my project preferences" },
@@ -195,5 +213,44 @@ describe("plugin lifecycle contract", () => {
     );
     expect(Object.keys(hooks)).toHaveLength(0);
     expect(services).toHaveLength(0);
+  });
+
+  it("logs maturity and tier info on startup", async () => {
+    vi.restoreAllMocks();
+    mockClientHealth();
+    mockClientKnowledge({ total_memories: 142, total_sessions: 18, maturity: "warming" });
+
+    const { api, logger } = makeApi({
+      apiKey: "sk-test",
+      fileSync: false,
+    });
+
+    plugin.register(api as any);
+    await flushMicrotasks();
+    // Allow the bootstrapClient promise chain to resolve
+    await new Promise((r) => setTimeout(r, 10));
+
+    expect(logger.info).toHaveBeenCalledWith(
+      "Cortex knowledge: maturity=warming, sessions=18, memories=142, tier=2",
+    );
+  });
+
+  it("proceeds without knowledge when endpoint is unavailable", async () => {
+    vi.restoreAllMocks();
+    mockClientHealth();
+    vi.spyOn(CortexClient.prototype, "knowledge").mockRejectedValue(new Error("Not found"));
+
+    const { api, logger } = makeApi({
+      apiKey: "sk-test",
+      fileSync: false,
+    });
+
+    plugin.register(api as any);
+    await flushMicrotasks();
+    await new Promise((r) => setTimeout(r, 10));
+
+    expect(logger.info).not.toHaveBeenCalledWith(
+      expect.stringContaining("Cortex knowledge:"),
+    );
   });
 });

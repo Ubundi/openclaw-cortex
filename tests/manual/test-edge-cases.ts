@@ -12,7 +12,7 @@
  *   CORTEX_API_KEY=your-key npx tsx tests/manual/test-edge-cases.ts
  */
 import plugin from "../../src/index.js";
-import { RetryQueue } from "../../src/shared/queue/retry-queue.js";
+import { RetryQueue } from "../../src/internal/queue/retry-queue.js";
 
 const CORTEX_API_KEY = process.env.CORTEX_API_KEY;
 if (!CORTEX_API_KEY) {

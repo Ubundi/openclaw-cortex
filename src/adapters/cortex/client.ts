@@ -132,6 +132,12 @@ export interface KnowledgeResponse {
   entities: KnowledgeEntity[];
 }
 
+export interface StatsResponse {
+  pipeline_tier: 1 | 2 | 3;
+  pipeline_maturity: "cold" | "warming" | "mature";
+  [key: string]: unknown;
+}
+
 // --- Internal API Defaults ---
 const DEFAULT_INGEST_TIMEOUT_MS = 45_000;
 const DEFAULT_SUBMIT_TIMEOUT_MS = 10_000;
@@ -429,6 +435,17 @@ export class CortexClient {
       { method: "GET" },
       timeoutMs,
       "knowledge",
+    );
+  }
+
+  async stats(
+    timeoutMs = DEFAULT_RECALL_TIMEOUT_MS,
+  ): Promise<StatsResponse> {
+    return this.fetchRequest<StatsResponse>(
+      `${this.baseUrl}/v1/stats`,
+      { method: "GET" },
+      timeoutMs,
+      "stats",
     );
   }
 }

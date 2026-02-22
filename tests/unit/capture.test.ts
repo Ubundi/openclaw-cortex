@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { createCaptureHandler } from "../../src/features/capture/handler.js";
-import type { CortexClient } from "../../src/cortex/client.js";
-import type { CortexConfig } from "../../src/core/config/schema.js";
+import type { CortexClient } from "../../src/adapters/cortex/client.js";
+import type { CortexConfig } from "../../src/plugin/config/schema.js";
 
 function makeConfig(overrides: Partial<CortexConfig> = {}): CortexConfig {
   return {

@@ -31,7 +31,7 @@ import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { CortexClient } from "../../src/cortex/client.js";
-import type { RetrieveResult } from "../../src/cortex/client.js";
+import type { RetrieveResult, KnowledgeResponse, StatsResponse } from "../../src/cortex/client.js";
 import { LatencyMetrics } from "../../src/shared/metrics/latency-metrics.js";
 import { formatMemories } from "../../src/features/recall/formatter.js";
 
@@ -123,6 +123,13 @@ interface BenchmarkReport {
     ocSearchEnabled: boolean;
     ocEmbedModel: string;
     ocChunkCount: number;
+  };
+  cortexStats: {
+    pipelineTier: number | null;
+    pipelineMaturity: string | null;
+    knowledgeMaturity: string | null;
+    totalMemories: number | null;
+    totalSessions: number | null;
   };
   seedJobIds: string[];
   compactedSummary: string;
@@ -700,7 +707,46 @@ async function runSeedPhase(client: CortexClient): Promise<string[]> {
 // Phase 2: Warmup + Compaction
 // ---------------------------------------------------------------------------
 
-async function runWarmupPhase(client: CortexClient, didSeed: boolean): Promise<string> {
+interface CortexStatsSnapshot {
+  pipelineTier: number | null;
+  pipelineMaturity: string | null;
+  knowledgeMaturity: string | null;
+  totalMemories: number | null;
+  totalSessions: number | null;
+}
+
+async function fetchCortexStats(client: CortexClient): Promise<CortexStatsSnapshot> {
+  const snapshot: CortexStatsSnapshot = {
+    pipelineTier: null,
+    pipelineMaturity: null,
+    knowledgeMaturity: null,
+    totalMemories: null,
+    totalSessions: null,
+  };
+
+  try {
+    const stats = await client.stats();
+    snapshot.pipelineTier = stats.pipeline_tier;
+    snapshot.pipelineMaturity = stats.pipeline_maturity;
+    log("stats", `Pipeline tier: ${stats.pipeline_tier}, maturity: ${stats.pipeline_maturity}`);
+  } catch (err) {
+    log("stats", `WARN GET /v1/stats failed: ${(err as Error).message}`);
+  }
+
+  try {
+    const knowledge = await client.knowledge();
+    snapshot.knowledgeMaturity = knowledge.maturity;
+    snapshot.totalMemories = knowledge.total_memories;
+    snapshot.totalSessions = knowledge.total_sessions;
+    log("stats", `Knowledge: ${knowledge.total_memories} memories, ${knowledge.total_sessions} sessions, maturity: ${knowledge.maturity}`);
+  } catch (err) {
+    log("stats", `WARN GET /v1/knowledge failed: ${(err as Error).message}`);
+  }
+
+  return snapshot;
+}
+
+async function runWarmupPhase(client: CortexClient, didSeed: boolean): Promise<{ compactedSummary: string; cortexStats: CortexStatsSnapshot }> {
   log("warmup", "Warming up tenant...");
   await client.warmup();
 
@@ -709,6 +755,9 @@ async function runWarmupPhase(client: CortexClient, didSeed: boolean): Promise<s
     const reflectResult = await client.reflect(NAMESPACE);
     log("warmup", `Reflect done: ${reflectResult.nodes_created} nodes, ${reflectResult.edges_created} edges, ${reflectResult.entities_processed} entities processed`);
   }
+
+  // Fetch pipeline tier and knowledge stats after warmup
+  const cortexStats = await fetchCortexStats(client);
 
   log("warmup", "Generating compacted summary from all sessions...");
   const allTranscripts = seedData
@@ -732,7 +781,7 @@ async function runWarmupPhase(client: CortexClient, didSeed: boolean): Promise<s
   );
 
   log("warmup", `Compacted summary: ${compactedSummary.length} chars`);
-  return compactedSummary;
+  return { compactedSummary, cortexStats };
 }
 
 // ---------------------------------------------------------------------------
@@ -1010,6 +1059,7 @@ Respond with ONLY a JSON object: {"score": <0-3>, "rationale": "<brief explanati
 // ---------------------------------------------------------------------------
 
 function buildReport(
+  cortexStats: CortexStatsSnapshot,
   seedJobIds: string[],
   compactedSummary: string,
   retrievals: RetrievalRecord[],
@@ -1040,6 +1090,7 @@ function buildReport(
       ocEmbedModel: OC_EMBED_MODEL,
       ocChunkCount,
     },
+    cortexStats,
     seedJobIds,
     compactedSummary,
     retrievals: DEBUG_REPORT ? retrievals : retrievals.map(trimRetrievalForReport),
@@ -1188,6 +1239,17 @@ function printMarkdownSummary(report: BenchmarkReport): void {
   console.log(`|------|----------|----------|---------|`);
   console.log(`| Fast | ${fmtMs(fl.p50).padStart(8)} | ${fmtMs(fl.p95).padStart(8)} | ${String(fl.count).padStart(7)} |`);
   console.log(`| Full | ${fmtMs(ul.p50).padStart(8)} | ${fmtMs(ul.p95).padStart(8)} | ${String(ul.count).padStart(7)} |`);
+
+  // --- Cortex Pipeline Stats ---
+  const cs = report.cortexStats;
+  console.log("\n### Cortex Pipeline Stats\n");
+  console.log(`| Metric             | Value                |`);
+  console.log(`|--------------------|----------------------|`);
+  console.log(`| Pipeline Tier      | ${cs.pipelineTier !== null ? String(cs.pipelineTier) : "N/A".padStart(20)} |`);
+  console.log(`| Pipeline Maturity  | ${(cs.pipelineMaturity ?? "N/A").padStart(20)} |`);
+  console.log(`| Knowledge Maturity | ${(cs.knowledgeMaturity ?? "N/A").padStart(20)} |`);
+  console.log(`| Total Memories     | ${cs.totalMemories !== null ? String(cs.totalMemories).padStart(20) : "N/A".padStart(20)} |`);
+  console.log(`| Total Sessions     | ${cs.totalSessions !== null ? String(cs.totalSessions).padStart(20) : "N/A".padStart(20)} |`);
 
   // --- Summary Retention Slices ---
   console.log("\n### Summary Retention Slices\n");
@@ -1349,9 +1411,12 @@ async function main(): Promise<void> {
     seedJobIds = [];
   }
 
-  // Phase 2: Warmup + Reflect + Compaction
+  // Phase 2: Warmup + Reflect + Compaction + Stats
   const didSeed = SEED && !DRY_RUN;
-  const compactedSummary = DRY_RUN ? dryRunWarmupPhase() : await runWarmupPhase(client, didSeed);
+  const nullStats: CortexStatsSnapshot = { pipelineTier: null, pipelineMaturity: null, knowledgeMaturity: null, totalMemories: null, totalSessions: null };
+  const { compactedSummary, cortexStats } = DRY_RUN
+    ? { compactedSummary: dryRunWarmupPhase(), cortexStats: nullStats }
+    : await runWarmupPhase(client, didSeed);
 
   // Phase 3: Retrieve — Cortex (fast + full) + OpenClaw memory_search simulation
   const { records: retrievals, fastMetrics, fullMetrics, ocChunkCount } = DRY_RUN
@@ -1370,6 +1435,7 @@ async function main(): Promise<void> {
 
   // Phase 6: Report
   const report = buildReport(
+    cortexStats,
     seedJobIds,
     compactedSummary,
     retrievals,

@@ -1,6 +1,7 @@
-import type { CortexClient, ConversationMessage } from "../../cortex/client.js";
-import type { CortexConfig } from "../../core/config/schema.js";
-import type { RetryQueue } from "../../shared/queue/retry-queue.js";
+import type { CortexClient, ConversationMessage } from "../../adapters/cortex/client.js";
+import type { CortexConfig } from "../../plugin/config/schema.js";
+import type { KnowledgeState } from "../../plugin/index.js";
+import type { RetryQueue } from "../../internal/queue/retry-queue.js";
 
 interface AgentEndEvent {
   messages: unknown[];
@@ -57,6 +58,7 @@ export function createCaptureHandler(
   config: CortexConfig,
   logger: Logger,
   retryQueue?: RetryQueue,
+  knowledgeState?: KnowledgeState,
 ) {
   let captureCounter = 0;
 
@@ -92,6 +94,9 @@ export function createCaptureHandler(
       const doRemember = async () => {
         const res = await client.rememberConversation(normalized, sessionId);
         logger.debug?.(`Cortex capture: remembered ${res.memories_created} memories`);
+        if (knowledgeState && res.memories_created > 0) {
+          knowledgeState.hasMemories = true;
+        }
       };
 
       // Fire-and-forget with retry on failure

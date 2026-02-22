@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { CortexClient } from "../../src/cortex/client.js";
+import { CortexClient } from "../../src/adapters/cortex/client.js";
 
 const mockFetch = vi.fn();
 vi.stubGlobal("fetch", mockFetch);

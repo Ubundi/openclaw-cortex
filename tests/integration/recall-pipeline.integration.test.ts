@@ -6,9 +6,9 @@
  *   CORTEX_API_KEY=sk-cortex-... npm run test:integration
  */
 import { describe, it, expect, beforeAll } from "vitest";
-import { CortexClient } from "../../src/cortex/client.js";
+import { CortexClient } from "../../src/adapters/cortex/client.js";
 import { createRecallHandler } from "../../src/features/recall/handler.js";
-import type { CortexConfig } from "../../src/core/config/schema.js";
+import type { CortexConfig } from "../../src/plugin/config/schema.js";
 
 const API_KEY = process.env.CORTEX_API_KEY;
 const BASE_URL =

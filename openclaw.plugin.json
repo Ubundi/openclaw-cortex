@@ -29,25 +29,15 @@
         "description": "Extract facts from conversations after agent turns",
         "default": true
       },
-      "recallTopK": {
+      "recallLimit": {
         "type": "number",
-        "description": "Number of memories to retrieve per turn",
-        "default": 5
+        "description": "Maximum number of memories to retrieve per turn",
+        "default": 10
       },
       "recallTimeoutMs": {
         "type": "number",
         "description": "Maximum time to wait for memory recall (ms)",
         "default": 2000
-      },
-      "recallMode": {
-        "type": "string",
-        "enum": [
-          "fast",
-          "balanced",
-          "full"
-        ],
-        "description": "Retrieval depth — fast (BM25 + semantic), balanced (+ light reranking), full (+ graph traversal + reranker)",
-        "default": "fast"
       },
       "fileSync": {
         "type": "boolean",
@@ -58,21 +48,6 @@
         "type": "boolean",
         "description": "Watch sessions/*.jsonl and ingest cleaned transcripts",
         "default": true
-      },
-      "reflectIntervalMs": {
-        "type": "number",
-        "description": "Interval for periodic memory consolidation (ms). Set to 0 to disable.",
-        "default": 3600000
-      },
-      "recallQueryType": {
-        "type": "string",
-        "enum": [
-          "factual",
-          "emotional",
-          "combined"
-        ],
-        "description": "Type of retrieval query — factual (entities/facts), emotional (feelings/values), or combined",
-        "default": "combined"
       },
       "namespace": {
         "type": "string",
@@ -91,31 +66,18 @@
       "label": "Base URL",
       "advanced": true
     },
-    "recallTopK": {
-      "label": "Recall Top-K",
-      "advanced": true
+    "recallLimit": {
+      "label": "Recall Limit",
+      "advanced": true,
+      "helpText": "Maximum number of memories injected per turn (1-50)."
     },
     "recallTimeoutMs": {
       "label": "Recall Timeout (ms)",
       "advanced": true
     },
-    "recallMode": {
-      "label": "Recall Mode",
-      "helpText": "Fast is best for low-latency auto-recall. Full enables graph traversal for deeper retrieval at higher latency."
-    },
     "transcriptSync": {
       "label": "Transcript Sync",
       "helpText": "Automatically ingest session transcripts (sessions/*.jsonl) after stripping system prompts and tool JSON."
-    },
-    "reflectIntervalMs": {
-      "label": "Reflect Interval (ms)",
-      "advanced": true,
-      "helpText": "How often to run cross-session memory consolidation via /v1/reflect. Set to 0 to disable."
-    },
-    "recallQueryType": {
-      "label": "Recall Query Type",
-      "advanced": true,
-      "helpText": "Controls what type of memories are prioritised during retrieval."
     },
     "namespace": {
       "label": "Namespace",

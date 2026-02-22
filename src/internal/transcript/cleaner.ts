@@ -1,4 +1,4 @@
-import type { ConversationMessage } from "../../cortex/client.js";
+import type { ConversationMessage } from "../../adapters/cortex/client.js";
 
 /**
  * JSONL event shape from OpenClaw's sessions/*.jsonl files.

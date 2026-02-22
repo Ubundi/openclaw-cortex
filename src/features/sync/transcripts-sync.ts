@@ -1,8 +1,8 @@
 import { readFile } from "node:fs/promises";
-import type { CortexClient } from "../../cortex/client.js";
-import type { RetryQueue } from "../../shared/queue/retry-queue.js";
-import { cleanTranscriptChunk } from "../../shared/transcript/cleaner.js";
-import { safePath } from "../../shared/fs/safe-path.js";
+import type { CortexClient } from "../../adapters/cortex/client.js";
+import type { RetryQueue } from "../../internal/queue/retry-queue.js";
+import { cleanTranscriptChunk } from "../../internal/transcript/cleaner.js";
+import { safePath } from "../../internal/fs/safe-path.js";
 
 type Logger = {
   debug?(...args: unknown[]): void;

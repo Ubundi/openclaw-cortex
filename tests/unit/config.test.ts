@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { CortexConfigSchema } from "../../src/core/config/schema.js";
+import { CortexConfigSchema } from "../../src/plugin/config/schema.js";
 
 describe("CortexConfigSchema", () => {
   const validBase = { apiKey: "sk-test" };

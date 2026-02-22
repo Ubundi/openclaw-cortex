@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { RetryQueue } from "../../src/shared/queue/retry-queue.js";
+import { RetryQueue } from "../../src/internal/queue/retry-queue.js";
 
 const logger = {
   debug: vi.fn(),
