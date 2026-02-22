@@ -31,7 +31,7 @@ import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { CortexClient } from "../../src/adapters/cortex/client.js";
-import type { RetrieveResult, KnowledgeResponse, StatsResponse } from "../../src/adapters/cortex/client.js";
+import type { RetrieveResult, RecallMemory, KnowledgeResponse, StatsResponse } from "../../src/adapters/cortex/client.js";
 import { LatencyMetrics } from "../../src/internal/metrics/latency-metrics.js";
 import { formatMemories } from "../../src/features/recall/formatter.js";
 
@@ -663,7 +663,7 @@ async function runSeedPhase(client: CortexClient): Promise<string[]> {
 
   log("seed", `All ${jobIds.length} jobs submitted. Polling for completion...`);
 
-  const deadline = Date.now() + 120_000;
+  const deadline = Date.now() + 300_000;
   const pending = new Set(jobIds);
 
   while (pending.size > 0 && Date.now() < deadline) {
@@ -696,7 +696,7 @@ async function runSeedPhase(client: CortexClient): Promise<string[]> {
   }
 
   if (pending.size > 0) {
-    throw new Error(`seed: ${pending.size} jobs timed out after 120s`);
+    throw new Error(`seed: ${pending.size} jobs timed out after 300s`);
   }
 
   log("seed", "All jobs completed successfully.");
@@ -940,7 +940,14 @@ async function runAnswerPhase(
 
     // Condition 3: Cortex — compacted summary + Cortex retrieved memories
     try {
-      const memories = formatMemories(retrieval?.fullResults ?? []);
+      const asRecallMemories: RecallMemory[] = (retrieval?.fullResults ?? []).map((r) => ({
+        content: r.content,
+        confidence: r.score,
+        when: null,
+        session_id: null,
+        entities: r.metadata?.entity_refs ?? [],
+      }));
+      const memories = formatMemories(asRecallMemories);
       const cortexAnswer = await callLLM(
         [
           { role: "system", content: systemMsg },
