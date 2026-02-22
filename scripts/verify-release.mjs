@@ -21,8 +21,8 @@ async function main() {
   const [packageRaw, manifestRaw, pluginRaw, schemaRaw, readmeRaw] = await Promise.all([
     readFile(new URL("../package.json", import.meta.url), "utf-8"),
     readFile(new URL("../openclaw.plugin.json", import.meta.url), "utf-8"),
-    readFile(new URL("../src/core/plugin.ts", import.meta.url), "utf-8"),
-    readFile(new URL("../src/core/config/schema.ts", import.meta.url), "utf-8"),
+    readFile(new URL("../src/plugin/index.ts", import.meta.url), "utf-8"),
+    readFile(new URL("../src/plugin/config/schema.ts", import.meta.url), "utf-8"),
     readFile(new URL("../README.md", import.meta.url), "utf-8"),
   ]);
 
@@ -32,10 +32,10 @@ async function main() {
   expectEqual("Version mismatch (package.json vs openclaw.plugin.json)", packageJson.version, manifest.version);
 
   if (!pluginRaw.includes('import { version } from "../../package.json"')) {
-    errors.push("src/core/plugin.ts must import version from ../../package.json");
+    errors.push("src/plugin/index.ts must import version from ../../package.json");
   }
   if (!pluginRaw.includes("version,")) {
-    errors.push("src/core/plugin.ts must use imported version field in plugin object");
+    errors.push("src/plugin/index.ts must use imported version field in plugin object");
   }
 
   const schemaTimeout = extractOrFail(

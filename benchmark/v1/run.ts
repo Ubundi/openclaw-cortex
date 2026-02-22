@@ -30,9 +30,9 @@
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { CortexClient } from "../../src/cortex/client.js";
-import type { RetrieveResult, KnowledgeResponse, StatsResponse } from "../../src/cortex/client.js";
-import { LatencyMetrics } from "../../src/shared/metrics/latency-metrics.js";
+import { CortexClient } from "../../src/adapters/cortex/client.js";
+import type { RetrieveResult, KnowledgeResponse, StatsResponse } from "../../src/adapters/cortex/client.js";
+import { LatencyMetrics } from "../../src/internal/metrics/latency-metrics.js";
 import { formatMemories } from "../../src/features/recall/formatter.js";
 
 // ---------------------------------------------------------------------------
