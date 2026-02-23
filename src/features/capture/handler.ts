@@ -4,17 +4,19 @@ import type { KnowledgeState } from "../../plugin/index.js";
 import type { RetryQueue } from "../../internal/queue/retry-queue.js";
 
 interface AgentEndEvent {
-  messages: unknown[];
-  success: boolean;
-  error?: string;
-  durationMs?: number;
-}
-
-interface AgentContext {
-  agentId?: string;
+  runId?: string;
   sessionKey?: string;
   sessionId?: string;
-  workspaceDir?: string;
+  messages: unknown[];
+  aborted: boolean;
+  error?: string;
+  usageTotals?: {
+    inputTokens: number;
+    outputTokens: number;
+    cacheReadTokens: number;
+    cacheWriteTokens: number;
+    cost: number;
+  };
 }
 
 type Logger = {
@@ -25,21 +27,19 @@ type Logger = {
 };
 
 const MIN_CONTENT_LENGTH = 20;
-const RECENT_MESSAGES_COUNT = 20;
 
 function extractContent(content: unknown): string {
   if (typeof content === "string") return content;
   if (Array.isArray(content)) {
     return content
-      .filter(
-        (block): block is { type: "text"; text: string } =>
-          typeof block === "object" &&
-          block !== null &&
-          "type" in block &&
-          block.type === "text" &&
-          "text" in block,
-      )
-      .map((block) => block.text)
+      .map((block): string => {
+        if (typeof block !== "object" || block === null) return "";
+        const b = block as Record<string, unknown>;
+        if (b.type === "text" && typeof b.text === "string") return b.text;
+        if (b.type === "tool_result") return extractContent(b.content);
+        return "";
+      })
+      .filter(Boolean)
       .join("\n");
   }
   return "";
@@ -47,10 +47,10 @@ function extractContent(content: unknown): string {
 
 function isWorthCapturing(messages: ConversationMessage[]): boolean {
   const hasUser = messages.some((m) => m.role === "user" && m.content.length > MIN_CONTENT_LENGTH);
-  const hasAssistant = messages.some(
-    (m) => m.role === "assistant" && m.content.length > MIN_CONTENT_LENGTH,
+  const hasSubstantiveResponse = messages.some(
+    (m) => (m.role === "assistant" || m.role === "tool") && m.content.length > MIN_CONTENT_LENGTH,
   );
-  return hasUser && hasAssistant;
+  return hasUser && hasSubstantiveResponse;
 }
 
 export function createCaptureHandler(
@@ -61,16 +61,17 @@ export function createCaptureHandler(
   knowledgeState?: KnowledgeState,
 ) {
   let captureCounter = 0;
+  let lastCapturedAt = 0;
 
-  return async (event: AgentEndEvent, ctx: AgentContext): Promise<void> => {
+  return async (event: AgentEndEvent): Promise<void> => {
     if (!config.autoCapture) return;
-    if (!event.success) return;
+    if (event.aborted) return;
     if (!event.messages?.length) return;
 
     try {
-      const recent = event.messages.slice(-RECENT_MESSAGES_COUNT);
+      const delta = event.messages.slice(lastCapturedAt);
 
-      const normalized: ConversationMessage[] = recent
+      const normalized: ConversationMessage[] = delta
         .filter(
           (msg): msg is { role: string; content: unknown } =>
             typeof msg === "object" &&
@@ -89,7 +90,10 @@ export function createCaptureHandler(
         return;
       }
 
-      const sessionId = ctx.sessionKey ?? ctx.sessionId;
+      // Advance watermark before async work so a second turn doesn't re-send this delta
+      lastCapturedAt = event.messages.length;
+
+      const sessionId = event.sessionKey ?? event.sessionId;
 
       const doRemember = async () => {
         const res = await client.rememberConversation(normalized, sessionId);

@@ -156,7 +156,7 @@ If the request exceeds `recallTimeoutMs`, the agent proceeds without memories (s
 
 ### Auto-Capture
 
-After each successful agent turn, the plugin extracts the last 20 messages and sends them to Cortex's `/v1/remember` endpoint. A heuristic skips trivial exchanges (short messages, system-only turns).
+After each agent turn completes, the plugin sends the turn's new messages to Cortex's `/v1/remember` endpoint. A watermark tracks how much of the conversation has already been ingested, so each message is sent exactly once — no overlap between turns. Tool call results (`role: "tool"`) are included alongside `user` and `assistant` messages, since tool output is where the substantive work of an agentic turn lives. A heuristic skips trivial exchanges (short messages, turns without a substantive response).
 
 Capture is fire-and-forget — it never blocks the agent. Failed ingestions are queued for retry with exponential backoff (up to 5 retries).
 
@@ -198,7 +198,7 @@ If both this plugin and the Cortex SKILL.md are active, the `<cortex_memories>` 
 ```bash
 npm install
 npm run build      # TypeScript → dist/
-npm test           # Run vitest (156 tests)
+npm test           # Run vitest (159 tests)
 npm run test:watch # Watch mode
 npm run test:integration # Live Cortex API tests (requires CORTEX_API_KEY)
 ```
