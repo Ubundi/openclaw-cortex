@@ -45,9 +45,9 @@
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { CortexClient } from "../../src/cortex/client.js";
-import type { RetrieveResult } from "../../src/cortex/client.js";
-import { LatencyMetrics } from "../../src/shared/metrics/latency-metrics.js";
+import { CortexClient } from "../../src/adapters/cortex/client.js";
+import type { RetrieveResult } from "../../src/adapters/cortex/client.js";
+import { LatencyMetrics } from "../../src/internal/metrics/latency-metrics.js";
 // Note: the plugin's formatMemories expects RecallMemory[] (agent API),
 // but the benchmark uses RetrieveResult[] (internal API). Format inline instead.
 

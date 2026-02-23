@@ -81,7 +81,7 @@ Compaction is the key competitor. Even in the best case (flush succeeds), it sum
 
 ## V1: Quick Proof (Direct API, No OpenClaw Runtime)
 
-V1 bypasses the need for a programmable OpenClaw runtime. It tests the recall path directly: seed data via the Cortex HTTP API, simulate what each memory system would provide as context, and evaluate which produces better answers.
+V1 bypasses the need for a programmable OpenClaw runtime. It tests the recall path directly: seed data via the Cortex HTTP API, simulate what each memory system would provide as context, and evaluate which produces better answers. The "OpenClaw native" condition simulates the full memory stack: compacted summary + `memory_search` (hybrid BM25 + vector retrieval over chunked session transcripts, top-6).
 
 **Goal:** Produce a publishable quality + latency scorecard in 2-3 days.
 
@@ -96,14 +96,19 @@ seed-data.json ──► POST /v1/jobs/ingest/conversation ──► Cortex API 
 Generate compacted                                    Retrieved memories
 summary of sessions                                   (structured facts)
      │                                                         │
+     ├──► Chunk transcripts ──► embed ──► BM25 index           │
+     │    (OC memory_search simulation, top-6)                  │
+     │                                                         │
      ▼                                                         ▼
 LLM call with                                        LLM call with
 compacted summary                                    compacted summary
-(OpenClaw native)                                    + Cortex memories
++ memory_search results                              + Cortex memories
+(OpenClaw native)                                    (OpenClaw + Cortex)
      │                                                         │
      └──────────────────┬──────────────────────────────────────┘
                         ▼
-               LLM judge scores both
+               LLM judge scores all three
+               (bare / OpenClaw / +Cortex)
                against ground truth
 ```
 

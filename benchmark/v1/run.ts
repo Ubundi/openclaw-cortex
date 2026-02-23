@@ -2,16 +2,19 @@
 /**
  * V1 Benchmark Runner — Three-way memory comparison
  *
- * Proves Cortex memory improves agent recall over:
+ * Proves Cortex memory improves agent recall by comparing three conditions:
  *   1. No memory (bare LLM)
- *   2. OpenClaw native memory (compacted summary + memory_search simulation)
- *   3. Cortex retrieval + compacted summary
+ *   2. OpenClaw native (compacted summary + memory_search simulation)
+ *   3. OpenClaw + Cortex (compacted summary + memory_search + Cortex memories)
  *
- * The "Compacted" condition simulates a real OpenClaw agent after compaction:
+ * The "OpenClaw" condition simulates a real OpenClaw agent after compaction:
  *   - Compacted summary of all sessions (what's in the context window)
  *   - memory_search results (400-token chunks, 70% vector + 30% BM25 fusion, top-6)
  *   This matches OpenClaw's documented retrieval architecture and its system prompt
  *   instruction to treat memory_search as a mandatory recall step for factual questions.
+ *
+ * The "OC+Cortex" condition adds Cortex memories on top of the OpenClaw baseline,
+ *   simulating a user who has installed the Cortex plugin into their OpenClaw setup.
  *
  * Usage:
  *   npx tsx benchmark/v1/run.ts --seed                            # first run: seed data + evaluate
@@ -938,8 +941,16 @@ async function runAnswerPhase(
       });
     }
 
-    // Condition 3: Cortex — compacted summary + Cortex retrieved memories
+    // Condition 3: OpenClaw + Cortex — compacted summary + memory_search results + Cortex retrieved memories
+    // Simulates a real OpenClaw agent with the Cortex plugin active: the agent has the
+    // compacted summary in context, calls memory_search (OpenClaw native retrieval), and
+    // also receives memories surfaced by the Cortex plugin on top of that.
     try {
+      const ocResults = retrieval?.ocResults ?? [];
+      const ocContext =
+        ocResults.length > 0
+          ? `\n\nMemory search results (from indexed session history):\n\n${formatOcSearchResults(ocResults)}`
+          : "";
       const asRecallMemories: RecallMemory[] = (retrieval?.fullResults ?? []).map((r) => ({
         content: r.content,
         confidence: r.score,
@@ -953,7 +964,7 @@ async function runAnswerPhase(
           { role: "system", content: systemMsg },
           {
             role: "user",
-            content: `Here is a project memory summary:\n\n${compactedSummary}\n\nAdditionally, here are relevant memories retrieved from Cortex:\n\n${memories}\n\nQuestion: ${p.prompt}`,
+            content: `Here is a project memory summary:\n\n${compactedSummary}${ocContext}\n\nAdditionally, here are relevant memories retrieved from Cortex:\n\n${memories}\n\nQuestion: ${p.prompt}`,
           },
         ],
         { apiKey: LLM_API_KEY, baseUrl: LLM_BASE_URL, model: LLM_MODEL },
@@ -1197,10 +1208,10 @@ function printMarkdownSummary(report: BenchmarkReport): void {
   console.log("============================================================\n");
 
   console.log("### Scores by Condition (0-3 scale)\n");
-  console.log("| Category                     | No Mem | OpenClaw  | + Cortex | OC vs Bare   | Cortex vs OC   |");
-  console.log("|------------------------------|--------|-----------|----------|--------------|----------------|");
+  console.log("| Category                     | No Mem | OpenClaw  | OC+Cortex | OC vs Bare   | +Cortex vs OC  |");
+  console.log("|------------------------------|--------|-----------|-----------|--------------|----------------|");
   console.log(
-    `| **Overall Mean**             | ${bareAll.padStart(6)} | ${compAll.padStart(9)} | ${cortAll.padStart(8)} | ${fmtDelta(bareAll, compAll).padStart(12)} | ${fmtDelta(compAll, cortAll).padStart(14)} |`,
+    `| **Overall Mean**             | ${bareAll.padStart(6)} | ${compAll.padStart(9)} | ${cortAll.padStart(9)} | ${fmtDelta(bareAll, compAll).padStart(12)} | ${fmtDelta(compAll, cortAll).padStart(14)} |`,
   );
 
   for (const cat of categories) {
@@ -1208,14 +1219,14 @@ function printMarkdownSummary(report: BenchmarkReport): void {
     const c = meanScore(j, "compacted", cat.key);
     const x = meanScore(j, "cortex", cat.key);
     console.log(
-      `| ${cat.label.padEnd(28)} | ${b.padStart(6)} | ${c.padStart(9)} | ${x.padStart(8)} | ${fmtDelta(b, c).padStart(12)} | ${fmtDelta(c, x).padStart(14)} |`,
+      `| ${cat.label.padEnd(28)} | ${b.padStart(6)} | ${c.padStart(9)} | ${x.padStart(9)} | ${fmtDelta(b, c).padStart(12)} | ${fmtDelta(c, x).padStart(14)} |`,
     );
   }
 
   // --- Score Distribution ---
   console.log("\n### Score Distribution\n");
-  console.log("| Score | Meaning              | No Mem | OpenClaw  | + Cortex |");
-  console.log("|-------|----------------------|--------|-----------|----------|");
+  console.log("| Score | Meaning              | No Mem | OpenClaw  | OC+Cortex |");
+  console.log("|-------|----------------------|--------|-----------|-----------|");
   const bareDist = scoreDistribution(j, "bare");
   const compDist = scoreDistribution(j, "compacted");
   const cortDist = scoreDistribution(j, "cortex");
@@ -1230,12 +1241,12 @@ function printMarkdownSummary(report: BenchmarkReport): void {
     const cv = compDist[score as keyof typeof compDist];
     const xv = cortDist[score as keyof typeof cortDist];
     console.log(
-      `|     ${score} | ${meaning.padEnd(20)} | ${String(bv).padStart(6)} | ${String(cv).padStart(9)} | ${String(xv).padStart(8)} |`,
+      `|     ${score} | ${meaning.padEnd(20)} | ${String(bv).padStart(6)} | ${String(cv).padStart(9)} | ${String(xv).padStart(9)} |`,
     );
   }
   if (bareDist.errors + compDist.errors + cortDist.errors > 0) {
     console.log(
-      `|     - | Errors               | ${String(bareDist.errors).padStart(6)} | ${String(compDist.errors).padStart(9)} | ${String(cortDist.errors).padStart(8)} |`,
+      `|     - | Errors               | ${String(bareDist.errors).padStart(6)} | ${String(compDist.errors).padStart(9)} | ${String(cortDist.errors).padStart(9)} |`,
     );
   }
 
@@ -1260,19 +1271,19 @@ function printMarkdownSummary(report: BenchmarkReport): void {
 
   // --- Summary Retention Slices ---
   console.log("\n### Summary Retention Slices\n");
-  console.log("| Slice                      | No Mem | OpenClaw  | + Cortex | OC vs Bare   | Cortex vs OC   |");
-  console.log("|----------------------------|--------|-----------|----------|--------------|----------------|");
+  console.log("| Slice                      | No Mem | OpenClaw  | OC+Cortex | OC vs Bare   | +Cortex vs OC  |");
+  console.log("|----------------------------|--------|-----------|-----------|--------------|----------------|");
   console.log(
-    `| Compaction-retained prompts| ${bareRetained.padStart(6)} | ${compRetained.padStart(9)} | ${cortRetained.padStart(8)} | ${fmtDelta(bareRetained, compRetained).padStart(12)} | ${fmtDelta(compRetained, cortRetained).padStart(14)} |`,
+    `| Compaction-retained prompts| ${bareRetained.padStart(6)} | ${compRetained.padStart(9)} | ${cortRetained.padStart(9)} | ${fmtDelta(bareRetained, compRetained).padStart(12)} | ${fmtDelta(compRetained, cortRetained).padStart(14)} |`,
   );
   console.log(
-    `| Non-retained prompts       | ${bareNotRetained.padStart(6)} | ${compNotRetained.padStart(9)} | ${cortNotRetained.padStart(8)} | ${fmtDelta(bareNotRetained, compNotRetained).padStart(12)} | ${fmtDelta(compNotRetained, cortNotRetained).padStart(14)} |`,
+    `| Non-retained prompts       | ${bareNotRetained.padStart(6)} | ${compNotRetained.padStart(9)} | ${cortNotRetained.padStart(9)} | ${fmtDelta(bareNotRetained, compNotRetained).padStart(12)} | ${fmtDelta(compNotRetained, cortNotRetained).padStart(14)} |`,
   );
 
   // --- Per-Prompt Breakdown ---
   console.log("\n### Per-Prompt Breakdown\n");
-  console.log("| ID  | Cat | Prompt (truncated)                     | Bare | OpenClaw | Cortex |");
-  console.log("|-----|-----|----------------------------------------|------|----------|--------|");
+  console.log("| ID  | Cat | Prompt (truncated)                     | Bare | OpenClaw | OC+Cortex |");
+  console.log("|-----|-----|----------------------------------------|------|----------|-----------|");
   const judgmentByPromptAndCondition = new Map<string, JudgeRecord>(
     j.map((entry) => [`${entry.promptId}:${entry.condition}`, entry]),
   );

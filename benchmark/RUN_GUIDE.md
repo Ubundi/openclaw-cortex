@@ -10,9 +10,9 @@ Each of 40 evaluation prompts is answered under 3 conditions:
 
 | Condition | Memory Source |
 |-----------|--------------|
-| **Bare** | No memory — raw LLM |
-| **Compacted** | LLM-generated summary of all sessions (simulates OpenClaw native compaction) |
-| **Cortex** | Compacted summary + Cortex retrieved memories |
+| **No Mem** | No memory — raw LLM |
+| **OpenClaw** | Compacted summary + `memory_search` (hybrid BM25+vector, top-6) |
+| **OC+Cortex** | Same OpenClaw foundation + Cortex retrieved memories added on top |
 
 A judge LLM scores each answer on a 4-point scale:
 
@@ -236,6 +236,64 @@ Duplicate data in the knowledge graph doesn't change retrieval accuracy (the rig
 > Compaction keeps the gist — it'll tell you "we use Zod" but forgets it's in `src/validation/` using `.parse()` not `.safeParse()`. It remembers you chose Drizzle but forgets you chose it for bundle size. Cortex retrieves the original context, preserving the specifics and rationale that matter when you're actually writing code.
 >
 > **Important caveat:** This result used a weak OpenClaw baseline (compacted summary only, no retrieval). See the Known Issues section below.
+
+---
+
+### V1 Results (2026-02-23, gpt-4o-mini, 1-pass judge, OC+Cortex additive)
+
+Run command:
+
+```bash
+npx tsx benchmark/v1/run.ts --seed
+```
+
+Run config: default flags — no shuffle, shuffle-seed 1337, answer-concurrency 4, judge-concurrency 4, judge-passes 1
+
+**Key difference from the 2026-02-20 run:** The `cortex` condition is now correctly additive — it includes the compacted summary + `memory_search` results + Cortex memories. This simulates a real user with the Cortex plugin installed in their OpenClaw setup, rather than Cortex replacing OpenClaw's retrieval.
+
+#### Overall Scores
+
+| Category                     | No Mem | OpenClaw  | OC+Cortex | OC vs Bare   | +Cortex vs OC  |
+|------------------------------|--------|-----------|-----------|--------------|----------------|
+| **Overall Mean**             |   1.35 |      2.75 |      2.85 |        +1.40 |          +0.10 |
+| A: Specific detail (15)      |   1.27 |      2.87 |      2.87 |        +1.60 |          +0.00 |
+| B: Decision/rationale (10)   |   1.60 |      3.00 |      3.00 |        +1.40 |          +0.00 |
+| C: Preference/convention (10) |   1.40 |      2.40 |      2.70 |        +1.00 |          +0.30 |
+| D: Cross-session (5)         |   1.00 |      2.60 |      2.80 |        +1.60 |          +0.20 |
+
+#### Score Distribution
+
+| Score | Meaning              | No Mem | OpenClaw  | OC+Cortex |
+|-------|----------------------|--------|-----------|-----------|
+|     3 | Grounded correct     |      3 |        30 |        34 |
+|     2 | Generic correct      |     10 |        10 |         6 |
+|     1 | Abstained            |     25 |         0 |         0 |
+|     0 | Hallucinated         |      2 |         0 |         0 |
+
+#### Retrieval Latency
+
+| Mode | p50      | p95      |
+|------|----------|----------|
+| Fast |   2267ms |   4828ms |
+| Full |   3753ms |   9422ms |
+
+Pipeline: Tier 1, maturity cold, 81 memories, 8 sessions.
+
+#### Key Findings
+
+**Cortex is additive: +0.10 overall on top of OpenClaw's full retrieval stack.** This is the first result that correctly measures Cortex's value — the agent has everything OpenClaw provides, and Cortex adds on top. The gain is modest but consistent and concentrated where it matters.
+
+**Strongest gains in conventions (+0.30) and cross-session (+0.20).** Category C (preferences/conventions) is where Cortex adds the most: stated rules like "no auto-commit" and "no `as` assertions" are short declarative facts that compaction may summarise vaguely but Cortex retrieves verbatim. Category D (cross-session synthesis) benefits from Cortex's knowledge graph connecting entities across sessions that memory_search's flat index misses.
+
+**A and B are already saturated by OpenClaw alone.** Specific detail (2.87) and decision rationale (3.00) hit near-ceiling with just memory_search. Cortex doesn't hurt, but there's no room to improve at this scale. This is the expected result: at 9 chunks, memory_search retrieves the relevant chunk for almost every single-fact query.
+
+**Score distribution: 30 → 34 grounded correct, 10 → 6 generic correct.** Cortex is converting "reasonable but vague" answers into grounded specific ones — the right direction.
+
+**Zero hallucinations and zero abstentions in both OpenClaw conditions.** Memory_search already eliminates these failure modes; Cortex maintains that floor.
+
+#### The Takeaway
+
+> **Cortex is additive to OpenClaw, not a replacement for it.** On a clean 8-session tenant, Cortex adds +0.10 overall, with its clearest signal in conventions (+0.30) and cross-session reasoning (+0.20). Categories already served well by memory_search (specific facts, rationale) show no regression. The gain is real but modest at this scale — V1.1 is designed to test whether the advantage grows with dataset size, temporal complexity, and multi-hop cross-session queries.
 
 ---
 
