@@ -887,8 +887,15 @@ async function runAnswerPhase(
     }
 
     // Condition 2: OpenClaw + Cortex
-    // Same foundation + Cortex retrieved memories replacing memory_search
+    // Same foundation + memory_search results + Cortex retrieved memories on top.
+    // Mirrors a real user with the Cortex plugin active: they still get OC native
+    // retrieval (memory_search) and additionally get Cortex memories injected.
     try {
+      const ocResults = retrieval?.ocResults ?? [];
+      const ocContext =
+        ocResults.length > 0
+          ? `\n\nMemory search results (hybrid BM25+vector, temporally decayed, MMR-ranked):\n\n${formatOcSearchResults(ocResults)}`
+          : "";
       const cortexResults = retrieval?.cortexResults ?? [];
       const memories = cortexResults.length > 0
         ? cortexResults.map((r) => `- [${(r.score ?? 0).toFixed(2)}] ${r.content}`).join("\n")
@@ -898,7 +905,7 @@ async function runAnswerPhase(
           { role: "system", content: systemMsg },
           {
             role: "user",
-            content: `${sharedFoundation}\n\nAdditionally, here are relevant memories retrieved from Cortex:\n\n${memories}\n\nQuestion: ${p.prompt}`,
+            content: `${sharedFoundation}${ocContext}\n\nAdditionally, here are relevant memories retrieved from Cortex:\n\n${memories}\n\nQuestion: ${p.prompt}`,
           },
         ],
         { apiKey: LLM_API_KEY, baseUrl: LLM_BASE_URL, model: LLM_MODEL },
