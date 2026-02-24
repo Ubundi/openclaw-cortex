@@ -6,7 +6,7 @@
 
 ## Short Answer
 
-**Yes, and the signal is consistent across dataset sizes and pipeline maturity.** On V1 (8 sessions, Tier 1 cold), Cortex adds +0.10 overall on top of OpenClaw's compacted summary + `memory_search`. On V1.1 (45 sessions, Tier 3 mature), Cortex adds +0.05 overall against a much stronger full-fidelity OpenClaw baseline. The gain concentrates in **decision rationale** and **convention recall** — the question types where compaction is lossy and Cortex's structured entity memory has an architectural edge. Temporal and synthesis regressions seen on cold tenants disappear with a warm Tier 3 pipeline.
+**Yes, and the signal is consistent across dataset sizes and pipeline maturity.** On V1 (8 sessions, Tier 1 cold), Cortex adds +0.10 overall on top of OpenClaw's compacted summary + `memory_search`. On V1.1 (45 sessions, Tier 3 mature, 3-pass judge), Cortex adds +0.10 overall against a full-fidelity OpenClaw baseline, with **+0.50 on rationale** and **+0.33 on synthesis**. The gain concentrates in **decision rationale** and **cross-session synthesis** — the question types where compaction is lossy and Cortex's structured entity memory has an architectural edge. A residual regression remains on "current state after migration" queries, where Cortex's thorough retrieval surfaces historical context that confuses the LLM where OpenClaw's temporal decay would have de-emphasised it.
 
 ---
 
@@ -73,7 +73,7 @@ Prompts span 5 categories:
 - **S (8):** Synthesis — connecting facts across multiple sessions
 - **T (7):** Temporal — which version of a fact is current after migrations
 
-### Results (Feb 24, 2026, commit `bb21444`, warm Tier 3)
+### Results — 1-pass (Feb 24, 2026, commit `bb21444`, warm Tier 3)
 
 Pipeline state at run time: Tier 3 mature, 695 nodes (492 FACT, 90 ENTITY), 1907 edges (179 MENTIONS, 811 ELABORATES, 223 SUPPORTS, 66 CONTRADICTS).
 
@@ -96,42 +96,86 @@ Pipeline state at run time: Tier 3 mature, 695 nodes (492 FACT, 90 ENTITY), 1907
 
 Cortex latency: p50 5,500ms · p95 12,105ms · p99 19,133ms.
 
+*Note: 1-pass judging at temperature=0 suppresses variance. Several category deltas (Synthesis, Factual) were masked by deterministic integer rounding. See 3-pass results below for the reference measurement.*
+
+### Results — 3-pass (Feb 24, 2026, commit `21455e3`, warm Tier 3)
+
+Same tenant and pipeline. Judge: `gpt-4.1-mini`, temperature=0.3, 3 passes averaged (mean). One Cortex retrieval 500 on S05 — fell back to OC-only for that prompt.
+
+| Category | OpenClaw | OC+Cortex | Delta |
+|---|---|---|---|
+| **Overall** | 2.49 | **2.59** | **+0.10** |
+| F: Factual (15) | 2.79 | 2.78 | **-0.01** |
+| R: Rationale (10) | 2.30 | **2.80** | **+0.50** |
+| E: Evolution (10) | 2.77 | 2.63 | **-0.14** |
+| S: Synthesis (8) | 2.38 | **2.71** | **+0.33** |
+| T: Temporal (7) | 1.90 | 1.71 | **-0.19** |
+
+| Score | Meaning | OpenClaw | OC+Cortex |
+|---|---|---|---|
+| 3 | Grounded correct | 30 | **34** |
+| 2 | Generic correct | 15 | 14 |
+| 1 | Abstained | 2 | **0** |
+| 0 | Hallucinated | 2 | 2 |
+| ERR | Answer error | 1 | **0** |
+
+Cortex latency: p50 9,427ms · p95 17,015ms · p99 23,061ms.
+
+### 1-pass vs 3-pass — what judging variance reveals
+
+| Category | 1-pass Δ | 3-pass Δ | Interpretation |
+|---|---|---|---|
+| Overall | +0.05 | **+0.10** | 3-pass is the reference |
+| F: Factual | -0.06 | **-0.01** | 1-pass delta was rounding noise; Cortex neutral on factual |
+| R: Rationale | +0.30 | **+0.50** | Signal is stronger than 1-pass showed; R01, R07 unanimously `[1,1,1]→[3,3,3]` |
+| E: Evolution | +0.00 | **-0.14** | 1-pass suppressed a real regression on "current state after migration" questions |
+| S: Synthesis | +0.00 | **+0.33** | 1-pass suppressed a real gain; temperature unlocked signal |
+| T: Temporal | +0.00 | **-0.19** | Same character as Evolution regression — see Key Finding 4 |
+
 ### Cold vs Warm — the Tier 3 difference
 
-The same tenant was evaluated twice: once cold (reflect returned 0 nodes — graph not yet settled) and once warm (Tier 3, mature). The cold → warm transition eliminates regressions:
+The same tenant was evaluated twice: once cold (reflect returned 0 nodes — graph not yet settled) and once warm (Tier 3, mature). The cold → warm transition eliminates the broad cold-pipeline regressions:
 
-| Category | Cold delta | Warm delta | Change |
+| Category | Cold delta | Warm 1-pass Δ | Warm 3-pass Δ |
 |---|---|---|---|
-| Overall | +0.00 | +0.05 | ↑ |
-| R: Rationale | +0.40 | +0.30 | ↓ slightly (noise) |
-| S: Synthesis | **-0.25** | **+0.00** | ✓ fixed |
-| T: Temporal | **-0.29** | **+0.00** | ✓ fixed |
+| Overall | +0.00 | +0.05 | +0.10 |
+| R: Rationale | +0.40 | +0.30 | +0.50 |
+| S: Synthesis | **-0.25** | +0.00 | +0.33 |
+| T: Temporal | **-0.29** | +0.00 | -0.19 |
 
-The Tier 3 reranker and graph traversal prevent Cortex from hurting on recency and synthesis queries that it mishandled when running without those channels.
+Cold-pipeline temporal regression (-0.29): Cortex lacked reranker and graph traversal entirely — broad failure. Warm 3-pass temporal regression (-0.19): a different, narrower failure on "current state after migration" queries (see Key Finding 4). The two regressions have different causes.
 
 ---
 
 ## Key Findings
 
-### 1. Rationale recall is Cortex's most consistent advantage (+0.30 in V1.1, +0.00 in V1 at ceiling)
+### 1. Rationale recall is Cortex's strongest and most consistent advantage (+0.50, V1.1 3-pass)
 
-Decision rationale — *why* Drizzle over Prisma, *why* iron-session over JWT, *why* presigned URLs — is where compaction loses nuance. Cortex stores and retrieves the original reasoning context rather than the compressed gist. In V1 this was masked because OpenClaw alone already hit 3.00 on B (ceiling). In V1.1 with a harder dataset and a proper retrieval baseline, the +0.30 gap opens up clearly: `R01` (Fastify over Express rationale) moved 1→3 with Cortex.
+Decision rationale — *why* Drizzle over Prisma, *why* iron-session over JWT, *why* presigned URLs — is where compaction loses nuance. Cortex stores and retrieves the original reasoning context rather than the compressed gist. In V1 this was masked because OpenClaw alone already hit 3.00 on B (ceiling). In V1.1 with a harder dataset and proper retrieval baseline, the +0.50 gap is unmistakable: `R01` (Fastify over Express) and `R07` (presigned URLs) both moved 1→3 with unanimous judge agreement across all 3 passes `[1,1,1]→[3,3,3]`.
 
-### 2. Convention and preference recall benefits at small scale (+0.30 V1 Cat C)
+### 2. Synthesis recall is real but suppressed by 1-pass judging (+0.33, V1.1 3-pass)
+
+Cross-session synthesis — connecting facts spread across multiple sessions — benefits from Cortex's graph-linked retrieval. The 1-pass warm run showed +0.00, masking this gain: at temperature=0, the judge deterministically scored borderline answers as 2 for both conditions. With temperature=0.3, S02/S03/S04 consistently flipped 2→3 for Cortex. The signal is real.
+
+### 3. Factual recall: Cortex is neutral, not a regression (-0.01, confirmed noise)
+
+The 1-pass -0.06 Factual delta was rounding noise from integer scoring. 3-pass mean scoring narrows it to -0.01. Cortex does not hurt factual recall — OpenClaw's BM25 hybrid already retrieves single facts with high precision, and Cortex neither adds nor subtracts meaningfully.
+
+### 4. "Current state after migration" queries regress on warm Tier 3 (-0.14 Evolution, -0.19 Temporal)
+
+This is a distinct failure mode from the cold-pipeline regression. The affected prompts all ask for the *current* value of something that changed: *"What system handles background job processing **now**?"*, *"**Most recent** change to authentication?"*. Cortex retrieves both the old and new versions of the fact (its semantic retrieval is thorough), surfacing historical context alongside the current answer. This confuses the LLM into hedging. OpenClaw's temporal decay specifically de-weights stale content, so it surfaces the recent fact more cleanly. The regressions are concentrated in E03, E04, T01, T06 — all recency-discriminating queries. This is not fixed by Tier 3 warmth; it is an architectural property of how Cortex retrieves vs how OC weights recency.
+
+### 5. Cold-pipeline regressions (Tier 1) are a separate, different failure mode
+
+On a cold tenant with no graph, Cortex's semantic-only retrieval produces broad temporal regressions (-0.29) across all queries in the category. On a warm Tier 3 tenant, those broad regressions disappear. The residual warm regressions (Finding 4) are narrower and mechanistically different. The distinction matters for deployment: Tier 3 warmth is necessary but not sufficient to eliminate all temporal degradation.
+
+### 6. Cortex eliminates abstentions and answer errors
+
+Across all runs, OC+Cortex consistently drives abstentions and answer errors to zero. The richer retrieval context prevents the LLM from giving up or producing malformed responses.
+
+### 7. Convention and preference recall benefits at small scale (+0.30 V1 Cat C)
 
 Short declarative rules — "never auto-commit", "no `as` type assertions" — survive compaction well enough that OC already scores reasonably. Cortex retrieves them verbatim with higher specificity. This advantage is stronger at small scale (V1 Cat C +0.30) and flattens at larger scale where both conditions retrieve well.
-
-### 3. Temporal and synthesis regressions are a cold-pipeline artifact
-
-On a cold tenant (Tier 1, no graph), Cortex retrieves by semantic similarity only — no reranker, no graph traversal. For temporal queries ("what is the *current* value after migrations"), semantic similarity isn't enough to discriminate between old and new facts. This produces a -0.29 regression on cold tenants. On a warm Tier 3 tenant, the reranker and graph traversal correct this entirely: +0.00 on temporal.
-
-### 4. Factual recall is at ceiling for OpenClaw; Cortex matches but doesn't improve
-
-At both scales, OpenClaw's `memory_search` retrieves single-fact answers with high precision. The small -0.06 delta on V1.1 Factual is within noise. Cortex does not hurt factual recall — it just doesn't have room to improve it.
-
-### 5. Cortex eliminates abstentions and answer errors
-
-Across both benchmarks, OC+Cortex consistently drives abstentions and errors to zero. The richer retrieval context prevents the LLM from giving up or producing malformed answers.
 
 ---
 
@@ -143,7 +187,7 @@ Across both benchmarks, OC+Cortex consistently drives abstentions and errors to 
 
 **OpenClaw simulation is a best-case baseline.** The OC `memory_search` is simulated using the documented architecture. A real OpenClaw agent may retrieve differently depending on configuration.
 
-**Single judge pass, single LLM model.** All runs used `gpt-4o-mini` for answers and `gpt-4.1-mini` for judging. A single pass introduces variance; same-family models may share evaluation biases.
+**3-pass judging reduces but doesn't eliminate variance.** V1.1 results are now 3-pass mean (temp=0.3) with `gpt-4.1-mini`. Single-pass 1-pass results suppressed real signal in Synthesis and inflated the Factual regression. The 3-pass mean is the reference measurement. Same-family LLM/judge models may still share evaluation biases.
 
 **Reflect log shows 0 nodes** but graph evidence confirms it worked. The `/v1/reflect` API returned `{nodes_created: 0, edges_created: 0}` in the response, but the stats endpoint shows 811 ELABORATES edges (the observation nodes reflect creates). The response schema mismatch is a known logging artifact — reflect did execute and the graph is populated.
 
@@ -159,10 +203,11 @@ Across both benchmarks, OC+Cortex consistently drives abstentions and errors to 
 
 ### V1.1 (45 sessions, 50 prompts, OC vs OC+Cortex)
 
-| Date | Commit | Overall OC | Overall OC+Cortex | Cortex Delta | Pipeline |
-|---|---|---|---|---|---|
-| Feb 24, 2026 | `bb21444` | 2.49 | 2.54 | +0.05 | Tier 3, mature |
-| Feb 24, 2026 | `bb21444` | 2.52 | 2.52 | +0.00 | cold (graph not settled) |
+| Date | Commit | Overall OC | Overall OC+Cortex | Cortex Delta | Judge passes | Pipeline |
+|---|---|---|---|---|---|---|
+| Feb 24, 2026 | `bb21444` | 2.49 | 2.54 | +0.05 | 1-pass, temp=0 | Tier 3, mature |
+| Feb 24, 2026 | `bb21444` | 2.52 | 2.52 | +0.00 | 1-pass, temp=0 | cold (graph not settled) |
+| Feb 24, 2026 | `21455e3` | 2.49 | **2.59** | **+0.10** | **3-pass, temp=0.3** | Tier 3, mature |
 
 *(Result files stored in `benchmark/v1/results/` and `benchmark/v1.1/results/`.)*
 
@@ -170,10 +215,12 @@ Across both benchmarks, OC+Cortex consistently drives abstentions and errors to 
 
 ## Conclusion
 
-Cortex delivers a consistent, modest improvement to an already-functional OpenClaw agent. The advantage concentrates in **decision rationale** and **convention recall** — question types where compaction loses nuance and Cortex's structured entity memory retrieves original context. For clearly-stated facts and decision rationale already well-served by `memory_search`, there is no meaningful regression.
+Cortex delivers a consistent, meaningful improvement to an already-functional OpenClaw agent. The **V1.1 3-pass warm result (+0.10 overall) is the reference number** for production scenarios — it uses the most reliable judging methodology against the strongest baseline. The +0.05 from 1-pass judging understated the true signal by suppressing Synthesis and inflating the Factual regression.
 
-The +0.05 overall delta in V1.1 (against a full-fidelity OpenClaw baseline at 45 sessions) is the better number to quote for production scenarios. The +0.10 in V1 reflects a weaker baseline. Both confirm the same directional story: Cortex is additive, not transformative, at this dataset scale.
+The advantage concentrates in **decision rationale (+0.50)** and **cross-session synthesis (+0.33)** — question types where compaction loses nuance and Cortex's structured entity memory retrieves original context with relationships intact. Factual recall is neutral (-0.01): Cortex does not hurt it, but OpenClaw's BM25 hybrid already handles it.
 
-The practical implication: Cortex earns its place for users whose workflows accumulate nuanced, cross-session, or implicitly-stated project knowledge — the kind that survives poorly in a compressed summary. For short-history projects where `memory_search` retrieves everything relevant, the marginal benefit is lower.
+The residual weakness is on **"current state after migration" queries** (-0.14 Evolution, -0.19 Temporal on warm Tier 3). Cortex's thorough retrieval surfaces both old and new versions of changed facts, confusing the LLM where OpenClaw's temporal decay would have cleanly surfaced the current value. This is an architectural property, not a pipeline maturity issue — it persists on warm Tier 3.
 
-**The metric to watch in future runs:** rationale recall on larger datasets and temporal precision as SUPERSEDES chains mature — those are where Cortex's graph architecture has headroom that flat retrieval does not.
+The practical implication: Cortex earns its place for users whose workflows accumulate nuanced, cross-session, or implicitly-stated project knowledge. For short-history projects where `memory_search` retrieves everything relevant, the marginal benefit is lower. For projects with frequent migration-style changes where "what is the *current* value?" questions are common, Cortex adds noise on those specific queries.
+
+**The metrics to watch in future runs:** rationale recall on larger datasets, "current state" query precision as SUPERSEDES chains mature in the graph, and whether adaptive retrieval (bypassing Cortex for temporal/recency-discriminating queries) can eliminate the Evolution/Temporal regression while preserving Rationale and Synthesis gains.

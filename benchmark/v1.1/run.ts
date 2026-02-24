@@ -33,7 +33,8 @@
  *   npx tsx benchmark/v1.1/run.ts --shuffle-prompts --shuffle-seed 42
  *   npx tsx benchmark/v1.1/run.ts --answer-concurrency 4 --judge-concurrency 4
  *   npx tsx benchmark/v1.1/run.ts --extract-concurrency 6
- *   npx tsx benchmark/v1.1/run.ts --judge-passes 3
+ *   npx tsx benchmark/v1.1/run.ts --judge-passes 3                            # 3-pass mean, temp=0.3
+ *   npx tsx benchmark/v1.1/run.ts --judge-passes 3 --judge-temperature 0.5
  *   npx tsx benchmark/v1.1/run.ts --cortex-top-k 10
  *   npx tsx benchmark/v1.1/run.ts --debug-report
  *
@@ -134,6 +135,7 @@ interface BenchmarkReport {
     answerConcurrency: number;
     judgeConcurrency: number;
     judgePasses: number;
+    judgeTemperature: number;
     extractConcurrency: number;
     shuffleSeed: number;
     shufflePrompts: boolean;
@@ -176,6 +178,16 @@ const SHUFFLE_SEED = parseInteger(getArgValue("--shuffle-seed"), 1337);
 const ANSWER_CONCURRENCY = parsePositiveInteger(getArgValue("--answer-concurrency"), 4);
 const JUDGE_CONCURRENCY = parsePositiveInteger(getArgValue("--judge-concurrency"), 4);
 const JUDGE_PASSES = parsePositiveInteger(getArgValue("--judge-passes"), 1);
+// Temperature for judge calls. Defaults to 0.3 when passes > 1 (diversity matters),
+// 0 when single-pass (deterministic). Override with --judge-temperature.
+const JUDGE_TEMPERATURE = (() => {
+  const raw = getArgValue("--judge-temperature");
+  if (raw !== undefined) {
+    const n = parseFloat(raw);
+    return Number.isFinite(n) && n >= 0 && n <= 2 ? n : 0;
+  }
+  return JUDGE_PASSES > 1 ? 0.3 : 0;
+})();
 const EXTRACT_CONCURRENCY = parsePositiveInteger(getArgValue("--extract-concurrency"), 4);
 const CORTEX_TOP_K = parsePositiveInteger(getArgValue("--cortex-top-k"), 8);
 
@@ -367,18 +379,13 @@ function parseJudgeResponse(resp: string): { score: number; rationale: string } 
   return { score: normalizedScore, rationale };
 }
 
+// For single-pass: returns the score unchanged.
+// For multi-pass: returns the mean (float), preserving precision for category averages.
+// Score distribution bucketing uses Math.round on the result.
 function aggregatePassScores(scores: number[]): number {
-  const counts = new Map<number, number>();
-  for (const score of scores) counts.set(score, (counts.get(score) ?? 0) + 1);
-  let bestScore = scores[0] ?? 0;
-  let bestCount = -1;
-  for (const [score, count] of counts) {
-    if (count > bestCount || (count === bestCount && score > bestScore)) {
-      bestScore = score;
-      bestCount = count;
-    }
-  }
-  return bestScore;
+  if (scores.length === 0) return 0;
+  if (scores.length === 1) return scores[0];
+  return scores.reduce((sum, s) => sum + s, 0) / scores.length;
 }
 
 async function mapWithConcurrency<T, R>(
@@ -981,7 +988,7 @@ Respond with ONLY a JSON object: {"score": <0-3>, "rationale": "<brief explanati
               content: `Question: ${prompt.prompt}\n\nGround Truth: ${prompt.groundTruth}\n\nAI Response: ${a.answer}`,
             },
           ],
-          { apiKey: JUDGE_API_KEY, baseUrl: JUDGE_BASE_URL, model: JUDGE_MODEL },
+          { apiKey: JUDGE_API_KEY, baseUrl: JUDGE_BASE_URL, model: JUDGE_MODEL, temperature: JUDGE_TEMPERATURE },
         );
         const parsed = parseJudgeResponse(resp);
         passScores.push(parsed.score);
@@ -1031,6 +1038,7 @@ function buildReport(
       answerConcurrency: ANSWER_CONCURRENCY,
       judgeConcurrency: JUDGE_CONCURRENCY,
       judgePasses: JUDGE_PASSES,
+      judgeTemperature: JUDGE_TEMPERATURE,
       extractConcurrency: EXTRACT_CONCURRENCY,
       shuffleSeed: SHUFFLE_SEED,
       shufflePrompts: SHUFFLE_PROMPTS,
@@ -1101,10 +1109,10 @@ function scoreDist(
   for (const j of judgments) {
     if (j.condition !== condition) continue;
     if (j.score === null) dist.errors++;
-    else if (j.score === 3) dist["3"]++;
-    else if (j.score === 2) dist["2"]++;
-    else if (j.score === 1) dist["1"]++;
-    else dist["0"]++;
+    else {
+      const bucket = Math.round(j.score) as 0 | 1 | 2 | 3;
+      dist[String(bucket) as "0" | "1" | "2" | "3"]++;
+    }
   }
   return dist;
 }
@@ -1183,10 +1191,14 @@ function printSummary(report: BenchmarkReport): void {
   for (const p of prompts) {
     const compJ = judgmentMap.get(`${p.id}:compacted`);
     const cortJ = judgmentMap.get(`${p.id}:cortex`);
-    const fmt = (rec: JudgeRecord | undefined) =>
-      rec?.score !== null && rec?.score !== undefined ? String(rec.score) : "ERR";
+    const fmt = (rec: JudgeRecord | undefined) => {
+      if (rec?.score === null || rec?.score === undefined) return "ERR";
+      const main = Number.isInteger(rec.score) ? String(rec.score) : rec.score.toFixed(2);
+      if (rec.passScores && rec.passScores.length > 1) return `${main} [${rec.passScores.join(",")}]`;
+      return main;
+    };
     const truncated = p.prompt.length > 40 ? p.prompt.slice(0, 37) + "..." : p.prompt;
-    console.log(`| ${p.id.padEnd(3)} |  ${p.category}  | ${truncated.padEnd(38)} |        ${fmt(compJ)} |      ${fmt(cortJ)} |`);
+    console.log(`| ${p.id.padEnd(3)} |  ${p.category}  | ${truncated.padEnd(38)} | ${fmt(compJ).padStart(8)} | ${fmt(cortJ).padStart(6)} |`);
   }
 
   console.log(`\n------------------------------------------------------------`);
@@ -1199,7 +1211,7 @@ function printSummary(report: BenchmarkReport): void {
   console.log(`Model: ${report.config.llmModel} | Judge: ${report.config.judgeModel}`);
   console.log(`Namespace: ${report.config.namespace} | Git: ${report.config.gitCommit}`);
   console.log(`Concurrency: answer=${report.config.answerConcurrency} judge=${report.config.judgeConcurrency} extract=${report.config.extractConcurrency}`);
-  console.log(`Judge passes: ${report.config.judgePasses} | Shuffle: ${report.config.shufflePrompts} (seed ${report.config.shuffleSeed})`);
+  console.log(`Judge passes: ${report.config.judgePasses} (temp=${report.config.judgeTemperature}) | Shuffle: ${report.config.shufflePrompts} (seed ${report.config.shuffleSeed})`);
   console.log(`------------------------------------------------------------`);
 }
 
@@ -1266,12 +1278,25 @@ function dryRunAnswerPhase(compactedSummary: string): AnswerRecord[] {
 
 function dryRunJudgePhase(answers: AnswerRecord[]): JudgeRecord[] {
   log("judge", "[DRY-RUN] Returning synthetic scores");
-  return answers.map((a) => ({
-    promptId: a.promptId,
-    condition: a.condition,
-    score: a.condition === "compacted" ? 2 : 3,
-    rationale: `[DRY-RUN] Synthetic score for ${a.condition}`,
-  }));
+  const rand = mulberry32(SHUFFLE_SEED + 1);
+  return answers.map((a) => {
+    const base = a.condition === "compacted" ? 2 : 3;
+    if (JUDGE_PASSES <= 1) {
+      return { promptId: a.promptId, condition: a.condition, score: base, rationale: `[DRY-RUN] Synthetic score for ${a.condition}` };
+    }
+    // Simulate variance across passes: base ± 1 with small probability
+    const passScores = Array.from({ length: JUDGE_PASSES }, () => {
+      const r = rand();
+      return Math.max(0, Math.min(3, base + (r < 0.2 ? -1 : r > 0.8 ? 1 : 0)));
+    });
+    return {
+      promptId: a.promptId,
+      condition: a.condition,
+      score: aggregatePassScores(passScores),
+      passScores,
+      rationale: `[DRY-RUN] Synthetic score for ${a.condition}`,
+    };
+  });
 }
 
 // ---------------------------------------------------------------------------
