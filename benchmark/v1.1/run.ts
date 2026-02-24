@@ -747,6 +747,25 @@ async function runWarmupPhase(client: CortexClient, didSeed: boolean): Promise<s
   await client.warmup();
 
   if (didSeed) {
+    // Wait for the graph to stabilise before reflecting. Ingest jobs report
+    // "completed" before the backend finishes committing MENTIONS edges, so
+    // calling reflect immediately yields 0 nodes/edges. Poll total_memories
+    // until it stops changing across two consecutive checks (10s apart), then
+    // call reflect to synthesise cross-session observations.
+    log("warmup", "Waiting for graph to stabilise before reflecting...");
+    let prevMemories = -1;
+    for (let i = 0; i < 12; i++) {
+      await sleep(10_000);
+      try {
+        const knowledge = await client.knowledge();
+        log("warmup", `  Graph check ${i + 1}: ${knowledge.total_memories} memories`);
+        if (knowledge.total_memories > 0 && knowledge.total_memories === prevMemories) break;
+        prevMemories = knowledge.total_memories;
+      } catch {
+        // ignore transient errors during polling
+      }
+    }
+
     log("warmup", "Running reflect to consolidate entities across sessions...");
     const result = await client.reflect(NAMESPACE);
     log(
