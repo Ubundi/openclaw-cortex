@@ -53,6 +53,11 @@ function isWorthCapturing(messages: ConversationMessage[]): boolean {
   return hasUser && hasSubstantiveResponse;
 }
 
+/** How often (in captures) to re-probe /v1/knowledge for tier changes */
+const KNOWLEDGE_REFRESH_EVERY_N = 5;
+/** Minimum interval between knowledge refreshes */
+const KNOWLEDGE_REFRESH_MIN_INTERVAL_MS = 5 * 60_000; // 5 minutes
+
 export function createCaptureHandler(
   client: CortexClient,
   config: CortexConfig,
@@ -64,6 +69,7 @@ export function createCaptureHandler(
 ) {
   let captureCounter = 0;
   let lastCapturedAt = 0;
+  let capturesSinceRefresh = 0;
 
   return async (event: AgentEndEvent): Promise<void> => {
     if (!config.autoCapture) return;
@@ -108,6 +114,33 @@ export function createCaptureHandler(
         logger.debug?.(`Cortex capture: remembered ${res.memories_created} memories`);
         if (knowledgeState && res.memories_created > 0) {
           knowledgeState.hasMemories = true;
+        }
+
+        // Periodically refresh knowledge state so totalSessions (and thus
+        // the tier / effective timeout) stays current as memories accumulate.
+        if (knowledgeState) {
+          capturesSinceRefresh++;
+          const elapsed = Date.now() - knowledgeState.lastChecked;
+          if (
+            capturesSinceRefresh >= KNOWLEDGE_REFRESH_EVERY_N &&
+            elapsed >= KNOWLEDGE_REFRESH_MIN_INTERVAL_MS
+          ) {
+            capturesSinceRefresh = 0;
+            try {
+              const knowledge = await client.knowledge(undefined, userId);
+              const prevSessions = knowledgeState.totalSessions;
+              knowledgeState.totalSessions = knowledge.total_sessions;
+              knowledgeState.maturity = knowledge.maturity;
+              knowledgeState.lastChecked = Date.now();
+              if (knowledge.total_sessions !== prevSessions) {
+                logger.info(
+                  `Cortex knowledge refreshed: sessions ${prevSessions} → ${knowledge.total_sessions}`,
+                );
+              }
+            } catch {
+              logger.debug?.("Cortex knowledge refresh failed, will retry later");
+            }
+          }
         }
       };
 
