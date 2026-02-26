@@ -187,7 +187,12 @@ export class CortexClient {
       });
 
       if (!res.ok) {
-        throw new Error(`Cortex ${label} failed: ${res.status}`);
+        let detail = "";
+        try {
+          const body = await res.text();
+          if (body) detail = ` — ${body.slice(0, 300)}`;
+        } catch {}
+        throw new Error(`Cortex ${label} failed: ${res.status}${detail}`);
       }
 
       return (await res.json()) as T;

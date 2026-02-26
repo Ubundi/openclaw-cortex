@@ -105,7 +105,7 @@ async function bootstrapClient(
 }
 
 const plugin = {
-  id: "cortex-memory",
+  id: "openclaw-cortex",
   name: "Cortex Memory",
   description:
     "Long-term memory powered by Cortex — Auto-Recall, Auto-Capture, and background file sync",
