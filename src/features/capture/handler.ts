@@ -98,6 +98,10 @@ export function createCaptureHandler(
         return;
       }
 
+      // API caps at 200 messages — take the most recent to stay within the limit
+      const MAX_MESSAGES = 200;
+      const trimmed = normalized.length > MAX_MESSAGES ? normalized.slice(-MAX_MESSAGES) : normalized;
+
       // Advance watermark before async work so a second turn doesn't re-send this delta
       lastCapturedAt = event.messages.length;
 
@@ -110,7 +114,7 @@ export function createCaptureHandler(
       const doRemember = async () => {
         // Re-evaluate userId at call time so retries pick up the resolved value
         const userId = getUserId?.();
-        const res = await client.rememberConversation(normalized, sessionId, undefined, undefined, userId);
+        const res = await client.rememberConversation(trimmed, sessionId, undefined, undefined, userId);
         logger.debug?.(`Cortex capture: remembered ${res.memories_created} memories`);
         if (knowledgeState && res.memories_created > 0) {
           knowledgeState.hasMemories = true;
