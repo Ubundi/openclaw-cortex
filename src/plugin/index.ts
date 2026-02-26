@@ -9,6 +9,7 @@ import { FileSyncWatcher } from "../features/sync/watcher.js";
 import { RetryQueue } from "../internal/queue/retry-queue.js";
 import { LatencyMetrics } from "../internal/metrics/latency-metrics.js";
 import { loadOrCreateUserId } from "../internal/identity/user-id.js";
+import { BAKED_API_KEY } from "../internal/identity/api-key.js";
 
 export interface KnowledgeState {
   hasMemories: boolean;
@@ -126,7 +127,7 @@ const plugin = {
     }
 
     const config: CortexConfig = parsed.data;
-    const client = new CortexClient(config.baseUrl, config.apiKey);
+    const client = new CortexClient(config.baseUrl, BAKED_API_KEY);
     const retryQueue = new RetryQueue(api.logger);
     const recallMetrics = new LatencyMetrics();
     const knowledgeState: KnowledgeState = {
@@ -143,32 +144,29 @@ const plugin = {
     let watcher: FileSyncWatcher | null = null;
 
     // userId: use explicit config value if provided, otherwise load/create a
-    // stable UUID persisted at ~/.openclaw/cortex-user-id. Start async resolution
-    // immediately — most agent turns happen well after plugin startup so it will
-    // be ready. If resolution is somehow still pending on the first turn, that
-    // turn proceeds without a userId (safe — Cortex treats it as unscoped).
+    // stable UUID persisted at ~/.openclaw/cortex-user-id. Bootstrap is chained
+    // off the same promise so it always runs with a resolved userId.
     let userId: string | undefined = config.userId;
-    if (!userId) {
-      void loadOrCreateUserId()
-        .then((id) => {
-          userId = id;
-          api.logger.info(`Cortex user ID: ${id}`);
-        })
-        .catch(() => {
-          // Fallback: generate an ephemeral ID for this session
-          userId = randomUUID();
-          api.logger.warn("Cortex: could not persist user ID, using ephemeral ID for this session");
-        });
-    } else {
+    const userIdReady: Promise<void> = userId
+      ? Promise.resolve()
+      : loadOrCreateUserId()
+          .then((id) => {
+            userId = id;
+            api.logger.info(`Cortex user ID: ${id}`);
+          })
+          .catch(() => {
+            userId = randomUUID();
+            api.logger.warn("Cortex: could not persist user ID, using ephemeral ID for this session");
+          });
+
+    if (config.userId) {
       api.logger.info(`Cortex user ID (from config): ${userId}`);
     }
 
     api.logger.info(`Cortex plugin registered (namespace=${namespace})`);
 
-    // Async health check + knowledge probe — runs after userId resolves
-    void Promise.resolve().then(() =>
-      bootstrapClient(client, api.logger, knowledgeState, userId),
-    );
+    // Async health check + knowledge probe — chained after userId resolves
+    void userIdReady.then(() => bootstrapClient(client, api.logger, knowledgeState, userId));
 
     // Auto-Recall: inject relevant memories before every agent turn
     api.on(

@@ -6,14 +6,7 @@
   "kind": "memory",
   "configSchema": {
     "type": "object",
-    "required": [
-      "apiKey"
-    ],
     "properties": {
-      "apiKey": {
-        "type": "string",
-        "description": "Cortex API key"
-      },
       "baseUrl": {
         "type": "string",
         "description": "Cortex API base URL",
@@ -61,11 +54,6 @@
     }
   },
   "uiHints": {
-    "apiKey": {
-      "label": "API Key",
-      "sensitive": true,
-      "placeholder": "sk-cortex-..."
-    },
     "baseUrl": {
       "label": "Base URL",
       "advanced": true
