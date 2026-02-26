@@ -237,4 +237,43 @@ describe("CortexClient", () => {
       expect(body).toEqual({ text: "some text", session_id: null, reference_date: null });
     });
   });
+
+  describe("user_id handling", () => {
+    it("includes user_id in remember body when provided", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => MOCK_REMEMBER_RESPONSE,
+      });
+
+      await client.remember("some fact", "sess-1", undefined, undefined, "user-abc");
+
+      const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+      expect(body.user_id).toBe("user-abc");
+    });
+
+    it("omits user_id from remember body when not provided", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => MOCK_REMEMBER_RESPONSE,
+      });
+
+      await client.remember("some fact", "sess-1");
+
+      const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+      expect(body).not.toHaveProperty("user_id");
+    });
+
+    it("includes user_id in recall options when provided", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ memories: [] }),
+      });
+
+      await client.recall("query", 500, { userId: "user-abc", queryType: "factual" });
+
+      const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+      expect(body.user_id).toBe("user-abc");
+      expect(body.query_type).toBe("factual");
+    });
+  });
 });

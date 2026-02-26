@@ -63,11 +63,13 @@ export class MemoryMdSync {
 
     if (!added.trim()) return;
 
-    const userId = this.getUserId?.();
-    const doRemember = () =>
-      this.client.remember(added, this.sessionId, undefined, undefined, userId).then((res) => {
+    const doRemember = () => {
+      // Re-evaluate userId at call time so retries use the resolved value
+      const userId = this.getUserId?.();
+      return this.client.remember(added, this.sessionId, undefined, undefined, userId).then((res) => {
         this.logger.debug?.(`MEMORY.md sync: remembered ${res.memories_created} memories`);
       });
+    };
 
     try {
       await doRemember();

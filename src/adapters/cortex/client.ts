@@ -102,6 +102,8 @@ export interface RecallMemory {
   when: string | null;
   session_id: string | null;
   entities: string[];
+  type?: NodeType;
+  grounded?: boolean;
 }
 
 export interface RecallResponse {
@@ -358,7 +360,7 @@ export class CortexClient {
         text,
         session_id: sessionId ?? null,
         reference_date: referenceDate ?? null,
-        user_id: userId ?? null,
+        ...(userId ? { user_id: userId } : {}),
       },
       timeoutMs,
       "remember",
@@ -378,7 +380,7 @@ export class CortexClient {
         messages,
         session_id: sessionId ?? null,
         reference_date: referenceDate ?? null,
-        user_id: userId ?? null,
+        ...(userId ? { user_id: userId } : {}),
       },
       timeoutMs,
       "remember",
@@ -393,6 +395,7 @@ export class CortexClient {
       context?: string;
       sessionFilter?: string;
       userId?: string;
+      queryType?: QueryType;
     },
   ): Promise<RecallResponse> {
     return this.fetchJsonWithTimeout<RecallResponse>(
@@ -403,6 +406,7 @@ export class CortexClient {
         context: options?.context ?? undefined,
         session_filter: options?.sessionFilter ?? undefined,
         user_id: options?.userId ?? undefined,
+        query_type: options?.queryType ?? undefined,
       },
       timeoutMs,
       "recall",

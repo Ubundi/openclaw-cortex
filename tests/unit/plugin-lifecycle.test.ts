@@ -80,12 +80,13 @@ describe("plugin lifecycle contract", () => {
 
   it("register wires hooks and service", async () => {
     const { api, hooks, services } = makeApi({
-      apiKey: "sk-test",
       fileSync: false,
     });
 
     plugin.register(api as any);
-    await flushMicrotasks();
+    // userIdReady involves filesystem I/O; wait long enough for it to resolve
+    // before bootstrapClient (which calls healthCheck) is invoked.
+    await new Promise((r) => setTimeout(r, 20));
 
     expect(api.on).toHaveBeenCalledWith("before_agent_start", expect.any(Function));
     expect(api.on).toHaveBeenCalledWith("agent_end", expect.any(Function));
@@ -105,7 +106,6 @@ describe("plugin lifecycle contract", () => {
     const watcherStop = vi.spyOn(FileSyncWatcher.prototype, "stop").mockImplementation(() => {});
 
     const { api, services } = makeApi({
-      apiKey: "sk-test",
       fileSync: true,
       transcriptSync: true,
     });
@@ -132,7 +132,6 @@ describe("plugin lifecycle contract", () => {
     const watcherStart = vi.spyOn(FileSyncWatcher.prototype, "start").mockImplementation(() => {});
 
     const { api, services } = makeApi({
-      apiKey: "sk-test",
       fileSync: true,
     });
 
@@ -152,7 +151,6 @@ describe("plugin lifecycle contract", () => {
     const retryStart = vi.spyOn(RetryQueue.prototype, "start").mockImplementation(() => {});
 
     const { api, services, logger } = makeApi({
-      apiKey: "sk-test",
       fileSync: true,
     });
 
@@ -179,7 +177,6 @@ describe("plugin lifecycle contract", () => {
     });
 
     const { api, hooks, services, logger } = makeApi({
-      apiKey: "sk-test",
       fileSync: false,
       recallTimeoutMs: 500,
     });
@@ -201,7 +198,8 @@ describe("plugin lifecycle contract", () => {
 
   it("invalid config refuses registration", () => {
     const { api, hooks, services, logger } = makeApi({
-      // apiKey intentionally missing
+      // baseUrl is invalid (plain http on non-localhost)
+      baseUrl: "http://not-allowed.example.com",
       fileSync: false,
     });
 
@@ -209,7 +207,7 @@ describe("plugin lifecycle contract", () => {
 
     expect(logger.error).toHaveBeenCalledWith(
       "Cortex plugin config invalid:",
-      expect.stringContaining("apiKey"),
+      expect.stringContaining("baseUrl"),
     );
     expect(Object.keys(hooks)).toHaveLength(0);
     expect(services).toHaveLength(0);
@@ -221,7 +219,6 @@ describe("plugin lifecycle contract", () => {
     mockClientKnowledge({ total_memories: 142, total_sessions: 18, maturity: "warming" });
 
     const { api, logger } = makeApi({
-      apiKey: "sk-test",
       fileSync: false,
     });
 
@@ -241,7 +238,6 @@ describe("plugin lifecycle contract", () => {
     vi.spyOn(CortexClient.prototype, "knowledge").mockRejectedValue(new Error("Not found"));
 
     const { api, logger } = makeApi({
-      apiKey: "sk-test",
       fileSync: false,
     });
 

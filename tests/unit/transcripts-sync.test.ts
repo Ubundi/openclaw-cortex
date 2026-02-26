@@ -74,6 +74,7 @@ describe("TranscriptsSync", () => {
       "test-ns:session:abc123",
       undefined,
       expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
+      undefined,
     );
   });
 

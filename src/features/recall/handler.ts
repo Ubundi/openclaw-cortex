@@ -88,7 +88,7 @@ export function createRecallHandler(
       const response = await client.recall(
         prompt,
         effectiveTimeout,
-        { limit: config.recallLimit, userId: getUserId?.() },
+        { limit: config.recallLimit, userId: getUserId?.(), queryType: "factual" },
       );
 
       const elapsed = Date.now() - start;

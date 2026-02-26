@@ -52,8 +52,8 @@ function makeLogger() {
 
 function makeClient(overrides: Partial<CortexClient> = {}): CortexClient {
   return {
-    ingest: vi.fn().mockResolvedValue({ nodes_created: 1, edges_created: 0, facts: [], entities: [] }),
-    ingestConversation: vi.fn().mockResolvedValue({ nodes_created: 1, edges_created: 0, facts: [], entities: [] }),
+    remember: vi.fn().mockResolvedValue({ session_id: null, memories_created: 0, entities_found: [], facts: [] }),
+    rememberConversation: vi.fn().mockResolvedValue({ session_id: null, memories_created: 0, entities_found: [], facts: [] }),
     ...overrides,
   } as unknown as CortexClient;
 }
@@ -79,7 +79,7 @@ describe("sync path safety (real symlink checks)", () => {
       () => expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining("rejected unsafe path")),
       { timeout: 1000 },
     );
-    expect(client.ingest).not.toHaveBeenCalled();
+    expect(client.remember).not.toHaveBeenCalled();
   });
 
   it("rejects symlinked daily log outside memory root", async () => {
@@ -89,7 +89,7 @@ describe("sync path safety (real symlink checks)", () => {
 
     await sync.onFileChange(dailySymlinkPath, "escape.md");
 
-    expect(client.ingest).not.toHaveBeenCalled();
+    expect(client.remember).not.toHaveBeenCalled();
     expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining("rejected unsafe path"));
   });
 
@@ -100,7 +100,7 @@ describe("sync path safety (real symlink checks)", () => {
 
     await sync.onFileChange(transcriptSymlinkPath, "escape.jsonl");
 
-    expect(client.ingestConversation).not.toHaveBeenCalled();
+    expect(client.rememberConversation).not.toHaveBeenCalled();
     expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining("rejected unsafe path"));
   });
 });

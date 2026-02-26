@@ -64,6 +64,9 @@ describe("MemoryMdSync", () => {
     expect(client.remember).toHaveBeenCalledWith(
       "line1\nline2",
       "mem-session",
+      undefined,
+      undefined,
+      undefined,
     );
   });
 
@@ -222,7 +225,7 @@ describe("MemoryMdSync", () => {
 
     expect(mockSafePath).toHaveBeenCalledWith("/workspace/MEMORY.md", "/workspace");
     expect(mockReadFile).toHaveBeenCalledWith("/workspace/MEMORY.md", "utf-8");
-    expect(client.remember).toHaveBeenCalledWith("safe content", "s");
+    expect(client.remember).toHaveBeenCalledWith("safe content", "s", undefined, undefined, undefined);
   });
 
   it("skips safePath check when no allowedRoot is provided", async () => {

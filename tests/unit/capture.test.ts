@@ -5,7 +5,6 @@ import type { CortexConfig } from "../../src/plugin/config/schema.js";
 
 function makeConfig(overrides: Partial<CortexConfig> = {}): CortexConfig {
   return {
-    apiKey: "sk-test",
     baseUrl: "https://api.example.com",
     autoRecall: true,
     autoCapture: true,
@@ -50,6 +49,9 @@ describe("createCaptureHandler", () => {
         { role: "assistant", content: "The backend uses blue-green deployment on ECS Fargate with ALB." },
       ],
       "sess-1",
+      undefined,
+      undefined,
+      undefined,
     );
   });
 
@@ -189,6 +191,6 @@ describe("createCaptureHandler", () => {
     });
 
     await rememberPromise;
-    expect(rememberMock).toHaveBeenCalledWith(expect.any(Array), "fallback-id");
+    expect(rememberMock).toHaveBeenCalledWith(expect.any(Array), "fallback-id", undefined, undefined, undefined);
   });
 });

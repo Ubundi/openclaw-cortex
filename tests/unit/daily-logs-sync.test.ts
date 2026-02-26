@@ -60,6 +60,7 @@ describe("DailyLogsSync", () => {
       "test-ns:daily:2026-02-17.md",
       undefined,
       "2026-02-17",
+      undefined,
     );
   });
 
@@ -193,6 +194,6 @@ describe("DailyLogsSync", () => {
     mockReadFile.mockResolvedValue("content");
     await sync.onFileChange("/workspace/memory/log.md", "log.md");
 
-    expect(client.remember).toHaveBeenCalledWith("content", expect.any(String), undefined, undefined);
+    expect(client.remember).toHaveBeenCalledWith("content", expect.any(String), undefined, undefined, undefined);
   });
 });

@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { CortexConfigSchema } from "../../src/plugin/config/schema.js";
 
 describe("CortexConfigSchema", () => {
-  const validBase = { apiKey: "sk-test" };
+  const validBase = {};
 
   describe("HTTPS enforcement", () => {
     it("accepts HTTPS URLs", () => {
@@ -84,11 +84,6 @@ describe("CortexConfigSchema", () => {
   });
 
   describe("field validation", () => {
-    it("rejects empty apiKey", () => {
-      const result = CortexConfigSchema.safeParse({ apiKey: "" });
-      expect(result.success).toBe(false);
-    });
-
     it("rejects recallLimit below 1", () => {
       const result = CortexConfigSchema.safeParse({ ...validBase, recallLimit: 0 });
       expect(result.success).toBe(false);
@@ -109,7 +104,7 @@ describe("CortexConfigSchema", () => {
       expect(result.success).toBe(false);
     });
 
-    it("applies all defaults with only apiKey", () => {
+    it("applies all defaults with empty config", () => {
       const result = CortexConfigSchema.safeParse(validBase);
       expect(result.success).toBe(true);
       if (result.success) {

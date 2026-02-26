@@ -145,7 +145,9 @@ const plugin = {
 
     // userId: use explicit config value if provided, otherwise load/create a
     // stable UUID persisted at ~/.openclaw/cortex-user-id. Bootstrap is chained
-    // off the same promise so it always runs with a resolved userId.
+    // off the same promise so it always runs with a resolved userId. The capture
+    // handler also awaits userIdReady before firing — user_id is required by the
+    // API and sending null/missing would 422.
     let userId: string | undefined = config.userId;
     const userIdReady: Promise<void> = userId
       ? Promise.resolve()
@@ -177,7 +179,7 @@ const plugin = {
     // Auto-Capture: extract facts after agent responses
     api.on(
       "agent_end",
-      createCaptureHandler(client, config, api.logger, retryQueue, knowledgeState, () => userId),
+      createCaptureHandler(client, config, api.logger, retryQueue, knowledgeState, () => userId, userIdReady),
     );
 
     // Services: retry queue, file sync

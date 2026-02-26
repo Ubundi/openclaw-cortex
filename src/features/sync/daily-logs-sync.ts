@@ -42,12 +42,13 @@ export class DailyLogsSync {
 
       const sessionId = `${this.sessionPrefix}:daily:${filename}`;
       const referenceDate = extractDateFromFilename(filename);
-      const userId = this.getUserId?.();
-
-      const doRemember = () =>
-        this.client.remember(newContent, sessionId, undefined, referenceDate, userId).then((res) => {
+      const doRemember = () => {
+        // Re-evaluate userId at call time so retries use the resolved value
+        const userId = this.getUserId?.();
+        return this.client.remember(newContent, sessionId, undefined, referenceDate, userId).then((res) => {
           this.logger.debug?.(`Daily log sync: remembered ${res.memories_created} memories for ${filename}`);
         });
+      };
 
       try {
         await doRemember();

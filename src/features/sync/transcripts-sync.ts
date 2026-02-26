@@ -52,12 +52,13 @@ export class TranscriptsSync {
       const sessionName = filename.replace(/\.jsonl$/, "");
       const sessionId = `${this.sessionPrefix}:session:${sessionName}`;
       const referenceDate = new Date().toISOString().slice(0, 10);
-      const userId = this.getUserId?.();
-
-      const doRemember = () =>
-        this.client.rememberConversation(messages, sessionId, undefined, referenceDate, userId).then((res) => {
+      const doRemember = () => {
+        // Re-evaluate userId at call time so retries use the resolved value
+        const userId = this.getUserId?.();
+        return this.client.rememberConversation(messages, sessionId, undefined, referenceDate, userId).then((res) => {
           this.logger.debug?.(`Transcript sync: remembered ${res.memories_created} memories for ${filename}`);
         });
+      };
 
       try {
         await doRemember();
