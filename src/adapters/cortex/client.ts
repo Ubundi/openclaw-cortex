@@ -350,6 +350,7 @@ export class CortexClient {
     sessionId?: string,
     timeoutMs = DEFAULT_REMEMBER_TIMEOUT_MS,
     referenceDate?: string,
+    userId?: string,
   ): Promise<RememberResponse> {
     return this.fetchJsonWithTimeout<RememberResponse>(
       `${this.baseUrl}/v1/remember`,
@@ -357,6 +358,7 @@ export class CortexClient {
         text,
         session_id: sessionId ?? null,
         reference_date: referenceDate ?? null,
+        user_id: userId ?? null,
       },
       timeoutMs,
       "remember",
@@ -368,6 +370,7 @@ export class CortexClient {
     sessionId?: string,
     timeoutMs = DEFAULT_REMEMBER_TIMEOUT_MS,
     referenceDate?: string,
+    userId?: string,
   ): Promise<RememberResponse> {
     return this.fetchJsonWithTimeout<RememberResponse>(
       `${this.baseUrl}/v1/remember`,
@@ -375,6 +378,7 @@ export class CortexClient {
         messages,
         session_id: sessionId ?? null,
         reference_date: referenceDate ?? null,
+        user_id: userId ?? null,
       },
       timeoutMs,
       "remember",
@@ -388,6 +392,7 @@ export class CortexClient {
       limit?: number;
       context?: string;
       sessionFilter?: string;
+      userId?: string;
     },
   ): Promise<RecallResponse> {
     return this.fetchJsonWithTimeout<RecallResponse>(
@@ -397,6 +402,7 @@ export class CortexClient {
         limit: options?.limit ?? undefined,
         context: options?.context ?? undefined,
         session_filter: options?.sessionFilter ?? undefined,
+        user_id: options?.userId ?? undefined,
       },
       timeoutMs,
       "recall",
@@ -429,9 +435,13 @@ export class CortexClient {
 
   async knowledge(
     timeoutMs = DEFAULT_RECALL_TIMEOUT_MS,
+    userId?: string,
   ): Promise<KnowledgeResponse> {
+    const url = userId
+      ? `${this.baseUrl}/v1/knowledge?user_id=${encodeURIComponent(userId)}`
+      : `${this.baseUrl}/v1/knowledge`;
     return this.fetchRequest<KnowledgeResponse>(
-      `${this.baseUrl}/v1/knowledge`,
+      url,
       { method: "GET" },
       timeoutMs,
       "knowledge",
@@ -440,9 +450,13 @@ export class CortexClient {
 
   async stats(
     timeoutMs = DEFAULT_RECALL_TIMEOUT_MS,
+    userId?: string,
   ): Promise<StatsResponse> {
+    const url = userId
+      ? `${this.baseUrl}/v1/stats?user_id=${encodeURIComponent(userId)}`
+      : `${this.baseUrl}/v1/stats`;
     return this.fetchRequest<StatsResponse>(
-      `${this.baseUrl}/v1/stats`,
+      url,
       { method: "GET" },
       timeoutMs,
       "stats",

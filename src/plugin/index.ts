@@ -1,5 +1,5 @@
 import { basename } from "node:path";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { version } from "../../package.json" with { type: "json" };
 import { CortexConfigSchema, configSchema, type CortexConfig } from "./config/schema.js";
 import { CortexClient } from "../adapters/cortex/client.js";
@@ -8,6 +8,7 @@ import { createCaptureHandler } from "../features/capture/handler.js";
 import { FileSyncWatcher } from "../features/sync/watcher.js";
 import { RetryQueue } from "../internal/queue/retry-queue.js";
 import { LatencyMetrics } from "../internal/metrics/latency-metrics.js";
+import { loadOrCreateUserId } from "../internal/identity/user-id.js";
 
 export interface KnowledgeState {
   hasMemories: boolean;
@@ -72,6 +73,7 @@ async function bootstrapClient(
   client: CortexClient,
   logger: Logger,
   knowledgeState: KnowledgeState,
+  userId: string | undefined,
 ): Promise<void> {
   try {
     const healthy = await client.healthCheck();
@@ -86,7 +88,7 @@ async function bootstrapClient(
   }
 
   try {
-    const knowledge = await client.knowledge();
+    const knowledge = await client.knowledge(undefined, userId);
     knowledgeState.hasMemories = knowledge.total_memories > 0;
     knowledgeState.totalSessions = knowledge.total_sessions;
     knowledgeState.maturity = knowledge.maturity;
@@ -133,22 +135,52 @@ const plugin = {
       maturity: "unknown",
       lastChecked: 0,
     };
+
     // Whether the user explicitly set a namespace vs. relying on default
     const userSetNamespace = raw.namespace != null;
     let namespace = config.namespace;
     let started = false;
     let watcher: FileSyncWatcher | null = null;
 
+    // userId: use explicit config value if provided, otherwise load/create a
+    // stable UUID persisted at ~/.openclaw/cortex-user-id. Start async resolution
+    // immediately — most agent turns happen well after plugin startup so it will
+    // be ready. If resolution is somehow still pending on the first turn, that
+    // turn proceeds without a userId (safe — Cortex treats it as unscoped).
+    let userId: string | undefined = config.userId;
+    if (!userId) {
+      void loadOrCreateUserId()
+        .then((id) => {
+          userId = id;
+          api.logger.info(`Cortex user ID: ${id}`);
+        })
+        .catch(() => {
+          // Fallback: generate an ephemeral ID for this session
+          userId = randomUUID();
+          api.logger.warn("Cortex: could not persist user ID, using ephemeral ID for this session");
+        });
+    } else {
+      api.logger.info(`Cortex user ID (from config): ${userId}`);
+    }
+
     api.logger.info(`Cortex plugin registered (namespace=${namespace})`);
 
-    // Async health check + knowledge probe — validate connection
-    void bootstrapClient(client, api.logger, knowledgeState);
+    // Async health check + knowledge probe — runs after userId resolves
+    void Promise.resolve().then(() =>
+      bootstrapClient(client, api.logger, knowledgeState, userId),
+    );
 
     // Auto-Recall: inject relevant memories before every agent turn
-    api.on("before_agent_start", createRecallHandler(client, config, api.logger, recallMetrics, knowledgeState));
+    api.on(
+      "before_agent_start",
+      createRecallHandler(client, config, api.logger, recallMetrics, knowledgeState, () => userId),
+    );
 
     // Auto-Capture: extract facts after agent responses
-    api.on("agent_end", createCaptureHandler(client, config, api.logger, retryQueue, knowledgeState));
+    api.on(
+      "agent_end",
+      createCaptureHandler(client, config, api.logger, retryQueue, knowledgeState, () => userId),
+    );
 
     // Services: retry queue, file sync
     api.registerService({
@@ -181,6 +213,7 @@ const plugin = {
               api.logger,
               retryQueue,
               { transcripts: config.transcriptSync },
+              () => userId,
             );
             newWatcher.start();
             watcher = newWatcher;

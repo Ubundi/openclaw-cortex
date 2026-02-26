@@ -31,6 +31,7 @@ export class FileSyncWatcher {
     private logger: Logger,
     private retryQueue?: RetryQueue,
     private options: FileSyncOptions = {},
+    private getUserId?: () => string | undefined,
   ) {}
 
   start(): void {
@@ -51,6 +52,7 @@ export class FileSyncWatcher {
       this.logger,
       this.retryQueue,
       this.workspaceDir,
+      this.getUserId,
     );
 
     this.dailyLogsSync = new DailyLogsSync(
@@ -59,6 +61,7 @@ export class FileSyncWatcher {
       this.logger,
       this.retryQueue,
       memoryDir,
+      this.getUserId,
     );
 
     this.watchPath(
@@ -90,6 +93,7 @@ export class FileSyncWatcher {
         this.logger,
         this.retryQueue,
         sessionsDir,
+        this.getUserId,
       );
       this.watchPath(
         sessionsDir,

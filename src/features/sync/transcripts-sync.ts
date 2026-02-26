@@ -20,6 +20,7 @@ export class TranscriptsSync {
     private logger: Logger,
     private retryQueue?: RetryQueue,
     private allowedRoot?: string,
+    private getUserId?: () => string | undefined,
   ) {}
 
   async onFileChange(filePath: string, filename: string): Promise<void> {
@@ -50,11 +51,11 @@ export class TranscriptsSync {
       // Derive session ID from filename (e.g. "abc123.jsonl" → "openclaw:session:abc123")
       const sessionName = filename.replace(/\.jsonl$/, "");
       const sessionId = `${this.sessionPrefix}:session:${sessionName}`;
-
       const referenceDate = new Date().toISOString().slice(0, 10);
+      const userId = this.getUserId?.();
 
       const doRemember = () =>
-        this.client.rememberConversation(messages, sessionId, undefined, referenceDate).then((res) => {
+        this.client.rememberConversation(messages, sessionId, undefined, referenceDate, userId).then((res) => {
           this.logger.debug?.(`Transcript sync: remembered ${res.memories_created} memories for ${filename}`);
         });
 

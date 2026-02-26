@@ -51,6 +51,7 @@ export function createRecallHandler(
   logger: Logger,
   metrics?: LatencyMetrics,
   knowledgeState?: KnowledgeState,
+  getUserId?: () => string | undefined,
 ) {
   const recallMetrics = metrics ?? new LatencyMetrics();
   let consecutiveFailures = 0;
@@ -87,7 +88,7 @@ export function createRecallHandler(
       const response = await client.recall(
         prompt,
         effectiveTimeout,
-        { limit: config.recallLimit },
+        { limit: config.recallLimit, userId: getUserId?.() },
       );
 
       const elapsed = Date.now() - start;
