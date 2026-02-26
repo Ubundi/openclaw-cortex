@@ -32,6 +32,8 @@ jobs:
 
       - name: Build
         run: npm run build
+        env:
+          BUILD_API_KEY: ${{ secrets.BUILD_API_KEY }}
 
       - name: Package smoke test
         run: npm pack --dry-run
