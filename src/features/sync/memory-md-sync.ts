@@ -24,6 +24,7 @@ export class MemoryMdSync {
     private logger: Logger,
     private retryQueue?: RetryQueue,
     private allowedRoot?: string,
+    private getUserId?: () => string | undefined,
   ) {}
 
   onFileChange(): void {
@@ -62,9 +63,11 @@ export class MemoryMdSync {
 
     if (!added.trim()) return;
 
-    const doRemember = () => this.client.remember(added, this.sessionId).then((res) => {
-      this.logger.debug?.(`MEMORY.md sync: remembered ${res.memories_created} memories`);
-    });
+    const userId = this.getUserId?.();
+    const doRemember = () =>
+      this.client.remember(added, this.sessionId, undefined, undefined, userId).then((res) => {
+        this.logger.debug?.(`MEMORY.md sync: remembered ${res.memories_created} memories`);
+      });
 
     try {
       await doRemember();

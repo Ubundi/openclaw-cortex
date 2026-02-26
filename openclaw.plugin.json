@@ -19,6 +19,10 @@
         "description": "Cortex API base URL",
         "default": "https://q5p64iw9c9.execute-api.us-east-1.amazonaws.com/prod"
       },
+      "userId": {
+        "type": "string",
+        "description": "User ID to scope memories to this installation. Auto-generated and persisted at ~/.openclaw/cortex-user-id if not set."
+      },
       "autoRecall": {
         "type": "boolean",
         "description": "Inject relevant memories before each agent turn",
@@ -65,6 +69,11 @@
     "baseUrl": {
       "label": "Base URL",
       "advanced": true
+    },
+    "userId": {
+      "label": "User ID",
+      "advanced": true,
+      "helpText": "Scopes all memories to this installation. Auto-generated at ~/.openclaw/cortex-user-id on first run — only set this if you need to share memories across machines or override the auto-generated ID."
     },
     "recallLimit": {
       "label": "Recall Limit",

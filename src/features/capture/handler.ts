@@ -59,6 +59,7 @@ export function createCaptureHandler(
   logger: Logger,
   retryQueue?: RetryQueue,
   knowledgeState?: KnowledgeState,
+  getUserId?: () => string | undefined,
 ) {
   let captureCounter = 0;
   let lastCapturedAt = 0;
@@ -94,9 +95,10 @@ export function createCaptureHandler(
       lastCapturedAt = event.messages.length;
 
       const sessionId = event.sessionKey ?? event.sessionId;
+      const userId = getUserId?.();
 
       const doRemember = async () => {
-        const res = await client.rememberConversation(normalized, sessionId);
+        const res = await client.rememberConversation(normalized, sessionId, undefined, undefined, userId);
         logger.debug?.(`Cortex capture: remembered ${res.memories_created} memories`);
         if (knowledgeState && res.memories_created > 0) {
           knowledgeState.hasMemories = true;
