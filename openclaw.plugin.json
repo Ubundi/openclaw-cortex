@@ -2,7 +2,7 @@
   "id": "cortex-memory",
   "name": "Cortex Memory",
   "description": "Long-term memory powered by Cortex — Auto-Recall, Auto-Capture, transcript ingestion, periodic consolidation, and background file sync",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "kind": "memory",
   "configSchema": {
     "type": "object",
