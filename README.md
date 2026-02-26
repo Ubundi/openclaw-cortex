@@ -15,13 +15,12 @@
 - **File Sync** — watches `MEMORY.md`, daily logs, and session transcripts for background ingestion
 - **Resilience** — retry queue with exponential backoff, cold-start detection, latency metrics
 
-> **Cortex availability:** Cortex is currently privately hosted and in early testing — it is not yet a public service. API keys are not self-serve; to request access email [matthew@ubundi.co.za](mailto:matthew@ubundi.co.za). A public sign-up is planned for the future.
+> **Cortex availability:** Cortex is currently in early testing. The plugin ships with access built in — no API key or account required.
 
 ## Prerequisites
 
 - Node.js `>=20`
 - [OpenClaw](https://github.com/openclaw/openclaw) with plugin support (`openclaw` peer dependency is `>=0.1.0`)
-- Cortex API key — available on request (see availability note above)
 
 ## Installation
 
@@ -51,9 +50,7 @@ openclaw plugins install -l ./path/to/openclaw-cortex
        "entries": {
          "@ubundi/openclaw-cortex": {
            "enabled": true,
-           "config": {
-             "apiKey": "${CORTEX_API_KEY}"
-           }
+           "config": {}
          }
        },
        "slots": {
@@ -62,6 +59,8 @@ openclaw plugins install -l ./path/to/openclaw-cortex
      }
    }
    ```
+
+   That's it — no API key, no account, no setup. On first run the plugin generates a unique ID for this installation, persists it at `~/.openclaw/cortex-user-id`, and scopes all memories to that ID.
 
 3. Run an agent turn. If configured correctly, recall data is prepended in a `<cortex_memories>` block before the model turn.
 
@@ -76,15 +75,14 @@ Add to your `openclaw.json`:
       "@ubundi/openclaw-cortex": {
         enabled: true,
         config: {
-          apiKey: "sk-cortex-...",
-          // Cortex hosted API endpoint — provided with your API key. Omit to use the default.
-          baseUrl: "https://q5p64iw9c9.execute-api.us-east-1.amazonaws.com/prod",
+          // All fields are optional — the plugin works with no config at all.
           autoRecall: true,
           autoCapture: true,
           recallLimit: 10,
           recallTimeoutMs: 2000,
           fileSync: true,
           transcriptSync: true,
+          // userId: "my-team-shared-id",  // override the auto-generated install ID
         },
       },
     },
@@ -95,22 +93,17 @@ Add to your `openclaw.json`:
 }
 ```
 
-Environment variables are supported via `${VAR_NAME}` syntax:
-
-```json
-{
-  "apiKey": "${CORTEX_API_KEY}",
-  "baseUrl": "${CORTEX_BASE_URL}"
-}
-```
-
 ### Config Options
 
-| Option   | Type   | Default    | Description    |
-| -------- | ------ | ---------- | -------------- |
-| `apiKey` | string | _required_ | Cortex API key |
-
-All other options are pre-configured with sensible defaults and can be tuned via the OpenClaw plugin config UI.
+| Option            | Type    | Default | Description                                                                                      |
+| ----------------- | ------- | ------- | ------------------------------------------------------------------------------------------------ |
+| `userId`          | string  | _auto_  | Memory scope ID. Auto-generated per install and persisted at `~/.openclaw/cortex-user-id`. Override to share memory across machines or team members. |
+| `autoRecall`      | boolean | `true`  | Inject relevant memories before each agent turn                                                  |
+| `autoCapture`     | boolean | `true`  | Extract and store facts after each agent turn                                                    |
+| `recallLimit`     | number  | `10`    | Max number of memories returned per recall                                                       |
+| `recallTimeoutMs` | number  | `2000`  | Recall request timeout in ms. Plugin auto-adjusts the floor based on pipeline tier.             |
+| `fileSync`        | boolean | `true`  | Watch and ingest `MEMORY.md` and daily log files                                                 |
+| `transcriptSync`  | boolean | `true`  | Watch and ingest session transcript files                                                        |
 
 ## How It Works
 
@@ -188,7 +181,6 @@ If both this plugin and the Cortex SKILL.md are active, the `<cortex_memories>` 
 
 ## Troubleshooting
 
-- `apiKey` errors on startup: confirm `config.apiKey` is set and `${CORTEX_API_KEY}` resolves in your environment.
 - Plugin installed but no memory behavior: verify both `"enabled": true` and `"slots.memory": "@ubundi/openclaw-cortex"` in `openclaw.json`.
 - Frequent recall timeouts: increase `recallTimeoutMs` (the plugin auto-adjusts the floor based on pipeline tier).
 - No useful memories returned: ensure prior sessions were captured (`autoCapture`) or file sync is enabled (`fileSync`, `transcriptSync`).
@@ -200,7 +192,7 @@ npm install
 npm run build      # TypeScript → dist/
 npm test           # Run vitest (159 tests)
 npm run test:watch # Watch mode
-npm run test:integration # Live Cortex API tests (requires CORTEX_API_KEY)
+npm run test:integration # Live Cortex API tests (uses the baked-in API key)
 ```
 
 Manual proof scripts live under `tests/manual/`.
