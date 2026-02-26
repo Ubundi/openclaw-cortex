@@ -185,6 +185,8 @@ Short declarative rules — "never auto-commit", "no `as` type assertions" — s
 
 **Synthetic seed data.** Both datasets are crafted — real dev sessions have more noise, tangents, and implicit context. Results likely overestimate recall quality for both conditions against a real workspace.
 
+**Single project domain.** All 45 V1.1 sessions belong to one cohesive project (Arclight) with consistent terminology and a single technology stack. Real OpenClaw deployments span diverse workspaces — different languages, domains, team conventions. A single-project benchmark likely makes retrieval easier for both conditions than a messier, multi-domain real-world distribution would.
+
 **OpenClaw simulation is a best-case baseline.** The OC `memory_search` is simulated using the documented architecture. A real OpenClaw agent may retrieve differently depending on configuration.
 
 **3-pass judging reduces but doesn't eliminate variance.** V1.1 results are now 3-pass mean (temp=0.3) with `gpt-4.1-mini`. Single-pass 1-pass results suppressed real signal in Synthesis and inflated the Factual regression. The 3-pass mean is the reference measurement. Same-family LLM/judge models may still share evaluation biases.

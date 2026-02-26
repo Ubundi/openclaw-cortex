@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-02-24T11:25:07.202Z",
+  "timestamp": "2026-02-24T12:20:14.566Z",
   "config": {
     "llmModel": "gpt-4o-mini",
     "judgeModel": "gpt-4.1-mini",
@@ -10,12 +10,12 @@
     "debugReport": false,
     "answerConcurrency": 4,
     "judgeConcurrency": 4,
-    "judgePasses": 3,
-    "judgeTemperature": 0.3,
+    "judgePasses": 1,
+    "judgeTemperature": 0,
     "extractConcurrency": 4,
     "shuffleSeed": 1337,
     "shufflePrompts": false,
-    "gitCommit": "21455e3",
+    "gitCommit": "257ff22",
     "promptOrder": [
       "F01",
       "F02",
@@ -1634,1100 +1634,600 @@
       "promptId": "F01",
       "condition": "compacted",
       "score": 2,
-      "passScores": [
-        2,
-        2,
-        2
-      ],
       "rationale": "[DRY-RUN] Synthetic score for compacted"
     },
     {
       "promptId": "F01",
       "condition": "cortex",
-      "score": 2.6666666666666665,
-      "passScores": [
-        3,
-        3,
-        2
-      ],
+      "score": 3,
       "rationale": "[DRY-RUN] Synthetic score for cortex"
     },
     {
       "promptId": "F02",
       "condition": "compacted",
       "score": 2,
-      "passScores": [
-        2,
-        2,
-        2
-      ],
       "rationale": "[DRY-RUN] Synthetic score for compacted"
     },
     {
       "promptId": "F02",
       "condition": "cortex",
-      "score": 2.6666666666666665,
-      "passScores": [
-        2,
-        3,
-        3
-      ],
+      "score": 3,
       "rationale": "[DRY-RUN] Synthetic score for cortex"
     },
     {
       "promptId": "F03",
       "condition": "compacted",
-      "score": 1.3333333333333333,
-      "passScores": [
-        1,
-        1,
-        2
-      ],
+      "score": 2,
       "rationale": "[DRY-RUN] Synthetic score for compacted"
     },
     {
       "promptId": "F03",
       "condition": "cortex",
-      "score": 2.3333333333333335,
-      "passScores": [
-        2,
-        2,
-        3
-      ],
+      "score": 3,
       "rationale": "[DRY-RUN] Synthetic score for cortex"
     },
     {
       "promptId": "F04",
       "condition": "compacted",
-      "score": 1.6666666666666667,
-      "passScores": [
-        1,
-        3,
-        1
-      ],
+      "score": 2,
       "rationale": "[DRY-RUN] Synthetic score for compacted"
     },
     {
       "promptId": "F04",
       "condition": "cortex",
       "score": 3,
-      "passScores": [
-        3,
-        3,
-        3
-      ],
       "rationale": "[DRY-RUN] Synthetic score for cortex"
     },
     {
       "promptId": "F05",
       "condition": "compacted",
       "score": 2,
-      "passScores": [
-        2,
-        2,
-        2
-      ],
       "rationale": "[DRY-RUN] Synthetic score for compacted"
     },
     {
       "promptId": "F05",
       "condition": "cortex",
-      "score": 2.3333333333333335,
-      "passScores": [
-        2,
-        2,
-        3
-      ],
+      "score": 3,
       "rationale": "[DRY-RUN] Synthetic score for cortex"
     },
     {
       "promptId": "F06",
       "condition": "compacted",
       "score": 2,
-      "passScores": [
-        2,
-        2,
-        2
-      ],
       "rationale": "[DRY-RUN] Synthetic score for compacted"
     },
     {
       "promptId": "F06",
       "condition": "cortex",
-      "score": 2.6666666666666665,
-      "passScores": [
-        3,
-        2,
-        3
-      ],
+      "score": 3,
       "rationale": "[DRY-RUN] Synthetic score for cortex"
     },
     {
       "promptId": "F07",
       "condition": "compacted",
       "score": 2,
-      "passScores": [
-        2,
-        2,
-        2
-      ],
       "rationale": "[DRY-RUN] Synthetic score for compacted"
     },
     {
       "promptId": "F07",
       "condition": "cortex",
-      "score": 2.6666666666666665,
-      "passScores": [
-        3,
-        2,
-        3
-      ],
+      "score": 3,
       "rationale": "[DRY-RUN] Synthetic score for cortex"
     },
     {
       "promptId": "F08",
       "condition": "compacted",
-      "score": 2.3333333333333335,
-      "passScores": [
-        2,
-        3,
-        2
-      ],
+      "score": 2,
       "rationale": "[DRY-RUN] Synthetic score for compacted"
     },
     {
       "promptId": "F08",
       "condition": "cortex",
       "score": 3,
-      "passScores": [
-        3,
-        3,
-        3
-      ],
       "rationale": "[DRY-RUN] Synthetic score for cortex"
     },
     {
       "promptId": "F09",
       "condition": "compacted",
-      "score": 2.3333333333333335,
-      "passScores": [
-        2,
-        3,
-        2
-      ],
+      "score": 2,
       "rationale": "[DRY-RUN] Synthetic score for compacted"
     },
     {
       "promptId": "F09",
       "condition": "cortex",
       "score": 3,
-      "passScores": [
-        3,
-        3,
-        3
-      ],
       "rationale": "[DRY-RUN] Synthetic score for cortex"
     },
     {
       "promptId": "F10",
       "condition": "compacted",
-      "score": 1.6666666666666667,
-      "passScores": [
-        2,
-        2,
-        1
-      ],
+      "score": 2,
       "rationale": "[DRY-RUN] Synthetic score for compacted"
     },
     {
       "promptId": "F10",
       "condition": "cortex",
       "score": 3,
-      "passScores": [
-        3,
-        3,
-        3
-      ],
       "rationale": "[DRY-RUN] Synthetic score for cortex"
     },
     {
       "promptId": "F11",
       "condition": "compacted",
       "score": 2,
-      "passScores": [
-        2,
-        2,
-        2
-      ],
       "rationale": "[DRY-RUN] Synthetic score for compacted"
     },
     {
       "promptId": "F11",
       "condition": "cortex",
       "score": 3,
-      "passScores": [
-        3,
-        3,
-        3
-      ],
       "rationale": "[DRY-RUN] Synthetic score for cortex"
     },
     {
       "promptId": "F12",
       "condition": "compacted",
       "score": 2,
-      "passScores": [
-        3,
-        1,
-        2
-      ],
       "rationale": "[DRY-RUN] Synthetic score for compacted"
     },
     {
       "promptId": "F12",
       "condition": "cortex",
       "score": 3,
-      "passScores": [
-        3,
-        3,
-        3
-      ],
       "rationale": "[DRY-RUN] Synthetic score for cortex"
     },
     {
       "promptId": "F13",
       "condition": "compacted",
-      "score": 2.3333333333333335,
-      "passScores": [
-        2,
-        3,
-        2
-      ],
-      "rationale": "[DRY-RUN] Synthetic score for compacted"
-    },
-    {
-      "promptId": "F13",
-      "condition": "cortex",
       "score": 2,
-      "passScores": [
-        2,
-        2,
-        2
-      ],
+      "rationale": "[DRY-RUN] Synthetic score for compacted"
+    },
+    {
+      "promptId": "F13",
+      "condition": "cortex",
+      "score": 3,
       "rationale": "[DRY-RUN] Synthetic score for cortex"
     },
     {
       "promptId": "F14",
       "condition": "compacted",
-      "score": 2.3333333333333335,
-      "passScores": [
-        3,
-        2,
-        2
-      ],
+      "score": 2,
       "rationale": "[DRY-RUN] Synthetic score for compacted"
     },
     {
       "promptId": "F14",
       "condition": "cortex",
-      "score": 2.6666666666666665,
-      "passScores": [
-        3,
-        3,
-        2
-      ],
+      "score": 3,
       "rationale": "[DRY-RUN] Synthetic score for cortex"
     },
     {
       "promptId": "F15",
       "condition": "compacted",
-      "score": 2.3333333333333335,
-      "passScores": [
-        2,
-        2,
-        3
-      ],
+      "score": 2,
       "rationale": "[DRY-RUN] Synthetic score for compacted"
     },
     {
       "promptId": "F15",
       "condition": "cortex",
-      "score": 2.6666666666666665,
-      "passScores": [
-        2,
-        3,
-        3
-      ],
+      "score": 3,
       "rationale": "[DRY-RUN] Synthetic score for cortex"
     },
     {
       "promptId": "R01",
       "condition": "compacted",
       "score": 2,
-      "passScores": [
-        2,
-        2,
-        2
-      ],
       "rationale": "[DRY-RUN] Synthetic score for compacted"
     },
     {
       "promptId": "R01",
       "condition": "cortex",
-      "score": 2.3333333333333335,
-      "passScores": [
-        2,
-        2,
-        3
-      ],
+      "score": 3,
       "rationale": "[DRY-RUN] Synthetic score for cortex"
     },
     {
       "promptId": "R02",
       "condition": "compacted",
       "score": 2,
-      "passScores": [
-        1,
-        2,
-        3
-      ],
       "rationale": "[DRY-RUN] Synthetic score for compacted"
     },
     {
       "promptId": "R02",
       "condition": "cortex",
       "score": 3,
-      "passScores": [
-        3,
-        3,
-        3
-      ],
       "rationale": "[DRY-RUN] Synthetic score for cortex"
     },
     {
       "promptId": "R03",
       "condition": "compacted",
-      "score": 2.3333333333333335,
-      "passScores": [
-        3,
-        2,
-        2
-      ],
+      "score": 2,
       "rationale": "[DRY-RUN] Synthetic score for compacted"
     },
     {
       "promptId": "R03",
       "condition": "cortex",
       "score": 3,
-      "passScores": [
-        3,
-        3,
-        3
-      ],
       "rationale": "[DRY-RUN] Synthetic score for cortex"
     },
     {
       "promptId": "R04",
       "condition": "compacted",
       "score": 2,
-      "passScores": [
-        1,
-        2,
-        3
-      ],
       "rationale": "[DRY-RUN] Synthetic score for compacted"
     },
     {
       "promptId": "R04",
       "condition": "cortex",
       "score": 3,
-      "passScores": [
-        3,
-        3,
-        3
-      ],
       "rationale": "[DRY-RUN] Synthetic score for cortex"
     },
     {
       "promptId": "R05",
       "condition": "compacted",
       "score": 2,
-      "passScores": [
-        2,
-        2,
-        2
-      ],
       "rationale": "[DRY-RUN] Synthetic score for compacted"
     },
     {
       "promptId": "R05",
       "condition": "cortex",
       "score": 3,
-      "passScores": [
-        3,
-        3,
-        3
-      ],
       "rationale": "[DRY-RUN] Synthetic score for cortex"
     },
     {
       "promptId": "R06",
       "condition": "compacted",
-      "score": 2.3333333333333335,
-      "passScores": [
-        3,
-        1,
-        3
-      ],
+      "score": 2,
       "rationale": "[DRY-RUN] Synthetic score for compacted"
     },
     {
       "promptId": "R06",
       "condition": "cortex",
       "score": 3,
-      "passScores": [
-        3,
-        3,
-        3
-      ],
       "rationale": "[DRY-RUN] Synthetic score for cortex"
     },
     {
       "promptId": "R07",
       "condition": "compacted",
-      "score": 2.6666666666666665,
-      "passScores": [
-        3,
-        2,
-        3
-      ],
+      "score": 2,
       "rationale": "[DRY-RUN] Synthetic score for compacted"
     },
     {
       "promptId": "R07",
       "condition": "cortex",
-      "score": 2.6666666666666665,
-      "passScores": [
-        2,
-        3,
-        3
-      ],
+      "score": 3,
       "rationale": "[DRY-RUN] Synthetic score for cortex"
     },
     {
       "promptId": "R08",
       "condition": "compacted",
       "score": 2,
-      "passScores": [
-        2,
-        2,
-        2
-      ],
       "rationale": "[DRY-RUN] Synthetic score for compacted"
     },
     {
       "promptId": "R08",
       "condition": "cortex",
-      "score": 2.6666666666666665,
-      "passScores": [
-        3,
-        3,
-        2
-      ],
+      "score": 3,
       "rationale": "[DRY-RUN] Synthetic score for cortex"
     },
     {
       "promptId": "R09",
       "condition": "compacted",
-      "score": 2.3333333333333335,
-      "passScores": [
-        3,
-        2,
-        2
-      ],
+      "score": 2,
       "rationale": "[DRY-RUN] Synthetic score for compacted"
     },
     {
       "promptId": "R09",
       "condition": "cortex",
-      "score": 2.3333333333333335,
-      "passScores": [
-        2,
-        3,
-        2
-      ],
+      "score": 3,
       "rationale": "[DRY-RUN] Synthetic score for cortex"
     },
     {
       "promptId": "R10",
       "condition": "compacted",
       "score": 2,
-      "passScores": [
-        2,
-        2,
-        2
-      ],
       "rationale": "[DRY-RUN] Synthetic score for compacted"
     },
     {
       "promptId": "R10",
       "condition": "cortex",
-      "score": 2.6666666666666665,
-      "passScores": [
-        3,
-        2,
-        3
-      ],
+      "score": 3,
       "rationale": "[DRY-RUN] Synthetic score for cortex"
     },
     {
       "promptId": "E01",
       "condition": "compacted",
-      "score": 2.6666666666666665,
-      "passScores": [
-        2,
-        3,
-        3
-      ],
+      "score": 2,
       "rationale": "[DRY-RUN] Synthetic score for compacted"
     },
     {
       "promptId": "E01",
       "condition": "cortex",
       "score": 3,
-      "passScores": [
-        3,
-        3,
-        3
-      ],
       "rationale": "[DRY-RUN] Synthetic score for cortex"
     },
     {
       "promptId": "E02",
       "condition": "compacted",
-      "score": 3,
-      "passScores": [
-        3,
-        3,
-        3
-      ],
+      "score": 2,
       "rationale": "[DRY-RUN] Synthetic score for compacted"
     },
     {
       "promptId": "E02",
       "condition": "cortex",
       "score": 3,
-      "passScores": [
-        3,
-        3,
-        3
-      ],
       "rationale": "[DRY-RUN] Synthetic score for cortex"
     },
     {
       "promptId": "E03",
       "condition": "compacted",
-      "score": 1.3333333333333333,
-      "passScores": [
-        1,
-        2,
-        1
-      ],
+      "score": 2,
       "rationale": "[DRY-RUN] Synthetic score for compacted"
     },
     {
       "promptId": "E03",
       "condition": "cortex",
-      "score": 2.6666666666666665,
-      "passScores": [
-        3,
-        2,
-        3
-      ],
+      "score": 3,
       "rationale": "[DRY-RUN] Synthetic score for cortex"
     },
     {
       "promptId": "E04",
       "condition": "compacted",
-      "score": 2.3333333333333335,
-      "passScores": [
-        3,
-        2,
-        2
-      ],
+      "score": 2,
       "rationale": "[DRY-RUN] Synthetic score for compacted"
     },
     {
       "promptId": "E04",
       "condition": "cortex",
       "score": 3,
-      "passScores": [
-        3,
-        3,
-        3
-      ],
       "rationale": "[DRY-RUN] Synthetic score for cortex"
     },
     {
       "promptId": "E05",
       "condition": "compacted",
-      "score": 1.3333333333333333,
-      "passScores": [
-        2,
-        1,
-        1
-      ],
+      "score": 2,
       "rationale": "[DRY-RUN] Synthetic score for compacted"
     },
     {
       "promptId": "E05",
       "condition": "cortex",
       "score": 3,
-      "passScores": [
-        3,
-        3,
-        3
-      ],
       "rationale": "[DRY-RUN] Synthetic score for cortex"
     },
     {
       "promptId": "E06",
       "condition": "compacted",
       "score": 2,
-      "passScores": [
-        2,
-        2,
-        2
-      ],
       "rationale": "[DRY-RUN] Synthetic score for compacted"
     },
     {
       "promptId": "E06",
       "condition": "cortex",
-      "score": 2.3333333333333335,
-      "passScores": [
-        2,
-        3,
-        2
-      ],
+      "score": 3,
       "rationale": "[DRY-RUN] Synthetic score for cortex"
     },
     {
       "promptId": "E07",
       "condition": "compacted",
       "score": 2,
-      "passScores": [
-        2,
-        2,
-        2
-      ],
       "rationale": "[DRY-RUN] Synthetic score for compacted"
     },
     {
       "promptId": "E07",
       "condition": "cortex",
       "score": 3,
-      "passScores": [
-        3,
-        3,
-        3
-      ],
       "rationale": "[DRY-RUN] Synthetic score for cortex"
     },
     {
       "promptId": "E08",
       "condition": "compacted",
       "score": 2,
-      "passScores": [
-        2,
-        2,
-        2
-      ],
       "rationale": "[DRY-RUN] Synthetic score for compacted"
     },
     {
       "promptId": "E08",
       "condition": "cortex",
-      "score": 2.3333333333333335,
-      "passScores": [
-        2,
-        3,
-        2
-      ],
+      "score": 3,
       "rationale": "[DRY-RUN] Synthetic score for cortex"
     },
     {
       "promptId": "E09",
       "condition": "compacted",
       "score": 2,
-      "passScores": [
-        1,
-        3,
-        2
-      ],
       "rationale": "[DRY-RUN] Synthetic score for compacted"
     },
     {
       "promptId": "E09",
       "condition": "cortex",
       "score": 3,
-      "passScores": [
-        3,
-        3,
-        3
-      ],
       "rationale": "[DRY-RUN] Synthetic score for cortex"
     },
     {
       "promptId": "E10",
       "condition": "compacted",
-      "score": 1.6666666666666667,
-      "passScores": [
-        1,
-        2,
-        2
-      ],
+      "score": 2,
       "rationale": "[DRY-RUN] Synthetic score for compacted"
     },
     {
       "promptId": "E10",
       "condition": "cortex",
       "score": 3,
-      "passScores": [
-        3,
-        3,
-        3
-      ],
       "rationale": "[DRY-RUN] Synthetic score for cortex"
     },
     {
       "promptId": "S01",
       "condition": "compacted",
-      "score": 1.3333333333333333,
-      "passScores": [
-        1,
-        1,
-        2
-      ],
+      "score": 2,
       "rationale": "[DRY-RUN] Synthetic score for compacted"
     },
     {
       "promptId": "S01",
       "condition": "cortex",
       "score": 3,
-      "passScores": [
-        3,
-        3,
-        3
-      ],
       "rationale": "[DRY-RUN] Synthetic score for cortex"
     },
     {
       "promptId": "S02",
       "condition": "compacted",
-      "score": 1.3333333333333333,
-      "passScores": [
-        1,
-        2,
-        1
-      ],
+      "score": 2,
       "rationale": "[DRY-RUN] Synthetic score for compacted"
     },
     {
       "promptId": "S02",
       "condition": "cortex",
       "score": 3,
-      "passScores": [
-        3,
-        3,
-        3
-      ],
       "rationale": "[DRY-RUN] Synthetic score for cortex"
     },
     {
       "promptId": "S03",
       "condition": "compacted",
-      "score": 1.6666666666666667,
-      "passScores": [
-        2,
-        1,
-        2
-      ],
+      "score": 2,
       "rationale": "[DRY-RUN] Synthetic score for compacted"
     },
     {
       "promptId": "S03",
       "condition": "cortex",
-      "score": 2.6666666666666665,
-      "passScores": [
-        3,
-        2,
-        3
-      ],
+      "score": 3,
       "rationale": "[DRY-RUN] Synthetic score for cortex"
     },
     {
       "promptId": "S04",
       "condition": "compacted",
-      "score": 1.3333333333333333,
-      "passScores": [
-        2,
-        1,
-        1
-      ],
+      "score": 2,
       "rationale": "[DRY-RUN] Synthetic score for compacted"
     },
     {
       "promptId": "S04",
       "condition": "cortex",
-      "score": 2.6666666666666665,
-      "passScores": [
-        2,
-        3,
-        3
-      ],
+      "score": 3,
       "rationale": "[DRY-RUN] Synthetic score for cortex"
     },
     {
       "promptId": "S05",
       "condition": "compacted",
       "score": 2,
-      "passScores": [
-        2,
-        2,
-        2
-      ],
       "rationale": "[DRY-RUN] Synthetic score for compacted"
     },
     {
       "promptId": "S05",
       "condition": "cortex",
-      "score": 2,
-      "passScores": [
-        2,
-        2,
-        2
-      ],
+      "score": 3,
       "rationale": "[DRY-RUN] Synthetic score for cortex"
     },
     {
       "promptId": "S06",
       "condition": "compacted",
-      "score": 2.6666666666666665,
-      "passScores": [
-        3,
-        3,
-        2
-      ],
+      "score": 2,
       "rationale": "[DRY-RUN] Synthetic score for compacted"
     },
     {
       "promptId": "S06",
       "condition": "cortex",
       "score": 3,
-      "passScores": [
-        3,
-        3,
-        3
-      ],
       "rationale": "[DRY-RUN] Synthetic score for cortex"
     },
     {
       "promptId": "S07",
       "condition": "compacted",
       "score": 2,
-      "passScores": [
-        3,
-        1,
-        2
-      ],
       "rationale": "[DRY-RUN] Synthetic score for compacted"
     },
     {
       "promptId": "S07",
       "condition": "cortex",
-      "score": 2.6666666666666665,
-      "passScores": [
-        3,
-        2,
-        3
-      ],
+      "score": 3,
       "rationale": "[DRY-RUN] Synthetic score for cortex"
     },
     {
       "promptId": "S08",
       "condition": "compacted",
       "score": 2,
-      "passScores": [
-        1,
-        3,
-        2
-      ],
       "rationale": "[DRY-RUN] Synthetic score for compacted"
     },
     {
       "promptId": "S08",
       "condition": "cortex",
       "score": 3,
-      "passScores": [
-        3,
-        3,
-        3
-      ],
       "rationale": "[DRY-RUN] Synthetic score for cortex"
     },
     {
       "promptId": "T01",
       "condition": "compacted",
-      "score": 1.6666666666666667,
-      "passScores": [
-        2,
-        2,
-        1
-      ],
+      "score": 2,
       "rationale": "[DRY-RUN] Synthetic score for compacted"
     },
     {
       "promptId": "T01",
       "condition": "cortex",
       "score": 3,
-      "passScores": [
-        3,
-        3,
-        3
-      ],
       "rationale": "[DRY-RUN] Synthetic score for cortex"
     },
     {
       "promptId": "T02",
       "condition": "compacted",
-      "score": 2.3333333333333335,
-      "passScores": [
-        3,
-        3,
-        1
-      ],
+      "score": 2,
       "rationale": "[DRY-RUN] Synthetic score for compacted"
     },
     {
       "promptId": "T02",
       "condition": "cortex",
       "score": 3,
-      "passScores": [
-        3,
-        3,
-        3
-      ],
       "rationale": "[DRY-RUN] Synthetic score for cortex"
     },
     {
       "promptId": "T03",
       "condition": "compacted",
-      "score": 2.3333333333333335,
-      "passScores": [
-        2,
-        2,
-        3
-      ],
+      "score": 2,
       "rationale": "[DRY-RUN] Synthetic score for compacted"
     },
     {
       "promptId": "T03",
       "condition": "cortex",
-      "score": 2.6666666666666665,
-      "passScores": [
-        3,
-        3,
-        2
-      ],
+      "score": 3,
       "rationale": "[DRY-RUN] Synthetic score for cortex"
     },
     {
       "promptId": "T04",
       "condition": "compacted",
       "score": 2,
-      "passScores": [
-        2,
-        2,
-        2
-      ],
       "rationale": "[DRY-RUN] Synthetic score for compacted"
     },
     {
       "promptId": "T04",
       "condition": "cortex",
       "score": 3,
-      "passScores": [
-        3,
-        3,
-        3
-      ],
       "rationale": "[DRY-RUN] Synthetic score for cortex"
     },
     {
       "promptId": "T05",
       "condition": "compacted",
-      "score": 2.3333333333333335,
-      "passScores": [
-        2,
-        2,
-        3
-      ],
+      "score": 2,
       "rationale": "[DRY-RUN] Synthetic score for compacted"
     },
     {
       "promptId": "T05",
       "condition": "cortex",
       "score": 3,
-      "passScores": [
-        3,
-        3,
-        3
-      ],
       "rationale": "[DRY-RUN] Synthetic score for cortex"
     },
     {
       "promptId": "T06",
       "condition": "compacted",
-      "score": 2.6666666666666665,
-      "passScores": [
-        3,
-        2,
-        3
-      ],
+      "score": 2,
       "rationale": "[DRY-RUN] Synthetic score for compacted"
     },
     {
       "promptId": "T06",
       "condition": "cortex",
       "score": 3,
-      "passScores": [
-        3,
-        3,
-        3
-      ],
       "rationale": "[DRY-RUN] Synthetic score for cortex"
     },
     {
       "promptId": "T07",
       "condition": "compacted",
       "score": 2,
-      "passScores": [
-        3,
-        1,
-        2
-      ],
       "rationale": "[DRY-RUN] Synthetic score for compacted"
     },
     {
       "promptId": "T07",
       "condition": "cortex",
-      "score": 2.6666666666666665,
-      "passScores": [
-        3,
-        2,
-        3
-      ],
+      "score": 3,
       "rationale": "[DRY-RUN] Synthetic score for cortex"
     }
   ],

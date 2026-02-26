@@ -47,7 +47,7 @@ import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { CortexClient } from "../../src/adapters/cortex/client.js";
-import type { RetrieveResult } from "../../src/adapters/cortex/client.js";
+import type { RetrieveResult, QueryType } from "../../src/adapters/cortex/client.js";
 import { LatencyMetrics } from "../../src/internal/metrics/latency-metrics.js";
 // Note: the plugin's formatMemories expects RecallMemory[] (agent API),
 // but the benchmark uses RetrieveResult[] (internal API). Format inline instead.
@@ -148,6 +148,8 @@ interface BenchmarkReport {
     ocDecayHalfLifeDays: number;
     ocNotesExtracted: boolean;
     cortexTopK: number;
+    cortexReferenceDate: string;
+    cortexQueryTypeMapping: string;
   };
   seedJobIds: string[];
   compactedSummary: string;
@@ -222,6 +224,20 @@ const NAMESPACE = NAMESPACE_SUFFIX ? `${NAMESPACE_BASE}-${NAMESPACE_SUFFIX}` : N
 const GIT_COMMIT = getGitCommit();
 
 const OC_NOTES_CACHE_PATH = join(__dirname, "oc-memory-notes.json");
+
+// Base date for the Arclight project timeline. Day 1 maps to this date;
+// subsequent session days are offset from it. Gives nodes meaningful
+// `occurred_at` timestamps so the edge detector can form SUPERSEDES chains
+// (without this, batch ingestion collapses the 42-day project into 2 minutes
+// of wall-clock time and all temporal ordering is lost).
+const SEED_BASE_DATE = new Date("2026-01-05T09:00:00Z"); // Monday week 1
+
+function sessionReferenceDate(session: SeedSession): string {
+  const dayNumber = parseDayNumber(session.description);
+  const d = new Date(SEED_BASE_DATE);
+  d.setUTCDate(d.getUTCDate() + (dayNumber - 1));
+  return d.toISOString().slice(0, 10); // "YYYY-MM-DD"
+}
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -689,16 +705,19 @@ function formatOcSearchResults(results: OcSearchResult[]): string {
 
 async function runSeedPhase(client: CortexClient): Promise<string[]> {
   log("seed", `Ingesting ${seedData.length} sessions into namespace: ${NAMESPACE}`);
-  const jobIds: string[] = [];
+  const allJobIds: string[] = [];
+  // Maps job_id → session so failed jobs can be re-submitted
+  const jobToSession = new Map<string, SeedSession>();
 
   for (const session of seedData) {
     let jobId: string | null = null;
     for (let attempt = 1; attempt <= 3; attempt++) {
       try {
         const sessionId = `${NAMESPACE}:session:${session.id}`;
-        const resp = await client.submitIngestConversation(session.messages, sessionId);
+        const refDate = sessionReferenceDate(session);
+        const resp = await client.submitIngestConversation(session.messages, sessionId, refDate);
         jobId = resp.job_id;
-        log("seed", `  ${session.id}: job ${jobId} (attempt ${attempt})`);
+        log("seed", `  ${session.id}: job ${jobId} (date ${refDate}, attempt ${attempt})`);
         break;
       } catch (err) {
         log("seed", `  ${session.id}: attempt ${attempt} failed: ${(err as Error).message}`);
@@ -706,13 +725,14 @@ async function runSeedPhase(client: CortexClient): Promise<string[]> {
       }
     }
     if (!jobId) throw new Error(`seed: all attempts failed for ${session.id}`);
-    jobIds.push(jobId);
+    allJobIds.push(jobId);
+    jobToSession.set(jobId, session);
   }
 
-  log("seed", `All ${jobIds.length} jobs submitted. Polling...`);
+  log("seed", `All ${allJobIds.length} jobs submitted. Polling...`);
 
-  const deadline = Date.now() + 180_000;
-  const pending = new Set(jobIds);
+  let deadline = Date.now() + 300_000;
+  const pending = new Set(allJobIds);
 
   while (pending.size > 0 && Date.now() < deadline) {
     const pollResults = await Promise.all(
@@ -734,15 +754,33 @@ async function runSeedPhase(client: CortexClient): Promise<string[]> {
         pending.delete(result.id);
         log("seed", `  Job ${result.id}: completed`);
       } else if (result.status.status === "failed") {
-        throw new Error(`seed: job ${result.id} failed: ${result.status.error ?? "unknown"}`);
+        // Server-side transient failure — re-submit once before giving up
+        const session = jobToSession.get(result.id)!;
+        log("seed", `  Job ${result.id} (${session.id}): failed (${result.status.error ?? "unknown"}), re-submitting...`);
+        pending.delete(result.id);
+        jobToSession.delete(result.id);
+        try {
+          const sessionId = `${NAMESPACE}:session:${session.id}`;
+          const refDate = sessionReferenceDate(session);
+          const resp = await client.submitIngestConversation(session.messages, sessionId, refDate);
+          const newJobId = resp.job_id;
+          log("seed", `  ${session.id}: re-submitted as job ${newJobId}`);
+          pending.add(newJobId);
+          jobToSession.set(newJobId, session);
+          allJobIds.push(newJobId);
+          // Give the re-submitted job a fresh 120s window
+          deadline = Math.max(deadline, Date.now() + 120_000);
+        } catch (err) {
+          throw new Error(`seed: re-submit failed for ${session.id}: ${(err as Error).message}`);
+        }
       }
     }
     if (pending.size > 0) await sleep(2_000);
   }
 
-  if (pending.size > 0) throw new Error(`seed: ${pending.size} jobs timed out after 180s`);
+  if (pending.size > 0) throw new Error(`seed: ${pending.size} jobs timed out after 300s`);
   log("seed", "All jobs completed.");
-  return jobIds;
+  return allJobIds;
 }
 
 // ---------------------------------------------------------------------------
@@ -842,11 +880,17 @@ async function runRetrievePhase(
     const ocResults = searchOcMemory(promptEmbeddings[i], p.prompt, ocIndex);
 
     // Cortex: full retrieval pipeline
+    // queryType: factual for single-value lookups (F only), combined for reasoning/temporal (R/E/S/T)
+    // T queries require temporal ordering across events, not just point lookups
+    // referenceDate: end of Arclight project (Day 42 = 2026-02-15) anchors recency decay
+    const queryType: QueryType = p.category === "F" ? "factual" : "combined";
     let cortexResults: RetrieveResult[] = [];
     let cortexLatencyMs = 0;
     try {
       const start = Date.now();
-      const response = await client.retrieve(p.prompt, CORTEX_TOP_K, "full", 30_000);
+      const response = await client.retrieve(p.prompt, CORTEX_TOP_K, "full", 30_000, queryType, {
+        referenceDate: "2026-02-15",
+      });
       cortexLatencyMs = Date.now() - start;
       cortexMetrics.record(cortexLatencyMs);
       cortexResults = response.results;
@@ -1051,6 +1095,8 @@ function buildReport(
       ocDecayHalfLifeDays: OC_DECAY_HALF_LIFE_DAYS,
       ocNotesExtracted: !notesFromCache,
       cortexTopK: CORTEX_TOP_K,
+      cortexReferenceDate: "2026-02-15",
+      cortexQueryTypeMapping: "F→factual, R/E/S/T→combined",
     },
     seedJobIds,
     compactedSummary,
@@ -1262,7 +1308,7 @@ function dryRunRetrievePhase(): {
   return { records, cortexMetrics, chunkCount: seedData.length * 2 };
 }
 
-function dryRunAnswerPhase(compactedSummary: string): AnswerRecord[] {
+function dryRunAnswerPhase(_compactedSummary: string): AnswerRecord[] {
   log("answer", "[DRY-RUN] Returning synthetic answers");
   const answers: AnswerRecord[] = [];
   for (const p of runPrompts) {
