@@ -136,10 +136,9 @@ export function createCaptureHandler(
         roleCounts[m.role] = (roleCounts[m.role] ?? 0) + 1;
       }
       const roleBreakdown = Object.entries(roleCounts).map(([r, n]) => `${r}=${n}`).join(", ");
-      const preview = transcript.length > 300 ? transcript.slice(0, 300) + "…" : transcript;
-      logger.info(
-        `Cortex capture summary: ${trimmed.length} msgs (${roleBreakdown}), ${transcript.length} chars, sessionId=${sessionId}\n--- transcript preview ---\n${preview}\n--- end preview ---`,
-      );
+      const preview = (transcript.length > 200 ? transcript.slice(0, 200) + "…" : transcript).replace(/\n/g, " ");
+      logger.info(`Cortex capture summary: ${trimmed.length} msgs (${roleBreakdown}), ${transcript.length} chars, sessionId=${sessionId}`);
+      logger.info(`Cortex capture preview: ${preview}`);
 
       const doRemember = async () => {
         // Re-evaluate userId at call time so retries pick up the resolved value

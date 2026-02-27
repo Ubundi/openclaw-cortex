@@ -99,8 +99,8 @@ describe("CortexConfigSchema", () => {
       expect(result.success).toBe(false);
     });
 
-    it("rejects recallTimeoutMs above 10000", () => {
-      const result = CortexConfigSchema.safeParse({ ...validBase, recallTimeoutMs: 10001 });
+    it("rejects recallTimeoutMs above 30000", () => {
+      const result = CortexConfigSchema.safeParse({ ...validBase, recallTimeoutMs: 30001 });
       expect(result.success).toBe(false);
     });
 
@@ -111,7 +111,7 @@ describe("CortexConfigSchema", () => {
         expect(result.data.autoRecall).toBe(true);
         expect(result.data.autoCapture).toBe(true);
         expect(result.data.recallLimit).toBe(10);
-        expect(result.data.recallTimeoutMs).toBe(2000);
+        expect(result.data.recallTimeoutMs).toBe(10000);
         expect(result.data.fileSync).toBe(true);
         expect(result.data.transcriptSync).toBe(true);
         expect(result.data.namespace).toBe("openclaw");
