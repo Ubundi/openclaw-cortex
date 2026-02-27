@@ -1,0 +1,64 @@
+# openclaw-cortex
+
+OpenClaw plugin that gives AI agents long-term memory via the Cortex API.
+Hooks into OpenClaw's agent lifecycle to automatically recall relevant memories
+before each turn and capture new facts after each turn. Also syncs local files
+(MEMORY.md, daily logs, session transcripts) into Cortex in the background.
+
+## Tech Stack
+
+- TypeScript (strict, ES2022, ESM-only)
+- Node >= 20
+- Vitest for testing
+- Zod for config validation
+- Peer dependency on `openclaw` runtime
+
+## Directory Structure
+
+- `src/plugin/` — Plugin entry point, config schema, OpenClaw lifecycle registration
+- `src/adapters/cortex/` — HTTP client for all Cortex API endpoints
+- `src/features/recall/` — Before-turn memory injection (recall handler + formatter)
+- `src/features/capture/` — After-turn fact extraction (capture handler)
+- `src/features/sync/` — File watchers for MEMORY.md, daily logs, transcripts
+- `src/internal/` — Shared utilities (retry queue, latency metrics, transcript cleaner, fs safety, identity)
+- `openclaw.plugin.json` — Plugin manifest (id, config schema, UI hints)
+- `tests/unit/` — Unit tests (all mocked, no API key needed)
+- `tests/integration/` — Live API tests (requires CORTEX_API_KEY)
+- `tests/manual/` — End-to-end lifecycle simulations
+- `benchmark/` — Recall quality benchmarks
+- `scripts/` — Build helpers (API key injection, version sync, release verification)
+
+## Build & Verify
+
+```bash
+npm ci                    # install deps
+npm run build             # tsc + inject-api-key (needs BUILD_API_KEY env var for prod builds)
+npx tsc --noEmit          # type check only
+npm test                  # unit tests (~166 tests, no API key needed)
+npm run test:integration  # live API tests (needs CORTEX_API_KEY)
+npm run verify-release    # checks version consistency across package.json and plugin manifest
+```
+
+## Key Patterns
+
+- **Hook registration**: Uses `registerHookCompat()` to support both modern `api.registerHook()` and legacy `api.on()` — see src/plugin/index.ts:161
+- **Config env var resolution**: Config values like `${ENV_VAR}` are resolved at registration time — see src/plugin/index.ts:111
+- **Capture watermark**: Only new messages since last capture are sent to Cortex, not the full history — see src/features/capture/handler.ts
+- **API key baking**: Production builds embed the API key at build time via scripts/inject-api-key.mjs into src/internal/identity/api-key.ts
+- **Namespace derivation**: Workspace directory is hashed to auto-scope memories per project — see src/plugin/index.ts:33
+- **userId lifecycle**: Resolved async at startup, all handlers await `userIdReady` before firing — see src/plugin/index.ts:220
+
+## Non-Obvious Things
+
+- `npm run build` requires `BUILD_API_KEY` env var to bake the API key into the bundle. Without it, the baked key is empty and the plugin authenticates with whatever the runtime provides.
+- `npm run version` auto-syncs the version from package.json into openclaw.plugin.json before git add.
+- Integration and manual tests hit the live Cortex API and need `CORTEX_API_KEY` set.
+- The plugin registers as `kind: "memory"` which is mutually exclusive in OpenClaw — only one memory plugin can be active.
+- CI runs on Node 20 and 22. Tests must pass on both.
+
+## Agent Docs
+
+Read the relevant files before starting work:
+
+- `agent_docs/testing.md` — Test layers, how to run each, what needs API keys, manual test scripts
+- `agent_docs/plugin_hooks.md` — OpenClaw plugin API, hook contracts, data flow between recall/capture and the runtime
