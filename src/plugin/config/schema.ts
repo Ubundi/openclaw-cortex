@@ -31,6 +31,7 @@ export const CortexConfigSchema = z.object({
   autoCapture: z.boolean().default(true),
   recallLimit: z.number().int().min(1).max(50).default(10),
   recallTimeoutMs: z.number().int().min(100).max(10000).default(2000),
+  toolTimeoutMs: z.number().int().min(1000).max(30000).default(10000),
   fileSync: z.boolean().default(true),
   transcriptSync: z.boolean().default(true),
   namespace: z.string().min(1).default("openclaw"),

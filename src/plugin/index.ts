@@ -297,7 +297,7 @@ const plugin = {
           if (userIdReady) await userIdReady;
 
           try {
-            const response = await client.recall(query, config.recallTimeoutMs, {
+            const response = await client.recall(query, config.toolTimeoutMs, {
               limit,
               userId: userId,
               queryType: "combined",
@@ -405,7 +405,7 @@ const plugin = {
 
           // With args — search memories
           try {
-            const response = await client.recall(query, config.recallTimeoutMs, {
+            const response = await client.recall(query, config.toolTimeoutMs, {
               limit: config.recallLimit,
               userId,
               queryType: "combined",

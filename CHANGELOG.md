@@ -15,6 +15,7 @@ All notable changes to this project will be documented in this file.
 - **Session tracking**: `cortex_save_memory` now passes a per-lifecycle session ID to `/v1/remember`, creating SESSION nodes in the Cortex graph so `total_sessions` increments and tier progression works correctly.
 - **RememberResponse aligned with API**: Added `emotions`, `values`, `beliefs`, `insights` fields to match the Cortex RESONATE pipeline output. `cortex_save_memory` tool response now surfaces these when present.
 - **Recall filtering**: `client.recall()` now supports `minConfidence` and `includeUngrounded` options, matching the full Cortex `/v1/recall` request schema.
+- **Tool timeout**: Added `toolTimeoutMs` config (default 10s) for explicit tool calls (`cortex_search_memory`, `/memories`). Auto-recall hook keeps the fast `recallTimeoutMs` (default 2s) to avoid blocking agent turns, while user-initiated searches get a longer window to complete.
 - **Agent tool logging**: `cortex_search_memory` and `cortex_save_memory` now log query, result count, and entity info via `api.logger.info()` for visibility in `openclaw logs`.
 - **Hook registration**: Switched from legacy `api.on()` to modern `api.registerHook()` with metadata (`name`, `description`) for better diagnostics in `openclaw hooks list`. Falls back to `api.on()` on older runtimes.
 - **PluginApi interface**: Extended with `registerHook`, `registerTool`, `registerCommand`, and `registerGatewayMethod` types aligned with the official OpenClaw plugin documentation.
