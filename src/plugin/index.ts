@@ -164,12 +164,10 @@ function registerHookCompat(
   handler: (...args: any[]) => any,
   metadata: HookMetadata,
 ): void {
-  // Prefer legacy api.on() — registerHook may register under the metadata name
-  // rather than the event name, causing hooks to never fire.
-  if (api.on) {
-    api.on(hookName, handler);
-  } else if (api.registerHook) {
+  if (api.registerHook) {
     api.registerHook(hookName, handler, metadata);
+  } else if (api.on) {
+    api.on(hookName, handler);
   } else {
     api.logger.warn(`Cortex: cannot register hook "${hookName}" — no registerHook or on method available`);
   }
