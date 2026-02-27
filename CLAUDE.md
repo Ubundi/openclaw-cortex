@@ -34,7 +34,7 @@ before each turn and capture new facts after each turn. Also syncs local files
 npm ci                    # install deps
 npm run build             # tsc + inject-api-key (needs BUILD_API_KEY env var for prod builds)
 npx tsc --noEmit          # type check only
-npm test                  # unit tests (~166 tests, no API key needed)
+npm test                  # unit tests (167 tests, no API key needed)
 npm run test:integration  # live API tests (needs CORTEX_API_KEY)
 npm run verify-release    # checks version consistency across package.json and plugin manifest
 ```

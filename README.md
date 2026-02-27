@@ -18,8 +18,6 @@
 - **Gateway RPC** — `cortex.status` method for programmatic health and metrics access
 - **Resilience** — retry queue with exponential backoff, cold-start detection, latency metrics
 
-> **Cortex availability:** Cortex is currently in early testing. The plugin ships with access built in — no API key or account required.
-
 ## Prerequisites
 
 - Node.js `>=20`
@@ -153,6 +151,8 @@ Before every agent turn, the plugin queries Cortex's `/v1/recall` endpoint and p
 
 If the request exceeds `recallTimeoutMs`, the agent proceeds without memories (silent degradation). After 3 consecutive failures, recall is disabled for 30 seconds (cold-start detection) to avoid hammering a cold ECS task.
 
+![Recall Strategy Tiers](assets/readme_assets/Recall.png)
+
 ### Auto-Capture
 
 After each agent turn completes, the plugin flattens the turn's new messages into a `role: content` transcript and submits it to Cortex's `/v1/jobs/ingest` endpoint (async job queue). The job returns immediately and processes in the background — this avoids Lambda proxy timeouts that occur with synchronous ingestion. A watermark tracks how much of the conversation has already been ingested, so each message is sent exactly once — no overlap between turns. Tool call results (`role: "tool"`) are included alongside `user` and `assistant` messages, since tool output is where the substantive work of an agentic turn lives. A heuristic skips trivial exchanges (short messages, turns without a substantive response).
@@ -195,7 +195,7 @@ The `cortex.status` RPC method exposes plugin health and metrics programmaticall
 
 ```json
 {
-  "version": "0.5.2",
+  "version": "1.0.0",
   "healthy": true,
   "knowledgeState": { "hasMemories": true, "totalSessions": 42, "maturity": "mature", "tier": 3 },
   "recallMetrics": { "count": 120, "p50": 95, "p95": 280, "p99": 450 },
@@ -216,6 +216,26 @@ Use this to tune `recallTimeoutMs` for your deployment.
 
 ![Observability](assets/readme_assets/Observability.png)
 
+## Privacy & Data
+
+This plugin sends data to the Cortex API to provide memory functionality. Here's what leaves your machine:
+
+| Data | When | How to disable |
+|------|------|----------------|
+| Conversation messages (user + assistant) | After each agent turn | `autoCapture: false` |
+| Your current prompt | Before each agent turn | `autoRecall: false` |
+| MEMORY.md changes (added lines only) | On file save | `fileSync: false` |
+| Daily log files (`memory/*.md`) | On file save | `fileSync: false` |
+| Session transcripts (`sessions/*.jsonl`) | On file save | `transcriptSync: false` |
+
+Additionally, a randomly generated installation ID (`userId`) and a workspace namespace hash are sent with every request to scope your data. No personally identifiable information is collected.
+
+Before transmission, the plugin strips system prompts, tool call JSON, and base64-encoded images from transcripts. Prior recalled memories are also stripped from captured messages to prevent feedback loops.
+
+All data is transmitted over HTTPS. Each installation's data is isolated server-side by its unique `userId` — no other installation can access your memories.
+
+To disable all network activity, set `autoRecall: false`, `autoCapture: false`, `fileSync: false`, and `transcriptSync: false` in your config.
+
 ## Compatibility with SKILL.md
 
 If both this plugin and the Cortex SKILL.md are active, the `<cortex_memories>` tag in the prepended context signals to the skill that recall has already happened — the agent can skip manual `curl` calls.
@@ -231,7 +251,7 @@ If both this plugin and the Cortex SKILL.md are active, the `<cortex_memories>` 
 ```bash
 npm install
 npm run build      # TypeScript → dist/
-npm test           # Run vitest (166 tests)
+npm test           # Run vitest (167 tests)
 npm run test:watch # Watch mode
 npm run test:integration # Live Cortex API tests (uses the baked-in API key)
 ```

@@ -4,24 +4,32 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-02-27
+
 ### Added
 
 - **Agent Tools**: `cortex_search_memory` and `cortex_save_memory` tools registered via `api.registerTool()`, giving the LLM agent explicit memory search and save capabilities alongside auto-recall/capture.
 - **Auto-Reply Command**: `/memories [query]` command registered via `api.registerCommand()`. Shows memory status without args, searches memories with args. Executes without invoking the AI agent.
 - **Gateway RPC**: `cortex.status` method registered via `api.registerGatewayMethod()` for programmatic access to plugin health, knowledge state, recall metrics, and config.
+- **Async capture pipeline**: Auto-capture now submits transcripts via `/v1/jobs/ingest` (async job queue) instead of synchronous endpoints, avoiding Lambda proxy timeouts.
+- **Recall filtering**: `client.recall()` supports `minConfidence` and `includeUngrounded` options, matching the full Cortex `/v1/recall` request schema.
+- **Tool timeout**: `toolTimeoutMs` config (default 10s) for explicit tool calls, separate from the auto-recall `recallTimeoutMs`.
+- **Timestamp passthrough**: All Cortex API calls include `reference_date` for accurate temporal indexing.
+- **Recall block stripping**: Captured messages are stripped of prior `<cortex_memories>` blocks to prevent feedback loops.
 
 ### Changed
 
-- **Session tracking**: `cortex_save_memory` now passes a per-lifecycle session ID to `/v1/remember`, creating SESSION nodes in the Cortex graph so `total_sessions` increments and tier progression works correctly.
-- **RememberResponse aligned with API**: Added `emotions`, `values`, `beliefs`, `insights` fields to match the Cortex RESONATE pipeline output. `cortex_save_memory` tool response now surfaces these when present.
-- **Recall filtering**: `client.recall()` now supports `minConfidence` and `includeUngrounded` options, matching the full Cortex `/v1/recall` request schema.
-- **Tool timeout**: Added `toolTimeoutMs` config (default 10s) for explicit tool calls (`cortex_search_memory`, `/memories`). Auto-recall hook keeps the fast `recallTimeoutMs` (default 2s) to avoid blocking agent turns, while user-initiated searches get a longer window to complete.
-- **Agent tool logging**: `cortex_search_memory` and `cortex_save_memory` now log query, result count, and entity info via `api.logger.info()` for visibility in `openclaw logs`.
-- **Hook registration**: Uses `api.on()` for lifecycle hooks (`before_agent_start`, `agent_end`). `api.registerHook()` only registers hooks for display in `openclaw hooks list` but does not wire up event dispatch — `api.on()` is required for hooks to actually fire.
-- **Capture uses async jobs**: Auto-capture now submits transcripts via `/v1/jobs/ingest` (async job queue) instead of `/v1/remember` (synchronous). The synchronous endpoints consistently 503 under the Lambda proxy timeout when the RESONATE pipeline is slow. The job endpoint returns immediately and processes in the background.
-- **Capture debug logging**: Logs message count, total character size, sessionId, and userId on each capture for diagnosing API failures.
-- **PluginApi interface**: Extended with `registerHook`, `registerTool`, `registerCommand`, and `registerGatewayMethod` types aligned with the official OpenClaw plugin documentation.
-- All new registrations are optional — the plugin gracefully skips features when the runtime doesn't support them, maintaining backward compatibility with older OpenClaw versions.
+- **Session tracking**: `cortex_save_memory` passes a per-lifecycle session ID to `/v1/remember`, enabling SESSION nodes in the Cortex graph for tier progression.
+- **RememberResponse**: Aligned with API — surfaces `emotions`, `values`, `beliefs`, `insights` from the RESONATE pipeline.
+- **Hook registration**: Uses `api.on()` for lifecycle hooks. `api.registerHook()` only registers for display — `api.on()` is required for events to fire.
+- **PluginApi interface**: Extended with `registerHook`, `registerTool`, `registerCommand`, and `registerGatewayMethod` types.
+- **Capture debug logging**: Logs message count, character size, sessionId, and userId on each capture.
+- All new registrations are optional — the plugin gracefully skips features when the runtime doesn't support them.
+
+### Fixed
+
+- **Session resolution**: Capture handler falls back to `pluginSessionId` when runtime session ID is unavailable.
+- **Recall feedback loop**: Prior `<cortex_memories>` blocks are stripped from captured messages to prevent recalled content from being re-ingested as new facts.
 
 ## [0.3.2] - 2026-02-18
 

@@ -240,6 +240,17 @@ const plugin = {
 
     api.logger.info(`Cortex plugin registered (namespace=${namespace})`);
 
+    // First-run data disclosure — log what features are active so users know
+    // what data will be sent to the Cortex API.
+    const activeFeatures: string[] = [];
+    if (config.autoRecall) activeFeatures.push("auto-recall (sends prompts)");
+    if (config.autoCapture) activeFeatures.push("auto-capture (sends conversation transcripts)");
+    if (config.fileSync) activeFeatures.push("file-sync (sends MEMORY.md and daily log changes)");
+    if (config.transcriptSync) activeFeatures.push("transcript-sync (sends session transcripts)");
+    if (activeFeatures.length > 0) {
+      api.logger.info(`Cortex data features active: ${activeFeatures.join(", ")}. All data sent over HTTPS to ${config.baseUrl}. See README for details.`);
+    }
+
     // Async health check + knowledge probe — chained after userId resolves
     void userIdReady.then(() => bootstrapClient(client, api.logger, knowledgeState, userId));
 
