@@ -61,11 +61,13 @@ export function createRecallHandler(
     event: BeforeAgentStartEvent,
     _ctx: AgentContext,
   ): Promise<BeforeAgentStartResult | void> => {
+    logger.info("Cortex recall: hook fired");
+
     if (!config.autoRecall) return;
 
     // Skip recall when we know there are no memories yet
     if (knowledgeState && !knowledgeState.hasMemories) {
-      logger.debug?.("Cortex recall: skipped (no memories yet)");
+      logger.info("Cortex recall: skipped (no memories yet)");
       return;
     }
 

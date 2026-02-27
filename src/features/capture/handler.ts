@@ -72,6 +72,8 @@ export function createCaptureHandler(
   let capturesSinceRefresh = 0;
 
   return async (event: AgentEndEvent): Promise<void> => {
+    logger.info("Cortex capture: hook fired");
+
     if (!config.autoCapture) return;
     if (event.aborted) return;
     if (!event.messages?.length) return;
@@ -94,7 +96,7 @@ export function createCaptureHandler(
         .filter((msg) => msg.content.length > 0);
 
       if (!isWorthCapturing(normalized)) {
-        logger.debug?.("Cortex capture: skipping — not enough substantive content");
+        logger.info("Cortex capture: skipping — not enough substantive content");
         return;
       }
 
@@ -115,7 +117,7 @@ export function createCaptureHandler(
         // Re-evaluate userId at call time so retries pick up the resolved value
         const userId = getUserId?.();
         const res = await client.rememberConversation(trimmed, sessionId, undefined, undefined, userId);
-        logger.debug?.(`Cortex capture: remembered ${res.memories_created} memories`);
+        logger.info(`Cortex capture: remembered ${res.memories_created} memories`);
         if (knowledgeState && res.memories_created > 0) {
           knowledgeState.hasMemories = true;
         }
