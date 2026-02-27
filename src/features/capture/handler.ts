@@ -66,6 +66,7 @@ export function createCaptureHandler(
   knowledgeState?: KnowledgeState,
   getUserId?: () => string | undefined,
   userIdReady?: Promise<void>,
+  pluginSessionId?: string,
 ) {
   let captureCounter = 0;
   let lastCapturedAt = 0;
@@ -114,13 +115,24 @@ export function createCaptureHandler(
       // at startup, well before agent_end fires, but we await explicitly to be correct.
       if (userIdReady) await userIdReady;
 
-      const sessionId = event.sessionKey ?? event.sessionId;
+      const sessionId = event.sessionKey ?? event.sessionId ?? pluginSessionId;
       logger.debug?.(`Cortex capture: sessionId=${sessionId}, userId=${getUserId?.()}`);
 
       // Flatten messages into a role: content transcript for ingestion
       const transcript = trimmed
         .map((m) => `${m.role}: ${m.content}`)
         .join("\n\n");
+
+      // Log a summary of what's being sent
+      const roleCounts: Record<string, number> = {};
+      for (const m of trimmed) {
+        roleCounts[m.role] = (roleCounts[m.role] ?? 0) + 1;
+      }
+      const roleBreakdown = Object.entries(roleCounts).map(([r, n]) => `${r}=${n}`).join(", ");
+      const preview = transcript.length > 300 ? transcript.slice(0, 300) + "…" : transcript;
+      logger.info(
+        `Cortex capture summary: ${trimmed.length} msgs (${roleBreakdown}), ${transcript.length} chars, sessionId=${sessionId}\n--- transcript preview ---\n${preview}\n--- end preview ---`,
+      );
 
       const doRemember = async () => {
         // Re-evaluate userId at call time so retries pick up the resolved value

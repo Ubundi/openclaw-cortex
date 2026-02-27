@@ -16,6 +16,7 @@ interface MockLogger {
 interface MockApi {
   pluginConfig: Record<string, unknown>;
   logger: MockLogger;
+  on: ReturnType<typeof vi.fn>;
   registerHook: ReturnType<typeof vi.fn>;
   registerService: ReturnType<typeof vi.fn>;
   registerTool: ReturnType<typeof vi.fn>;
@@ -39,6 +40,10 @@ function makeApi(pluginConfig: Record<string, unknown>) {
   const api: MockApi = {
     pluginConfig,
     logger,
+    on: vi.fn((hookName: string, handler: HookHandler) => {
+      hooks[hookName] ??= [];
+      hooks[hookName].push(handler);
+    }),
     registerHook: vi.fn((hookName: string, handler: HookHandler, _metadata: { name: string; description: string }) => {
       hooks[hookName] ??= [];
       hooks[hookName].push(handler);
@@ -93,7 +98,7 @@ describe("plugin lifecycle contract", () => {
     vi.restoreAllMocks();
   });
 
-  it("register wires hooks and service via registerHook", async () => {
+  it("register wires hooks and service via api.on", async () => {
     const { api, hooks, services } = makeApi({
       fileSync: false,
     });
@@ -101,16 +106,14 @@ describe("plugin lifecycle contract", () => {
     plugin.register(api as any);
     await new Promise((r) => setTimeout(r, 20));
 
-    // Should use registerHook with metadata
-    expect(api.registerHook).toHaveBeenCalledWith(
+    // Should use api.on() (preferred over registerHook)
+    expect(api.on).toHaveBeenCalledWith(
       "before_agent_start",
       expect.any(Function),
-      { name: "openclaw-cortex.recall", description: expect.any(String) },
     );
-    expect(api.registerHook).toHaveBeenCalledWith(
+    expect(api.on).toHaveBeenCalledWith(
       "agent_end",
       expect.any(Function),
-      { name: "openclaw-cortex.capture", description: expect.any(String) },
     );
     expect(hooks.before_agent_start).toHaveLength(1);
     expect(hooks.agent_end).toHaveLength(1);
@@ -121,25 +124,28 @@ describe("plugin lifecycle contract", () => {
     expect(CortexClient.prototype.healthCheck).toHaveBeenCalledOnce();
   });
 
-  it("falls back to api.on when registerHook is not available", async () => {
+  it("falls back to registerHook when api.on is not available", async () => {
     const { api, hooks } = makeApi({ fileSync: false });
 
-    // Remove registerHook to simulate older runtime
-    const onFn = vi.fn((hookName: string, handler: HookHandler) => {
-      hooks[hookName] ??= [];
-      hooks[hookName].push(handler);
-    });
+    // Remove api.on to simulate runtime without it
     const fallbackApi = {
       ...api,
-      registerHook: undefined,
-      on: onFn,
+      on: undefined,
     };
 
     plugin.register(fallbackApi as any);
     await new Promise((r) => setTimeout(r, 20));
 
-    expect(onFn).toHaveBeenCalledWith("before_agent_start", expect.any(Function));
-    expect(onFn).toHaveBeenCalledWith("agent_end", expect.any(Function));
+    expect(api.registerHook).toHaveBeenCalledWith(
+      "before_agent_start",
+      expect.any(Function),
+      { name: "openclaw-cortex.recall", description: expect.any(String) },
+    );
+    expect(api.registerHook).toHaveBeenCalledWith(
+      "agent_end",
+      expect.any(Function),
+      { name: "openclaw-cortex.capture", description: expect.any(String) },
+    );
     expect(hooks.before_agent_start).toHaveLength(1);
     expect(hooks.agent_end).toHaveLength(1);
   });

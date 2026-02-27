@@ -260,7 +260,7 @@ const plugin = {
     registerHookCompat(
       api,
       "agent_end",
-      createCaptureHandler(client, config, api.logger, retryQueue, knowledgeState, () => userId, userIdReady),
+      createCaptureHandler(client, config, api.logger, retryQueue, knowledgeState, () => userId, userIdReady, sessionId),
       {
         name: "openclaw-cortex.capture",
         description: "Extract and store facts from conversation after agent turn",
