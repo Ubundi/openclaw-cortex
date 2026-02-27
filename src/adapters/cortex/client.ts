@@ -115,6 +115,10 @@ export interface RememberResponse {
   memories_created: number;
   entities_found: string[];
   facts: string[];
+  emotions: string[];
+  values: string[];
+  beliefs: string[];
+  insights: string[];
 }
 
 export interface ForgetResponse {
@@ -401,6 +405,8 @@ export class CortexClient {
       sessionFilter?: string;
       userId?: string;
       queryType?: QueryType;
+      minConfidence?: number;
+      includeUngrounded?: boolean;
     },
   ): Promise<RecallResponse> {
     return this.fetchJsonWithTimeout<RecallResponse>(
@@ -412,6 +418,8 @@ export class CortexClient {
         session_filter: options?.sessionFilter ?? undefined,
         user_id: options?.userId ?? undefined,
         query_type: options?.queryType ?? undefined,
+        min_confidence: options?.minConfidence ?? undefined,
+        include_ungrounded: options?.includeUngrounded ?? undefined,
       },
       timeoutMs,
       "recall",

@@ -206,6 +206,10 @@ const plugin = {
       lastChecked: 0,
     };
 
+    // Session ID for this plugin lifecycle — groups tool-saved memories into
+    // a single Cortex SESSION node so total_sessions increments properly.
+    const sessionId = randomUUID();
+
     // Whether the user explicitly set a namespace vs. relying on default
     const userSetNamespace = raw.namespace != null;
     let namespace = config.namespace;
@@ -338,15 +342,22 @@ const plugin = {
           if (userIdReady) await userIdReady;
 
           try {
-            const res = await client.remember(text, undefined, undefined, undefined, userId);
+            const res = await client.remember(text, sessionId, undefined, undefined, userId);
             if (knowledgeState && res.memories_created > 0) {
               knowledgeState.hasMemories = true;
             }
             api.logger.info(`Cortex tool: cortex_save_memory created ${res.memories_created} memories, entities: ${res.entities_found.join(", ") || "none"}`);
+            const parts = [`Saved ${res.memories_created} memory/memories.`];
+            if (res.entities_found.length) parts.push(`Entities: ${res.entities_found.join(", ")}.`);
+            if (res.facts.length) parts.push(`Facts: ${res.facts.join("; ")}.`);
+            if (res.emotions.length) parts.push(`Emotions: ${res.emotions.join(", ")}.`);
+            if (res.values.length) parts.push(`Values: ${res.values.join(", ")}.`);
+            if (res.beliefs.length) parts.push(`Beliefs: ${res.beliefs.join("; ")}.`);
+            if (res.insights.length) parts.push(`Insights: ${res.insights.join("; ")}.`);
             return {
               content: [{
                 type: "text",
-                text: `Saved ${res.memories_created} memory/memories. Entities found: ${res.entities_found.join(", ") || "none"}.`,
+                text: parts.join(" "),
               }],
             };
           } catch (err) {
