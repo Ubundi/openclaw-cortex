@@ -164,10 +164,10 @@ function registerHookCompat(
   handler: (...args: any[]) => any,
   metadata: HookMetadata,
 ): void {
-  if (api.registerHook) {
-    api.registerHook(hookName, handler, metadata);
-  } else if (api.on) {
+  if (api.on) {
     api.on(hookName, handler);
+  } else if (api.registerHook) {
+    api.registerHook(hookName, handler, metadata);
   } else {
     api.logger.warn(`Cortex: cannot register hook "${hookName}" — no registerHook or on method available`);
   }
