@@ -83,6 +83,7 @@ Add to your `openclaw.json`:
           autoCapture: true,
           recallLimit: 10,
           recallTimeoutMs: 2000,
+          toolTimeoutMs: 10000,
           fileSync: true,
           transcriptSync: true,
           // userId: "my-team-shared-id",  // override the auto-generated install ID
@@ -104,9 +105,11 @@ Add to your `openclaw.json`:
 | `autoRecall`      | boolean | `true`  | Inject relevant memories before each agent turn                                                  |
 | `autoCapture`     | boolean | `true`  | Extract and store facts after each agent turn                                                    |
 | `recallLimit`     | number  | `10`    | Max number of memories returned per recall                                                       |
-| `recallTimeoutMs` | number  | `2000`  | Recall request timeout in ms. Plugin auto-adjusts the floor based on pipeline tier.             |
+| `recallTimeoutMs` | number  | `2000`  | Auto-recall timeout in ms. Kept short to avoid blocking agent turns.                            |
+| `toolTimeoutMs`   | number  | `10000` | Timeout for explicit tool calls (`cortex_search_memory`, `/memories`). Longer than auto-recall since the user is actively waiting. |
 | `fileSync`        | boolean | `true`  | Watch and ingest `MEMORY.md` and daily log files                                                 |
 | `transcriptSync`  | boolean | `true`  | Watch and ingest session transcript files                                                        |
+| `namespace`       | string  | `"openclaw"` | Memory namespace. Auto-derived from workspace directory when not set explicitly.            |
 
 ## How It Works
 
@@ -152,7 +155,7 @@ If the request exceeds `recallTimeoutMs`, the agent proceeds without memories (s
 
 ### Auto-Capture
 
-After each agent turn completes, the plugin sends the turn's new messages to Cortex's `/v1/remember` endpoint. A watermark tracks how much of the conversation has already been ingested, so each message is sent exactly once — no overlap between turns. Tool call results (`role: "tool"`) are included alongside `user` and `assistant` messages, since tool output is where the substantive work of an agentic turn lives. A heuristic skips trivial exchanges (short messages, turns without a substantive response).
+After each agent turn completes, the plugin flattens the turn's new messages into a `role: content` transcript and submits it to Cortex's `/v1/jobs/ingest` endpoint (async job queue). The job returns immediately and processes in the background — this avoids Lambda proxy timeouts that occur with synchronous ingestion. A watermark tracks how much of the conversation has already been ingested, so each message is sent exactly once — no overlap between turns. Tool call results (`role: "tool"`) are included alongside `user` and `assistant` messages, since tool output is where the substantive work of an agentic turn lives. A heuristic skips trivial exchanges (short messages, turns without a substantive response).
 
 Capture is fire-and-forget — it never blocks the agent. Failed ingestions are queued for retry with exponential backoff (up to 5 retries).
 
@@ -220,7 +223,7 @@ If both this plugin and the Cortex SKILL.md are active, the `<cortex_memories>` 
 ## Troubleshooting
 
 - Plugin installed but no memory behavior: verify both `"enabled": true` and `"slots.memory": "@ubundi/openclaw-cortex"` in `openclaw.json`.
-- Frequent recall timeouts: increase `recallTimeoutMs` (the plugin auto-adjusts the floor based on pipeline tier).
+- Frequent recall timeouts: increase `recallTimeoutMs` for auto-recall or `toolTimeoutMs` for explicit searches.
 - No useful memories returned: ensure prior sessions were captured (`autoCapture`) or file sync is enabled (`fileSync`, `transcriptSync`).
 
 ## Development

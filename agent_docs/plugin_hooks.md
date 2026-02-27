@@ -24,6 +24,7 @@ OpenClaw calls `plugin.register(api)` with a PluginApi that provides logging, ho
 - **When**: After every agent turn (fire-and-forget, return value ignored)
 - **Input**: `event.messages` (full cumulative session history), `event.aborted`, `event.sessionKey` / `event.sessionId`
 - **Handler**: src/features/capture/handler.ts
+- **Ingestion**: Flattens messages into `role: content` transcript, submits via `/v1/jobs/ingest` (async job queue). Synchronous endpoints 503 under the Lambda proxy timeout.
 - **Behavior**:
   - Skipped if `autoCapture: false`
   - Skipped if `event.aborted` is true
@@ -54,4 +55,8 @@ Registered via `api.registerService({ id: "cortex-services", start, stop })`:
 
 ## Configuration
 
-Defined in src/plugin/config/schema.ts using Zod. The plugin manifest (openclaw.plugin.json) mirrors this schema for OpenClaw's UI. Key defaults: autoRecall=true, autoCapture=true, fileSync=true, transcriptSync=true, recallLimit=10, recallTimeoutMs=2000.
+Defined in src/plugin/config/schema.ts using Zod. The plugin manifest (openclaw.plugin.json) mirrors this schema for OpenClaw's UI. Key defaults: autoRecall=true, autoCapture=true, fileSync=true, transcriptSync=true, recallLimit=10, recallTimeoutMs=2000, toolTimeoutMs=10000.
+
+## Hook Registration
+
+Hooks are registered via `registerHookCompat()` which prefers `api.on()` over `api.registerHook()`. `api.registerHook()` only registers hooks for display in `openclaw hooks list` but does not wire up event dispatch. `api.on()` is required for lifecycle events to actually fire.

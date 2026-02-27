@@ -117,8 +117,7 @@ export function createCaptureHandler(
       const sessionId = event.sessionKey ?? event.sessionId;
       logger.debug?.(`Cortex capture: sessionId=${sessionId}, userId=${getUserId?.()}`);
 
-      // Flatten messages into a transcript — /v1/remember with `messages` array
-      // returns 503, but `text` format works reliably.
+      // Flatten messages into a role: content transcript for ingestion
       const transcript = trimmed
         .map((m) => `${m.role}: ${m.content}`)
         .join("\n\n");
@@ -126,9 +125,12 @@ export function createCaptureHandler(
       const doRemember = async () => {
         // Re-evaluate userId at call time so retries pick up the resolved value
         const userId = getUserId?.();
-        const res = await client.remember(transcript, sessionId, undefined, undefined, userId);
-        logger.info(`Cortex capture: remembered ${res.memories_created} memories`);
-        if (knowledgeState && res.memories_created > 0) {
+        // Use async job endpoint — /v1/remember and /v1/ingest both 503 under
+        // the Lambda proxy timeout when the RESONATE pipeline is slow.
+        // /v1/jobs/ingest returns immediately and processes in the background.
+        const job = await client.submitIngest(transcript, sessionId, undefined, userId);
+        logger.info(`Cortex capture: submitted job ${job.job_id} (status=${job.status})`);
+        if (knowledgeState) {
           knowledgeState.hasMemories = true;
         }
 

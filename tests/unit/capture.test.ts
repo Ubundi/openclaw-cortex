@@ -26,10 +26,10 @@ const logger = {
 };
 
 describe("createCaptureHandler", () => {
-  it("remembers conversation on successful agent end", async () => {
-    const rememberPromise = Promise.resolve({ session_id: "sess-1", memories_created: 2, entities_found: [], facts: [], emotions: [], values: [], beliefs: [], insights: [] });
-    const rememberMock = vi.fn().mockReturnValue(rememberPromise);
-    const client = { remember: rememberMock } as unknown as CortexClient;
+  it("submits ingestion job on successful agent end", async () => {
+    const submitPromise = Promise.resolve({ job_id: "job-1", status: "pending" });
+    const submitMock = vi.fn().mockReturnValue(submitPromise);
+    const client = { submitIngest: submitMock } as unknown as CortexClient;
 
     const handler = createCaptureHandler(client, makeConfig(), logger);
 
@@ -42,40 +42,39 @@ describe("createCaptureHandler", () => {
       sessionKey: "sess-1",
     });
 
-    await rememberPromise;
+    await submitPromise;
 
-    expect(rememberMock).toHaveBeenCalledWith(
+    expect(submitMock).toHaveBeenCalledWith(
       "user: What is the deployment strategy for our backend?\n\nassistant: The backend uses blue-green deployment on ECS Fargate with ALB.",
       "sess-1",
-      undefined,
       undefined,
       undefined,
     );
   });
 
   it("skips when autoCapture is disabled", async () => {
-    const rememberMock = vi.fn();
-    const client = { remember: rememberMock } as unknown as CortexClient;
+    const submitMock = vi.fn();
+    const client = { submitIngest: submitMock } as unknown as CortexClient;
     const handler = createCaptureHandler(client, makeConfig({ autoCapture: false }), logger);
 
     await handler({ messages: [{ role: "user", content: "test" }], aborted: false });
 
-    expect(rememberMock).not.toHaveBeenCalled();
+    expect(submitMock).not.toHaveBeenCalled();
   });
 
   it("skips when agent run was aborted", async () => {
-    const rememberMock = vi.fn();
-    const client = { remember: rememberMock } as unknown as CortexClient;
+    const submitMock = vi.fn();
+    const client = { submitIngest: submitMock } as unknown as CortexClient;
     const handler = createCaptureHandler(client, makeConfig(), logger);
 
     await handler({ messages: [{ role: "user", content: "long enough content to matter" }], aborted: true });
 
-    expect(rememberMock).not.toHaveBeenCalled();
+    expect(submitMock).not.toHaveBeenCalled();
   });
 
   it("skips when messages are too short", async () => {
-    const rememberMock = vi.fn();
-    const client = { remember: rememberMock } as unknown as CortexClient;
+    const submitMock = vi.fn();
+    const client = { submitIngest: submitMock } as unknown as CortexClient;
     const handler = createCaptureHandler(client, makeConfig(), logger);
 
     await handler({
@@ -86,13 +85,13 @@ describe("createCaptureHandler", () => {
       aborted: false,
     });
 
-    expect(rememberMock).not.toHaveBeenCalled();
+    expect(submitMock).not.toHaveBeenCalled();
   });
 
   it("handles array content blocks", async () => {
-    const rememberPromise = Promise.resolve({ session_id: null, memories_created: 1, entities_found: [], facts: [], emotions: [], values: [], beliefs: [], insights: [] });
-    const rememberMock = vi.fn().mockReturnValue(rememberPromise);
-    const client = { remember: rememberMock } as unknown as CortexClient;
+    const submitPromise = Promise.resolve({ job_id: "job-2", status: "pending" });
+    const submitMock = vi.fn().mockReturnValue(submitPromise);
+    const client = { submitIngest: submitMock } as unknown as CortexClient;
 
     const handler = createCaptureHandler(client, makeConfig(), logger);
 
@@ -109,16 +108,16 @@ describe("createCaptureHandler", () => {
       aborted: false,
     });
 
-    await rememberPromise;
+    await submitPromise;
 
-    const transcript = rememberMock.mock.calls[0][0] as string;
+    const transcript = submitMock.mock.calls[0][0] as string;
     expect(transcript).toContain("The project uses PostgreSQL with pgvector for embedding storage.");
   });
 
   it("extracts tool_result content from tool messages", async () => {
-    const rememberPromise = Promise.resolve({ session_id: null, memories_created: 1, entities_found: [], facts: [], emotions: [], values: [], beliefs: [], insights: [] });
-    const rememberMock = vi.fn().mockReturnValue(rememberPromise);
-    const client = { remember: rememberMock } as unknown as CortexClient;
+    const submitPromise = Promise.resolve({ job_id: "job-3", status: "pending" });
+    const submitMock = vi.fn().mockReturnValue(submitPromise);
+    const client = { submitIngest: submitMock } as unknown as CortexClient;
 
     const handler = createCaptureHandler(client, makeConfig(), logger);
 
@@ -132,15 +131,15 @@ describe("createCaptureHandler", () => {
       aborted: false,
     });
 
-    await rememberPromise;
+    await submitPromise;
 
-    const transcript = rememberMock.mock.calls[0][0] as string;
+    const transcript = submitMock.mock.calls[0][0] as string;
     expect(transcript).toContain("index.ts\nplugin.ts\nclient.ts");
   });
 
   it("only sends the delta on subsequent turns (watermark)", async () => {
-    const rememberMock = vi.fn().mockResolvedValue({ session_id: null, memories_created: 1, entities_found: [], facts: [], emotions: [], values: [], beliefs: [], insights: [] });
-    const client = { remember: rememberMock } as unknown as CortexClient;
+    const submitMock = vi.fn().mockResolvedValue({ job_id: "job-4", status: "pending" });
+    const client = { submitIngest: submitMock } as unknown as CortexClient;
 
     const handler = createCaptureHandler(client, makeConfig(), logger);
 
@@ -151,7 +150,7 @@ describe("createCaptureHandler", () => {
 
     // Turn 1: full history is [turn1]
     await handler({ messages: turn1Messages, aborted: false, sessionKey: "sess-1" });
-    await vi.waitFor(() => expect(rememberMock).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() => expect(submitMock).toHaveBeenCalledTimes(1));
 
     const turn2Delta = [
       { role: "user", content: "How does the health check work for the blue-green swap?" },
@@ -160,18 +159,18 @@ describe("createCaptureHandler", () => {
 
     // Turn 2: cumulative history is [turn1..., turn2...]
     await handler({ messages: [...turn1Messages, ...turn2Delta], aborted: false, sessionKey: "sess-1" });
-    await vi.waitFor(() => expect(rememberMock).toHaveBeenCalledTimes(2));
+    await vi.waitFor(() => expect(submitMock).toHaveBeenCalledTimes(2));
 
     // Second call should only contain the turn 2 delta, not turn 1 again
-    const secondTranscript = rememberMock.mock.calls[1][0] as string;
+    const secondTranscript = submitMock.mock.calls[1][0] as string;
     expect(secondTranscript).toContain("How does the health check work for the blue-green swap?");
     expect(secondTranscript).not.toContain("What is the deployment strategy");
   });
 
   it("falls back to sessionId when sessionKey is absent", async () => {
-    const rememberPromise = Promise.resolve({ session_id: null, memories_created: 1, entities_found: [], facts: [], emotions: [], values: [], beliefs: [], insights: [] });
-    const rememberMock = vi.fn().mockReturnValue(rememberPromise);
-    const client = { remember: rememberMock } as unknown as CortexClient;
+    const submitPromise = Promise.resolve({ job_id: "job-5", status: "pending" });
+    const submitMock = vi.fn().mockReturnValue(submitPromise);
+    const client = { submitIngest: submitMock } as unknown as CortexClient;
 
     const handler = createCaptureHandler(client, makeConfig(), logger);
 
@@ -184,7 +183,7 @@ describe("createCaptureHandler", () => {
       sessionId: "fallback-id",
     });
 
-    await rememberPromise;
-    expect(rememberMock).toHaveBeenCalledWith(expect.any(String), "fallback-id", undefined, undefined, undefined);
+    await submitPromise;
+    expect(submitMock).toHaveBeenCalledWith(expect.any(String), "fallback-id", undefined, undefined);
   });
 });

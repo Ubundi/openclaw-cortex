@@ -308,10 +308,11 @@ export class CortexClient {
     text: string,
     sessionId?: string,
     referenceDate?: string,
+    userId?: string,
   ): Promise<JobSubmitResponse> {
     return this.fetchJsonWithTimeout<JobSubmitResponse>(
       `${this.baseUrl}/v1/jobs/ingest`,
-      { text, session_id: sessionId, reference_date: referenceDate ?? null },
+      { text, session_id: sessionId, reference_date: referenceDate ?? null, ...(userId ? { user_id: userId } : {}) },
       DEFAULT_SUBMIT_TIMEOUT_MS,
       "jobs/ingest",
     );
