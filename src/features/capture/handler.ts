@@ -117,10 +117,16 @@ export function createCaptureHandler(
       const sessionId = event.sessionKey ?? event.sessionId;
       logger.debug?.(`Cortex capture: sessionId=${sessionId}, userId=${getUserId?.()}`);
 
+      // Flatten messages into a transcript — /v1/remember with `messages` array
+      // returns 503, but `text` format works reliably.
+      const transcript = trimmed
+        .map((m) => `${m.role}: ${m.content}`)
+        .join("\n\n");
+
       const doRemember = async () => {
         // Re-evaluate userId at call time so retries pick up the resolved value
         const userId = getUserId?.();
-        const res = await client.rememberConversation(trimmed, sessionId, undefined, undefined, userId);
+        const res = await client.remember(transcript, sessionId, undefined, undefined, userId);
         logger.info(`Cortex capture: remembered ${res.memories_created} memories`);
         if (knowledgeState && res.memories_created > 0) {
           knowledgeState.hasMemories = true;

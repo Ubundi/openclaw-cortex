@@ -10,6 +10,7 @@ function makeConfig(overrides: Partial<CortexConfig> = {}): CortexConfig {
     autoCapture: true,
     recallLimit: 10,
     recallTimeoutMs: 500,
+    toolTimeoutMs: 10000,
     fileSync: true,
     transcriptSync: true,
     ...overrides,
@@ -26,9 +27,9 @@ const logger = {
 
 describe("createCaptureHandler", () => {
   it("remembers conversation on successful agent end", async () => {
-    const rememberPromise = Promise.resolve({ session_id: "sess-1", memories_created: 2, entities_found: [], facts: [] });
+    const rememberPromise = Promise.resolve({ session_id: "sess-1", memories_created: 2, entities_found: [], facts: [], emotions: [], values: [], beliefs: [], insights: [] });
     const rememberMock = vi.fn().mockReturnValue(rememberPromise);
-    const client = { rememberConversation: rememberMock } as unknown as CortexClient;
+    const client = { remember: rememberMock } as unknown as CortexClient;
 
     const handler = createCaptureHandler(client, makeConfig(), logger);
 
@@ -44,10 +45,7 @@ describe("createCaptureHandler", () => {
     await rememberPromise;
 
     expect(rememberMock).toHaveBeenCalledWith(
-      [
-        { role: "user", content: "What is the deployment strategy for our backend?" },
-        { role: "assistant", content: "The backend uses blue-green deployment on ECS Fargate with ALB." },
-      ],
+      "user: What is the deployment strategy for our backend?\n\nassistant: The backend uses blue-green deployment on ECS Fargate with ALB.",
       "sess-1",
       undefined,
       undefined,
@@ -57,7 +55,7 @@ describe("createCaptureHandler", () => {
 
   it("skips when autoCapture is disabled", async () => {
     const rememberMock = vi.fn();
-    const client = { rememberConversation: rememberMock } as unknown as CortexClient;
+    const client = { remember: rememberMock } as unknown as CortexClient;
     const handler = createCaptureHandler(client, makeConfig({ autoCapture: false }), logger);
 
     await handler({ messages: [{ role: "user", content: "test" }], aborted: false });
@@ -67,7 +65,7 @@ describe("createCaptureHandler", () => {
 
   it("skips when agent run was aborted", async () => {
     const rememberMock = vi.fn();
-    const client = { rememberConversation: rememberMock } as unknown as CortexClient;
+    const client = { remember: rememberMock } as unknown as CortexClient;
     const handler = createCaptureHandler(client, makeConfig(), logger);
 
     await handler({ messages: [{ role: "user", content: "long enough content to matter" }], aborted: true });
@@ -77,7 +75,7 @@ describe("createCaptureHandler", () => {
 
   it("skips when messages are too short", async () => {
     const rememberMock = vi.fn();
-    const client = { rememberConversation: rememberMock } as unknown as CortexClient;
+    const client = { remember: rememberMock } as unknown as CortexClient;
     const handler = createCaptureHandler(client, makeConfig(), logger);
 
     await handler({
@@ -92,9 +90,9 @@ describe("createCaptureHandler", () => {
   });
 
   it("handles array content blocks", async () => {
-    const rememberPromise = Promise.resolve({ session_id: null, memories_created: 1, entities_found: [], facts: [] });
+    const rememberPromise = Promise.resolve({ session_id: null, memories_created: 1, entities_found: [], facts: [], emotions: [], values: [], beliefs: [], insights: [] });
     const rememberMock = vi.fn().mockReturnValue(rememberPromise);
-    const client = { rememberConversation: rememberMock } as unknown as CortexClient;
+    const client = { remember: rememberMock } as unknown as CortexClient;
 
     const handler = createCaptureHandler(client, makeConfig(), logger);
 
@@ -113,16 +111,14 @@ describe("createCaptureHandler", () => {
 
     await rememberPromise;
 
-    const callArgs = rememberMock.mock.calls[0][0];
-    expect(callArgs[1].content).toBe(
-      "The project uses PostgreSQL with pgvector for embedding storage.",
-    );
+    const transcript = rememberMock.mock.calls[0][0] as string;
+    expect(transcript).toContain("The project uses PostgreSQL with pgvector for embedding storage.");
   });
 
   it("extracts tool_result content from tool messages", async () => {
-    const rememberPromise = Promise.resolve({ session_id: null, memories_created: 1, entities_found: [], facts: [] });
+    const rememberPromise = Promise.resolve({ session_id: null, memories_created: 1, entities_found: [], facts: [], emotions: [], values: [], beliefs: [], insights: [] });
     const rememberMock = vi.fn().mockReturnValue(rememberPromise);
-    const client = { rememberConversation: rememberMock } as unknown as CortexClient;
+    const client = { remember: rememberMock } as unknown as CortexClient;
 
     const handler = createCaptureHandler(client, makeConfig(), logger);
 
@@ -138,15 +134,13 @@ describe("createCaptureHandler", () => {
 
     await rememberPromise;
 
-    const callArgs = rememberMock.mock.calls[0][0] as Array<{ role: string; content: string }>;
-    const toolMsg = callArgs.find((m) => m.role === "tool");
-    expect(toolMsg).toBeDefined();
-    expect(toolMsg!.content).toBe("index.ts\nplugin.ts\nclient.ts");
+    const transcript = rememberMock.mock.calls[0][0] as string;
+    expect(transcript).toContain("index.ts\nplugin.ts\nclient.ts");
   });
 
   it("only sends the delta on subsequent turns (watermark)", async () => {
-    const rememberMock = vi.fn().mockResolvedValue({ session_id: null, memories_created: 1, entities_found: [], facts: [] });
-    const client = { rememberConversation: rememberMock } as unknown as CortexClient;
+    const rememberMock = vi.fn().mockResolvedValue({ session_id: null, memories_created: 1, entities_found: [], facts: [], emotions: [], values: [], beliefs: [], insights: [] });
+    const client = { remember: rememberMock } as unknown as CortexClient;
 
     const handler = createCaptureHandler(client, makeConfig(), logger);
 
@@ -169,15 +163,15 @@ describe("createCaptureHandler", () => {
     await vi.waitFor(() => expect(rememberMock).toHaveBeenCalledTimes(2));
 
     // Second call should only contain the turn 2 delta, not turn 1 again
-    const secondCallMessages = rememberMock.mock.calls[1][0] as Array<{ role: string; content: string }>;
-    expect(secondCallMessages).toHaveLength(2);
-    expect(secondCallMessages[0].content).toBe("How does the health check work for the blue-green swap?");
+    const secondTranscript = rememberMock.mock.calls[1][0] as string;
+    expect(secondTranscript).toContain("How does the health check work for the blue-green swap?");
+    expect(secondTranscript).not.toContain("What is the deployment strategy");
   });
 
   it("falls back to sessionId when sessionKey is absent", async () => {
-    const rememberPromise = Promise.resolve({ session_id: null, memories_created: 1, entities_found: [], facts: [] });
+    const rememberPromise = Promise.resolve({ session_id: null, memories_created: 1, entities_found: [], facts: [], emotions: [], values: [], beliefs: [], insights: [] });
     const rememberMock = vi.fn().mockReturnValue(rememberPromise);
-    const client = { rememberConversation: rememberMock } as unknown as CortexClient;
+    const client = { remember: rememberMock } as unknown as CortexClient;
 
     const handler = createCaptureHandler(client, makeConfig(), logger);
 
@@ -191,6 +185,6 @@ describe("createCaptureHandler", () => {
     });
 
     await rememberPromise;
-    expect(rememberMock).toHaveBeenCalledWith(expect.any(Array), "fallback-id", undefined, undefined, undefined);
+    expect(rememberMock).toHaveBeenCalledWith(expect.any(String), "fallback-id", undefined, undefined, undefined);
   });
 });
