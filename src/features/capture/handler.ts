@@ -104,6 +104,9 @@ export function createCaptureHandler(
       const MAX_MESSAGES = 200;
       const trimmed = normalized.length > MAX_MESSAGES ? normalized.slice(-MAX_MESSAGES) : normalized;
 
+      const totalChars = trimmed.reduce((sum, m) => sum + m.content.length, 0);
+      logger.info(`Cortex capture: ${trimmed.length} messages, ${totalChars} chars`);
+
       // Advance watermark before async work so a second turn doesn't re-send this delta
       lastCapturedAt = event.messages.length;
 
@@ -112,6 +115,7 @@ export function createCaptureHandler(
       if (userIdReady) await userIdReady;
 
       const sessionId = event.sessionKey ?? event.sessionId;
+      logger.debug?.(`Cortex capture: sessionId=${sessionId}, userId=${getUserId?.()}`);
 
       const doRemember = async () => {
         // Re-evaluate userId at call time so retries pick up the resolved value
