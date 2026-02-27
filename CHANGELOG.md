@@ -12,6 +12,7 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
+- **Agent tool logging**: `cortex_search_memory` and `cortex_save_memory` now log query, result count, and entity info via `api.logger.info()` for visibility in `openclaw logs`.
 - **Hook registration**: Switched from legacy `api.on()` to modern `api.registerHook()` with metadata (`name`, `description`) for better diagnostics in `openclaw hooks list`. Falls back to `api.on()` on older runtimes.
 - **PluginApi interface**: Extended with `registerHook`, `registerTool`, `registerCommand`, and `registerGatewayMethod` types aligned with the official OpenClaw plugin documentation.
 - All new registrations are optional — the plugin gracefully skips features when the runtime doesn't support them, maintaining backward compatibility with older OpenClaw versions.

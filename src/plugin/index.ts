@@ -288,6 +288,8 @@ const plugin = {
           const query = String(params.query ?? "");
           const limit = Math.min(Math.max(Number(params.limit) || 10, 1), 50);
 
+          api.logger.info(`Cortex tool: cortex_search_memory called (query="${query.slice(0, 80)}", limit=${limit})`);
+
           if (userIdReady) await userIdReady;
 
           try {
@@ -298,12 +300,15 @@ const plugin = {
             });
 
             if (!response.memories?.length) {
+              api.logger.info("Cortex tool: cortex_search_memory returned 0 results");
               return { content: [{ type: "text", text: "No memories found matching that query." }] };
             }
 
+            api.logger.info(`Cortex tool: cortex_search_memory returned ${response.memories.length} memories`);
             const formatted = formatMemories(response.memories);
             return { content: [{ type: "text", text: formatted }] };
           } catch (err) {
+            api.logger.warn(`Cortex tool: cortex_search_memory failed: ${String(err)}`);
             return { content: [{ type: "text", text: `Memory search failed: ${String(err)}` }] };
           }
         },
@@ -328,6 +333,8 @@ const plugin = {
             return { content: [{ type: "text", text: "Text too short to save as a memory." }] };
           }
 
+          api.logger.info(`Cortex tool: cortex_save_memory called (text="${text.slice(0, 80)}")`);
+
           if (userIdReady) await userIdReady;
 
           try {
@@ -335,6 +342,7 @@ const plugin = {
             if (knowledgeState && res.memories_created > 0) {
               knowledgeState.hasMemories = true;
             }
+            api.logger.info(`Cortex tool: cortex_save_memory created ${res.memories_created} memories, entities: ${res.entities_found.join(", ") || "none"}`);
             return {
               content: [{
                 type: "text",
@@ -342,6 +350,7 @@ const plugin = {
               }],
             };
           } catch (err) {
+            api.logger.warn(`Cortex tool: cortex_save_memory failed: ${String(err)}`);
             return { content: [{ type: "text", text: `Failed to save memory: ${String(err)}` }] };
           }
         },
