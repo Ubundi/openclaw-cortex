@@ -147,7 +147,7 @@ export function createCaptureHandler(
         // Use async job endpoint — /v1/remember and /v1/ingest both 503 under
         // the Lambda proxy timeout when the RESONATE pipeline is slow.
         // /v1/jobs/ingest returns immediately and processes in the background.
-        const job = await client.submitIngest(transcript, sessionId, undefined, userId);
+        const job = await client.submitIngest(transcript, sessionId, new Date().toISOString(), userId);
         logger.info(`Cortex capture: submitted job ${job.job_id} (status=${job.status})`);
         if (knowledgeState) {
           knowledgeState.hasMemories = true;

@@ -47,7 +47,7 @@ describe("createCaptureHandler", () => {
     expect(submitMock).toHaveBeenCalledWith(
       "user: What is the deployment strategy for our backend?\n\nassistant: The backend uses blue-green deployment on ECS Fargate with ALB.",
       "sess-1",
-      undefined,
+      expect.any(String),
       undefined,
     );
   });
@@ -215,6 +215,6 @@ describe("createCaptureHandler", () => {
     });
 
     await submitPromise;
-    expect(submitMock).toHaveBeenCalledWith(expect.any(String), "fallback-id", undefined, undefined);
+    expect(submitMock).toHaveBeenCalledWith(expect.any(String), "fallback-id", expect.any(String), undefined);
   });
 });

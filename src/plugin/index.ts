@@ -342,7 +342,7 @@ const plugin = {
           if (userIdReady) await userIdReady;
 
           try {
-            const res = await client.remember(text, sessionId, undefined, undefined, userId);
+            const res = await client.remember(text, sessionId, undefined, new Date().toISOString(), userId);
             if (knowledgeState && res.memories_created > 0) {
               knowledgeState.hasMemories = true;
             }
