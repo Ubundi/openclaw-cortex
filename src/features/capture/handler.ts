@@ -28,6 +28,13 @@ type Logger = {
 
 const MIN_CONTENT_LENGTH = 20;
 
+/** Strip injected recall block so we don't re-ingest recalled memories as new content */
+const RECALL_BLOCK_RE = /\s*<cortex_memories>[\s\S]*?<\/cortex_memories>\s*/g;
+
+function stripRecallBlock(text: string): string {
+  return text.replace(RECALL_BLOCK_RE, "").trim();
+}
+
 function extractContent(content: unknown): string {
   if (typeof content === "string") return content;
   if (Array.isArray(content)) {
@@ -92,7 +99,7 @@ export function createCaptureHandler(
         )
         .map((msg) => ({
           role: String(msg.role),
-          content: extractContent(msg.content),
+          content: stripRecallBlock(extractContent(msg.content)),
         }))
         .filter((msg) => msg.content.length > 0);
 
