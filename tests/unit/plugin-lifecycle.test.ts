@@ -16,13 +16,19 @@ interface MockLogger {
 interface MockApi {
   pluginConfig: Record<string, unknown>;
   logger: MockLogger;
-  on: ReturnType<typeof vi.fn>;
+  registerHook: ReturnType<typeof vi.fn>;
   registerService: ReturnType<typeof vi.fn>;
+  registerTool: ReturnType<typeof vi.fn>;
+  registerCommand: ReturnType<typeof vi.fn>;
+  registerGatewayMethod: ReturnType<typeof vi.fn>;
 }
 
 function makeApi(pluginConfig: Record<string, unknown>) {
   const hooks: Record<string, HookHandler[]> = {};
   const services: Array<{ id: string; start?: (ctx: { workspaceDir?: string }) => void; stop?: () => void }> = [];
+  const tools: Array<{ name: string; description: string; parameters: unknown; execute: Function }> = [];
+  const commands: Array<{ name: string; description: string; handler: Function }> = [];
+  const rpcMethods: Record<string, Function> = {};
   const logger: MockLogger = {
     debug: vi.fn(),
     info: vi.fn(),
@@ -33,16 +39,25 @@ function makeApi(pluginConfig: Record<string, unknown>) {
   const api: MockApi = {
     pluginConfig,
     logger,
-    on: vi.fn((hookName: string, handler: HookHandler) => {
+    registerHook: vi.fn((hookName: string, handler: HookHandler, _metadata: { name: string; description: string }) => {
       hooks[hookName] ??= [];
       hooks[hookName].push(handler);
     }),
     registerService: vi.fn((service) => {
       services.push(service);
     }),
+    registerTool: vi.fn((definition) => {
+      tools.push(definition);
+    }),
+    registerCommand: vi.fn((definition) => {
+      commands.push(definition);
+    }),
+    registerGatewayMethod: vi.fn((name: string, handler: Function) => {
+      rpcMethods[name] = handler;
+    }),
   };
 
-  return { api, hooks, services, logger };
+  return { api, hooks, services, tools, commands, rpcMethods, logger };
 }
 
 async function flushMicrotasks() {
@@ -78,18 +93,25 @@ describe("plugin lifecycle contract", () => {
     vi.restoreAllMocks();
   });
 
-  it("register wires hooks and service", async () => {
+  it("register wires hooks and service via registerHook", async () => {
     const { api, hooks, services } = makeApi({
       fileSync: false,
     });
 
     plugin.register(api as any);
-    // userIdReady involves filesystem I/O; wait long enough for it to resolve
-    // before bootstrapClient (which calls healthCheck) is invoked.
     await new Promise((r) => setTimeout(r, 20));
 
-    expect(api.on).toHaveBeenCalledWith("before_agent_start", expect.any(Function));
-    expect(api.on).toHaveBeenCalledWith("agent_end", expect.any(Function));
+    // Should use registerHook with metadata
+    expect(api.registerHook).toHaveBeenCalledWith(
+      "before_agent_start",
+      expect.any(Function),
+      { name: "openclaw-cortex.recall", description: expect.any(String) },
+    );
+    expect(api.registerHook).toHaveBeenCalledWith(
+      "agent_end",
+      expect.any(Function),
+      { name: "openclaw-cortex.capture", description: expect.any(String) },
+    );
     expect(hooks.before_agent_start).toHaveLength(1);
     expect(hooks.agent_end).toHaveLength(1);
 
@@ -97,6 +119,70 @@ describe("plugin lifecycle contract", () => {
     expect(services[0]?.id).toBe("cortex-services");
 
     expect(CortexClient.prototype.healthCheck).toHaveBeenCalledOnce();
+  });
+
+  it("falls back to api.on when registerHook is not available", async () => {
+    const { api, hooks } = makeApi({ fileSync: false });
+
+    // Remove registerHook to simulate older runtime
+    const onFn = vi.fn((hookName: string, handler: HookHandler) => {
+      hooks[hookName] ??= [];
+      hooks[hookName].push(handler);
+    });
+    const fallbackApi = {
+      ...api,
+      registerHook: undefined,
+      on: onFn,
+    };
+
+    plugin.register(fallbackApi as any);
+    await new Promise((r) => setTimeout(r, 20));
+
+    expect(onFn).toHaveBeenCalledWith("before_agent_start", expect.any(Function));
+    expect(onFn).toHaveBeenCalledWith("agent_end", expect.any(Function));
+    expect(hooks.before_agent_start).toHaveLength(1);
+    expect(hooks.agent_end).toHaveLength(1);
+  });
+
+  it("registers agent tools", async () => {
+    const { api, tools } = makeApi({ fileSync: false });
+
+    plugin.register(api as any);
+    await flushMicrotasks();
+
+    expect(api.registerTool).toHaveBeenCalledTimes(2);
+    const toolNames = tools.map((t) => t.name);
+    expect(toolNames).toContain("cortex_search_memory");
+    expect(toolNames).toContain("cortex_save_memory");
+  });
+
+  it("registers auto-reply command", async () => {
+    const { api, commands } = makeApi({ fileSync: false });
+
+    plugin.register(api as any);
+    await flushMicrotasks();
+
+    expect(api.registerCommand).toHaveBeenCalledTimes(1);
+    expect(commands[0]?.name).toBe("memories");
+  });
+
+  it("registers Gateway RPC method", async () => {
+    const { api, rpcMethods } = makeApi({ fileSync: false });
+
+    plugin.register(api as any);
+    await flushMicrotasks();
+
+    expect(api.registerGatewayMethod).toHaveBeenCalledWith("cortex.status", expect.any(Function));
+    expect(rpcMethods["cortex.status"]).toBeDefined();
+
+    // Test the RPC handler responds with status
+    let rpcResponse: unknown;
+    rpcMethods["cortex.status"]({
+      respond: (_ok: boolean, data: unknown) => { rpcResponse = data; },
+    });
+    expect(rpcResponse).toHaveProperty("version");
+    expect(rpcResponse).toHaveProperty("knowledgeState");
+    expect(rpcResponse).toHaveProperty("config");
   });
 
   it("service start/stop initializes retry queue and file sync", async () => {
@@ -223,9 +309,8 @@ describe("plugin lifecycle contract", () => {
     });
 
     plugin.register(api as any);
-    await flushMicrotasks();
-    // Allow the bootstrapClient promise chain to resolve
-    await new Promise((r) => setTimeout(r, 10));
+    // Allow the bootstrapClient promise chain (userId + healthCheck + knowledge) to resolve
+    await new Promise((r) => setTimeout(r, 50));
 
     expect(logger.info).toHaveBeenCalledWith(
       "Cortex knowledge: maturity=warming, sessions=18, memories=142, tier=2",
@@ -248,5 +333,25 @@ describe("plugin lifecycle contract", () => {
     expect(logger.info).not.toHaveBeenCalledWith(
       expect.stringContaining("Cortex knowledge:"),
     );
+  });
+
+  it("skips optional registrations when methods are unavailable", async () => {
+    const { api } = makeApi({ fileSync: false });
+
+    // Remove optional methods to simulate minimal runtime
+    const minimalApi = {
+      pluginConfig: api.pluginConfig,
+      logger: api.logger,
+      registerHook: api.registerHook,
+      registerService: api.registerService,
+      // No registerTool, registerCommand, registerGatewayMethod
+    };
+
+    plugin.register(minimalApi as any);
+    await flushMicrotasks();
+
+    // Should still register hooks and service without errors
+    expect(api.registerHook).toHaveBeenCalledTimes(2);
+    expect(api.registerService).toHaveBeenCalledTimes(1);
   });
 });

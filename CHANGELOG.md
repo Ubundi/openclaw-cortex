@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Added
+
+- **Agent Tools**: `cortex_search_memory` and `cortex_save_memory` tools registered via `api.registerTool()`, giving the LLM agent explicit memory search and save capabilities alongside auto-recall/capture.
+- **Auto-Reply Command**: `/memories [query]` command registered via `api.registerCommand()`. Shows memory status without args, searches memories with args. Executes without invoking the AI agent.
+- **Gateway RPC**: `cortex.status` method registered via `api.registerGatewayMethod()` for programmatic access to plugin health, knowledge state, recall metrics, and config.
+
+### Changed
+
+- **Hook registration**: Switched from legacy `api.on()` to modern `api.registerHook()` with metadata (`name`, `description`) for better diagnostics in `openclaw hooks list`. Falls back to `api.on()` on older runtimes.
+- **PluginApi interface**: Extended with `registerHook`, `registerTool`, `registerCommand`, and `registerGatewayMethod` types aligned with the official OpenClaw plugin documentation.
+- All new registrations are optional — the plugin gracefully skips features when the runtime doesn't support them, maintaining backward compatibility with older OpenClaw versions.
+
 ## [0.3.2] - 2026-02-18
 
 ### Added

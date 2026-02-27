@@ -12,7 +12,10 @@
 
 - **Auto-Recall** — injects relevant memories before every agent turn via `before_agent_start` hook
 - **Auto-Capture** — extracts facts from conversations via `agent_end` hook
+- **Agent Tools** — `cortex_search_memory` and `cortex_save_memory` tools the LLM can invoke directly
+- **Commands** — `/memories` auto-reply command for quick status checks and memory search
 - **File Sync** — watches `MEMORY.md`, daily logs, and session transcripts for background ingestion
+- **Gateway RPC** — `cortex.status` method for programmatic health and metrics access
 - **Resilience** — retry queue with exponential backoff, cold-start detection, latency metrics
 
 > **Cortex availability:** Cortex is currently in early testing. The plugin ships with access built in — no API key or account required.
@@ -163,6 +166,41 @@ The plugin watches OpenClaw's memory files and ingests changes into Cortex:
 
 Failed file sync operations are queued for retry, so transient network failures don't cause data loss.
 
+### Agent Tools
+
+The plugin registers two tools the LLM agent can invoke directly:
+
+- **`cortex_search_memory`** — search long-term memory with a natural language query. Returns matching memories with confidence scores. Use when the agent needs to recall something specific.
+- **`cortex_save_memory`** — explicitly save a fact, preference, or piece of information to long-term memory. Use when the user asks "remember this" or the agent identifies something worth persisting.
+
+These work alongside Auto-Recall/Auto-Capture — the automatic hooks handle background memory flow, while the tools give the agent explicit control when needed.
+
+> Agent tools require the OpenClaw runtime to support `api.registerTool()`. On older runtimes, the plugin gracefully skips tool registration.
+
+### Commands
+
+The plugin registers a `/memories` auto-reply command that executes without invoking the AI agent:
+
+```
+/memories              # Show memory status (count, maturity, tier, latency)
+/memories dark mode    # Search memories for "dark mode"
+```
+
+### Gateway RPC
+
+The `cortex.status` RPC method exposes plugin health and metrics programmatically:
+
+```json
+{
+  "version": "0.5.2",
+  "healthy": true,
+  "knowledgeState": { "hasMemories": true, "totalSessions": 42, "maturity": "mature", "tier": 3 },
+  "recallMetrics": { "count": 120, "p50": 95, "p95": 280, "p99": 450 },
+  "retryQueuePending": 0,
+  "config": { "autoRecall": true, "autoCapture": true, "fileSync": true, "transcriptSync": true, "namespace": "myproject-a1b2c3d4" }
+}
+```
+
 ### Observability
 
 On shutdown, the plugin logs recall latency percentiles:
@@ -190,7 +228,7 @@ If both this plugin and the Cortex SKILL.md are active, the `<cortex_memories>` 
 ```bash
 npm install
 npm run build      # TypeScript → dist/
-npm test           # Run vitest (159 tests)
+npm test           # Run vitest (166 tests)
 npm run test:watch # Watch mode
 npm run test:integration # Live Cortex API tests (uses the baked-in API key)
 ```

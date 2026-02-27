@@ -10,6 +10,7 @@ import { RetryQueue } from "../internal/queue/retry-queue.js";
 import { LatencyMetrics } from "../internal/metrics/latency-metrics.js";
 import { loadOrCreateUserId } from "../internal/identity/user-id.js";
 import { BAKED_API_KEY } from "../internal/identity/api-key.js";
+import { formatMemories } from "../features/recall/formatter.js";
 
 export interface KnowledgeState {
   hasMemories: boolean;
@@ -35,6 +36,39 @@ function deriveNamespace(workspaceDir: string): string {
   return `${name}-${hash}`;
 }
 
+// --- OpenClaw Plugin API types (per docs.openclaw.ai/tools/plugin) ---
+
+interface HookMetadata {
+  name: string;
+  description: string;
+}
+
+interface ToolDefinition {
+  name: string;
+  description: string;
+  parameters: Record<string, unknown>;
+  execute: (id: string, params: Record<string, unknown>) => Promise<{
+    content: Array<{ type: string; text: string }>;
+  }>;
+}
+
+interface CommandDefinition {
+  name: string;
+  description: string;
+  acceptsArgs?: boolean;
+  requireAuth?: boolean;
+  handler: (ctx: CommandContext) => Promise<{ text: string }> | { text: string };
+}
+
+interface CommandContext {
+  senderId?: string;
+  channel?: string;
+  isAuthorizedSender?: boolean;
+  args?: string;
+  commandBody?: string;
+  config?: Record<string, unknown>;
+}
+
 interface PluginApi {
   pluginConfig?: Record<string, unknown>;
   logger: {
@@ -43,12 +77,28 @@ interface PluginApi {
     warn(...args: unknown[]): void;
     error(...args: unknown[]): void;
   };
-  on(hookName: string, handler: (...args: any[]) => any, opts?: { priority?: number }): void;
+  // Legacy hook registration (kept for backward compatibility)
+  on?(hookName: string, handler: (...args: any[]) => any, opts?: { priority?: number }): void;
+  // Modern hook registration with metadata
+  registerHook?(
+    hookName: string,
+    handler: (...args: any[]) => any,
+    metadata: HookMetadata,
+  ): void;
   registerService(service: {
     id: string;
     start?: (ctx: { workspaceDir?: string }) => void;
     stop?: (ctx: { workspaceDir?: string }) => void;
   }): void;
+  // Agent tools (LLM-invocable functions)
+  registerTool?(definition: ToolDefinition, options?: { optional?: boolean }): void;
+  // Auto-reply commands (execute without AI agent)
+  registerCommand?(definition: CommandDefinition): void;
+  // Gateway RPC methods
+  registerGatewayMethod?(
+    name: string,
+    handler: (ctx: { respond: (ok: boolean, data: unknown) => void }) => void,
+  ): void;
 }
 
 interface Logger {
@@ -101,6 +151,25 @@ async function bootstrapClient(
     );
   } catch {
     logger.debug?.("Cortex knowledge check skipped — endpoint unavailable");
+  }
+}
+
+/**
+ * Registers a hook using the modern registerHook API if available,
+ * falling back to the legacy api.on() for older OpenClaw runtimes.
+ */
+function registerHookCompat(
+  api: PluginApi,
+  hookName: string,
+  handler: (...args: any[]) => any,
+  metadata: HookMetadata,
+): void {
+  if (api.registerHook) {
+    api.registerHook(hookName, handler, metadata);
+  } else if (api.on) {
+    api.on(hookName, handler);
+  } else {
+    api.logger.warn(`Cortex: cannot register hook "${hookName}" — no registerHook or on method available`);
   }
 }
 
@@ -170,19 +239,207 @@ const plugin = {
     // Async health check + knowledge probe — chained after userId resolves
     void userIdReady.then(() => bootstrapClient(client, api.logger, knowledgeState, userId));
 
+    // --- Hooks ---
+
     // Auto-Recall: inject relevant memories before every agent turn
-    api.on(
+    registerHookCompat(
+      api,
       "before_agent_start",
       createRecallHandler(client, config, api.logger, recallMetrics, knowledgeState, () => userId),
+      {
+        name: "openclaw-cortex.recall",
+        description: "Inject relevant Cortex memories before agent turn",
+      },
     );
 
     // Auto-Capture: extract facts after agent responses
-    api.on(
+    registerHookCompat(
+      api,
       "agent_end",
       createCaptureHandler(client, config, api.logger, retryQueue, knowledgeState, () => userId, userIdReady),
+      {
+        name: "openclaw-cortex.capture",
+        description: "Extract and store facts from conversation after agent turn",
+      },
     );
 
-    // Services: retry queue, file sync
+    // --- Agent Tools ---
+
+    if (api.registerTool) {
+      api.registerTool({
+        name: "cortex_search_memory",
+        description: "Search long-term memory for facts, preferences, and past context. Use when you need to recall something the user mentioned before or retrieve stored knowledge.",
+        parameters: {
+          type: "object",
+          properties: {
+            query: {
+              type: "string",
+              description: "Natural language search query for memory retrieval",
+            },
+            limit: {
+              type: "number",
+              description: "Maximum number of memories to return (1-50)",
+              default: 10,
+            },
+          },
+          required: ["query"],
+        },
+        async execute(_id, params) {
+          const query = String(params.query ?? "");
+          const limit = Math.min(Math.max(Number(params.limit) || 10, 1), 50);
+
+          if (userIdReady) await userIdReady;
+
+          try {
+            const response = await client.recall(query, config.recallTimeoutMs, {
+              limit,
+              userId: userId,
+              queryType: "combined",
+            });
+
+            if (!response.memories?.length) {
+              return { content: [{ type: "text", text: "No memories found matching that query." }] };
+            }
+
+            const formatted = formatMemories(response.memories);
+            return { content: [{ type: "text", text: formatted }] };
+          } catch (err) {
+            return { content: [{ type: "text", text: `Memory search failed: ${String(err)}` }] };
+          }
+        },
+      });
+
+      api.registerTool({
+        name: "cortex_save_memory",
+        description: "Explicitly save a fact, preference, or piece of information to long-term memory. Use when the user asks you to remember something specific.",
+        parameters: {
+          type: "object",
+          properties: {
+            text: {
+              type: "string",
+              description: "The information to save to memory (a fact, preference, or context)",
+            },
+          },
+          required: ["text"],
+        },
+        async execute(_id, params) {
+          const text = String(params.text ?? "");
+          if (!text || text.length < 5) {
+            return { content: [{ type: "text", text: "Text too short to save as a memory." }] };
+          }
+
+          if (userIdReady) await userIdReady;
+
+          try {
+            const res = await client.remember(text, undefined, undefined, undefined, userId);
+            if (knowledgeState && res.memories_created > 0) {
+              knowledgeState.hasMemories = true;
+            }
+            return {
+              content: [{
+                type: "text",
+                text: `Saved ${res.memories_created} memory/memories. Entities found: ${res.entities_found.join(", ") || "none"}.`,
+              }],
+            };
+          } catch (err) {
+            return { content: [{ type: "text", text: `Failed to save memory: ${String(err)}` }] };
+          }
+        },
+      });
+
+      api.logger.info("Cortex agent tools registered: cortex_search_memory, cortex_save_memory");
+    }
+
+    // --- Auto-Reply Commands ---
+
+    if (api.registerCommand) {
+      api.registerCommand({
+        name: "memories",
+        description: "Show Cortex memory status or search memories",
+        acceptsArgs: true,
+        handler: async (ctx) => {
+          if (userIdReady) await userIdReady;
+
+          const query = ctx.args?.trim();
+
+          // No args — show status
+          if (!query) {
+            try {
+              const knowledge = await client.knowledge(undefined, userId);
+              const tier = deriveTier(knowledge.total_sessions);
+              const recallSummary = recallMetrics.summary();
+              const lines = [
+                `**Cortex Memory Status**`,
+                `- Memories: ${knowledge.total_memories}`,
+                `- Sessions: ${knowledge.total_sessions}`,
+                `- Maturity: ${knowledge.maturity}`,
+                `- Tier: ${tier}`,
+                `- Recall latency: ${recallSummary.count > 0 ? `p50=${recallSummary.p50}ms, p95=${recallSummary.p95}ms (${recallSummary.count} samples)` : "no samples yet"}`,
+                `- Retry queue: ${retryQueue.pending} pending`,
+              ];
+              return { text: lines.join("\n") };
+            } catch (err) {
+              return { text: `Cortex status check failed: ${String(err)}` };
+            }
+          }
+
+          // With args — search memories
+          try {
+            const response = await client.recall(query, config.recallTimeoutMs, {
+              limit: config.recallLimit,
+              userId,
+              queryType: "combined",
+            });
+
+            if (!response.memories?.length) {
+              return { text: `No memories found for: "${query}"` };
+            }
+
+            const lines = response.memories.map(
+              (m) => `- [${m.confidence.toFixed(2)}] ${m.content}`,
+            );
+            return { text: `**Memories matching "${query}":**\n${lines.join("\n")}` };
+          } catch (err) {
+            return { text: `Memory search failed: ${String(err)}` };
+          }
+        },
+      });
+
+      api.logger.info("Cortex command registered: /memories");
+    }
+
+    // --- Gateway RPC ---
+
+    if (api.registerGatewayMethod) {
+      api.registerGatewayMethod("cortex.status", ({ respond }) => {
+        const recallSummary = recallMetrics.summary();
+        respond(true, {
+          version,
+          healthy: knowledgeState.lastChecked > 0,
+          knowledgeState: {
+            hasMemories: knowledgeState.hasMemories,
+            totalSessions: knowledgeState.totalSessions,
+            maturity: knowledgeState.maturity,
+            tier: deriveTier(knowledgeState.totalSessions),
+            lastChecked: knowledgeState.lastChecked,
+          },
+          recallMetrics: recallSummary,
+          retryQueuePending: retryQueue.pending,
+          config: {
+            autoRecall: config.autoRecall,
+            autoCapture: config.autoCapture,
+            fileSync: config.fileSync,
+            transcriptSync: config.transcriptSync,
+            namespace,
+          },
+        });
+      });
+
+      api.logger.info("Cortex RPC registered: cortex.status");
+    }
+
+    // --- Services: retry queue, file sync ---
+
     api.registerService({
       id: "cortex-services",
       start(ctx) {
