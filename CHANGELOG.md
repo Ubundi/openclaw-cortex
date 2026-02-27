@@ -10,9 +10,13 @@ All notable changes to this project will be documented in this file.
 - **Auto-Reply Command**: `/memories [query]` command registered via `api.registerCommand()`. Shows memory status without args, searches memories with args. Executes without invoking the AI agent.
 - **Gateway RPC**: `cortex.status` method registered via `api.registerGatewayMethod()` for programmatic access to plugin health, knowledge state, recall metrics, and config.
 
+### Fixed
+
+- **Hook dispatch**: Swapped hook registration priority to prefer `api.on()` over `api.registerHook()`. The modern `registerHook` API registers hooks under the metadata name rather than the event name, causing `before_agent_start` and `agent_end` events to never dispatch to the handler. Falls back to `registerHook` when `api.on()` is unavailable.
+
 ### Changed
 
-- **Hook registration**: Switched from legacy `api.on()` to modern `api.registerHook()` with metadata (`name`, `description`) for better diagnostics in `openclaw hooks list`. Falls back to `api.on()` on older runtimes.
+- **Hook registration**: Uses `api.on()` for reliable event dispatch with `api.registerHook()` as fallback. Metadata (`name`, `description`) is still visible in `openclaw hooks list` when the runtime supports it.
 - **PluginApi interface**: Extended with `registerHook`, `registerTool`, `registerCommand`, and `registerGatewayMethod` types aligned with the official OpenClaw plugin documentation.
 - All new registrations are optional — the plugin gracefully skips features when the runtime doesn't support them, maintaining backward compatibility with older OpenClaw versions.
 
