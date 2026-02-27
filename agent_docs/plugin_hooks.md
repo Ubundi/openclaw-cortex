@@ -55,7 +55,7 @@ Registered via `api.registerService({ id: "cortex-services", start, stop })`:
 
 ## Configuration
 
-Defined in src/plugin/config/schema.ts using Zod. The plugin manifest (openclaw.plugin.json) mirrors this schema for OpenClaw's UI. Key defaults: autoRecall=true, autoCapture=true, fileSync=true, transcriptSync=true, recallLimit=10, recallTimeoutMs=2000, toolTimeoutMs=10000.
+Defined in src/plugin/config/schema.ts using Zod. The plugin manifest (openclaw.plugin.json) mirrors this schema for OpenClaw's UI. Key defaults: autoRecall=true, autoCapture=true, fileSync=true, transcriptSync=true, recallLimit=10, recallTimeoutMs=10000, toolTimeoutMs=10000.
 
 ## Hook Registration
 

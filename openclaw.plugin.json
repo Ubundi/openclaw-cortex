@@ -34,7 +34,7 @@
       "recallTimeoutMs": {
         "type": "number",
         "description": "Maximum time to wait for memory recall (ms)",
-        "default": 2000
+        "default": 10000
       },
       "fileSync": {
         "type": "boolean",

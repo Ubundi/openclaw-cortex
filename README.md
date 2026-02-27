@@ -82,7 +82,7 @@ Add to your `openclaw.json`:
           autoRecall: true,
           autoCapture: true,
           recallLimit: 10,
-          recallTimeoutMs: 2000,
+          recallTimeoutMs: 10000,
           toolTimeoutMs: 10000,
           fileSync: true,
           transcriptSync: true,
@@ -105,7 +105,7 @@ Add to your `openclaw.json`:
 | `autoRecall`      | boolean | `true`  | Inject relevant memories before each agent turn                                                  |
 | `autoCapture`     | boolean | `true`  | Extract and store facts after each agent turn                                                    |
 | `recallLimit`     | number  | `10`    | Max number of memories returned per recall                                                       |
-| `recallTimeoutMs` | number  | `2000`  | Auto-recall timeout in ms. Kept short to avoid blocking agent turns.                            |
+| `recallTimeoutMs` | number  | `10000` | Auto-recall timeout in ms. Scales with knowledge tier via `deriveEffectiveTimeout`.              |
 | `toolTimeoutMs`   | number  | `10000` | Timeout for explicit tool calls (`cortex_search_memory`, `/memories`). Longer than auto-recall since the user is actively waiting. |
 | `fileSync`        | boolean | `true`  | Watch and ingest `MEMORY.md` and daily log files                                                 |
 | `transcriptSync`  | boolean | `true`  | Watch and ingest session transcript files                                                        |
