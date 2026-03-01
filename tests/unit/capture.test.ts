@@ -259,6 +259,33 @@ describe("createCaptureHandler", () => {
     expect(transcript).toContain("assistant response");
   });
 
+  it("trims oldest messages when transcript exceeds 50,000 char API limit", async () => {
+    const submitPromise = Promise.resolve({ job_id: "job-charlimit", status: "pending" });
+    const submitMock = vi.fn().mockReturnValue(submitPromise);
+    const client = { submitIngest: submitMock } as unknown as CortexClient;
+
+    const handler = createCaptureHandler(client, makeConfig(), logger);
+
+    // Create messages that together exceed 50,000 chars
+    const longContent = "x".repeat(20_000);
+    await handler({
+      messages: [
+        { role: "user", content: `Old message that should be dropped: ${longContent}` },
+        { role: "assistant", content: `Old response that should be dropped: ${longContent}` },
+        { role: "user", content: `Recent user message with enough content to pass threshold: ${longContent}` },
+        { role: "assistant", content: "Recent assistant response with enough content to pass the threshold check" },
+      ],
+      aborted: false,
+    });
+
+    await submitPromise;
+
+    const transcript = submitMock.mock.calls[0][0] as string;
+    // Should have dropped oldest messages to fit under 50k chars
+    expect(transcript.length).toBeLessThanOrEqual(50_000);
+    expect(transcript).toContain("Recent");
+  });
+
   it("skips messages between 20 and 50 chars (raised threshold)", async () => {
     const submitMock = vi.fn();
     const client = { submitIngest: submitMock } as unknown as CortexClient;

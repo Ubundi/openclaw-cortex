@@ -129,6 +129,16 @@ export function createCaptureHandler(
         trimmed.shift();
       }
 
+      // Enforce character cap — the Cortex API rejects text > 50,000 chars.
+      // The transcript format is "role: content\n\n" per message, so we estimate
+      // the final transcript length and drop oldest messages to fit.
+      const API_MAX_CHARS = 50_000;
+      while (trimmed.length > 2) {
+        const estimatedChars = trimmed.reduce((sum, m) => sum + m.role.length + 2 + m.content.length + 2, 0);
+        if (estimatedChars <= API_MAX_CHARS) break;
+        trimmed.shift();
+      }
+
       const totalChars = trimmed.reduce((sum, m) => sum + m.content.length, 0);
       logger.info(`Cortex capture: ${trimmed.length} messages, ${totalChars} chars`);
 
