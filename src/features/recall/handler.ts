@@ -36,6 +36,16 @@ type Logger = {
 const COLD_START_WINDOW = 3; // consecutive failures to trigger cold-start
 const COLD_START_COOLDOWN_MS = 30_000; // wait 30s before retrying
 
+/** Cortex API enforces a 2 000-char limit on the recall query field. */
+const MAX_QUERY_LENGTH = 2000;
+
+/**
+ * When hasMemories is false, re-check the /knowledge endpoint after this
+ * interval. Prevents the plugin from being permanently stuck when a different
+ * plugin instance ingested memories or the initial check failed.
+ */
+const KNOWLEDGE_RECHECK_INTERVAL_MS = 5 * 60_000; // 5 minutes
+
 /**
  * Derives an effective recall timeout that respects the server's adaptive pipeline tiers.
  * Higher tiers run heavier pipelines (reranking, graph traversal) that need more time.
@@ -67,14 +77,43 @@ export function createRecallHandler(
 
     if (!config.autoRecall) return;
 
-    // Skip recall when we know there are no memories yet
+    // Skip recall when we know there are no memories yet, but periodically
+    // re-check in case another plugin instance ingested memories or the
+    // initial /knowledge check failed at startup.
     if (knowledgeState && !knowledgeState.hasMemories) {
-      logger.info("Cortex recall: skipped (no memories yet)");
-      return;
+      const sinceLastCheck = Date.now() - knowledgeState.lastChecked;
+      if (sinceLastCheck < KNOWLEDGE_RECHECK_INTERVAL_MS) {
+        logger.info("Cortex recall: skipped (no memories yet)");
+        return;
+      }
+      // Re-check knowledge state in the background (non-blocking)
+      try {
+        const userId = getUserId?.();
+        const knowledge = await client.knowledge(undefined, userId);
+        knowledgeState.hasMemories = knowledge.total_memories > 0;
+        knowledgeState.totalSessions = knowledge.total_sessions;
+        knowledgeState.maturity = knowledge.maturity;
+        knowledgeState.lastChecked = Date.now();
+        if (!knowledgeState.hasMemories) {
+          logger.info("Cortex recall: skipped (no memories yet)");
+          return;
+        }
+        logger.debug?.(`Cortex recall: knowledge re-check found ${knowledge.total_memories} memories`);
+      } catch {
+        knowledgeState.lastChecked = Date.now();
+        logger.info("Cortex recall: skipped (no memories yet)");
+        return;
+      }
     }
 
-    const prompt = event.prompt?.trim();
-    if (!prompt || prompt.length < 5) return;
+    const rawPrompt = event.prompt?.trim();
+    if (!rawPrompt || rawPrompt.length < 5) return;
+
+    // Cortex API rejects queries longer than 2 000 chars (422).
+    // Subagent prompts routinely exceed this — truncate to the limit.
+    const prompt = rawPrompt.length > MAX_QUERY_LENGTH
+      ? rawPrompt.slice(0, MAX_QUERY_LENGTH)
+      : rawPrompt;
 
     // Cold-start gate: skip recall while service is warming
     if (coldStartUntil > Date.now()) {

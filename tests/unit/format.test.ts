@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { formatMemories, sanitizeMemoryContent } from "../../src/features/recall/formatter.js";
+import { formatMemories, sanitizeMemoryContent, isRecalledNoise, filterNoisyMemories } from "../../src/features/recall/formatter.js";
+import type { RecallMemory } from "../../src/adapters/cortex/client.js";
 
 describe("sanitizeMemoryContent", () => {
   it("escapes closing XML tags", () => {
@@ -59,5 +60,95 @@ describe("formatMemories", () => {
 
     const closingTagCount = (result.match(/<\/cortex_memories>/g) || []).length;
     expect(closingTagCount).toBe(1);
+  });
+
+  it("filters noisy memories before formatting", () => {
+    const result = formatMemories([
+      { content: "User prefers dark mode", confidence: 0.95, when: null, session_id: null, entities: [] },
+      { content: "WhatsApp gateway connected on 2026-02-27 at 09:07:19 GMT+2", confidence: 1.0, when: null, session_id: null, entities: [] },
+      { content: "User requested to read HEARTBEAT.md if it exists", confidence: 1.0, when: null, session_id: null, entities: [] },
+      { content: "Assistant confirmed HEARTBEAT_OK", confidence: 1.0, when: null, session_id: null, entities: [] },
+    ]);
+
+    expect(result).toContain("User prefers dark mode");
+    expect(result).not.toContain("WhatsApp gateway");
+    expect(result).not.toContain("HEARTBEAT");
+  });
+
+  it("returns empty string when all memories are noise", () => {
+    const result = formatMemories([
+      { content: "WhatsApp gateway connected", confidence: 1.0, when: null, session_id: null, entities: [] },
+      { content: "User reported no human activity at 5:01 PM", confidence: 1.0, when: null, session_id: null, entities: [] },
+    ]);
+
+    expect(result).toBe("");
+  });
+});
+
+describe("isRecalledNoise", () => {
+  const noisy = [
+    "HEARTBEAT_OK",
+    "Assistant confirmed HEARTBEAT_OK in response to User's request",
+    "Assistant replied HEARTBEAT_OK after checking HEARTBEAT.md.",
+    "User requested to read HEARTBEAT.md if it exists in the workspace context.",
+    "User instructed to follow HEARTBEAT.md strictly and not to infer or repeat old tasks from prior chats.",
+    "User requested a response of HEARTBEAT_OK if nothing needs attention after reading HEARTBEAT.md.",
+    "WhatsApp gateway connected on 2026-02-27 at 09:07:19 GMT+2",
+    "WhatsApp gateway was connected at 2026-02-27 12:15:38 GMT+2",
+    "WhatsApp gateway disconnected with status 503 on 2026-02-27 at 11:27:19 GMT+2",
+    "WhatsApp gateway was disconnected at 2026-02-27 12:15:34 GMT+2 with status 503",
+    "User reported no human activity at 5:01 PM.",
+    "User experienced no human activity between 3:29 PM and 5:01 PM",
+    "User's session ID is 85cf181a-2129-4786-8b3d-ea0b00ad95e8.",
+    "User's current time is Friday, February 27th, 2026 at 3:30 PM in Africa/Johannesburg.",
+    "Current time is Friday, February 27th, 2026 at 2:54 PM (Africa/Johannesburg)",
+    "User's last update was on 2026-02-27 at 08:14.",
+    "User received a HEARTBEAT_OK response indicating nothing needs attention",
+    "User instructed to read HEARTBEAT.md if it exists and to follow it strictly",
+  ];
+
+  for (const content of noisy) {
+    it(`filters: "${content.slice(0, 60)}..."`, () => {
+      expect(isRecalledNoise(content)).toBe(true);
+    });
+  }
+
+  const signal = [
+    "User prefers dark mode for all applications",
+    "Project uses PostgreSQL with Prisma ORM",
+    "Adii's favorite programming language is Rust",
+    "User is the founder at Ubundi, based in South Africa (GMT+2).",
+    "User values specificity and forward motion in their working style.",
+    "Ubundi is an AI-native venture studio focused on human-first products.",
+  ];
+
+  for (const content of signal) {
+    it(`keeps: "${content.slice(0, 60)}..."`, () => {
+      expect(isRecalledNoise(content)).toBe(false);
+    });
+  }
+});
+
+describe("filterNoisyMemories", () => {
+  const mem = (content: string): RecallMemory => ({
+    content,
+    confidence: 1.0,
+    when: null,
+    session_id: null,
+    entities: [],
+  });
+
+  it("removes noise and keeps signal", () => {
+    const input = [
+      mem("User prefers dark mode"),
+      mem("WhatsApp gateway connected on 2026-02-27 at 09:07:19 GMT+2"),
+      mem("Adii's favorite language is Rust"),
+      mem("User reported no human activity at 5:01 PM"),
+    ];
+
+    const result = filterNoisyMemories(input);
+    expect(result).toHaveLength(2);
+    expect(result[0].content).toBe("User prefers dark mode");
+    expect(result[1].content).toBe("Adii's favorite language is Rust");
   });
 });

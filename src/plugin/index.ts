@@ -109,17 +109,6 @@ interface Logger {
   error(...args: unknown[]): void;
 }
 
-function resolveEnvVars(value: string): string {
-  return value.replace(/\$\{([^}]+)\}/g, (_, envVar) => process.env[envVar] ?? "");
-}
-
-function resolveConfigEnvVars(raw: Record<string, unknown>): Record<string, unknown> {
-  const resolved: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries(raw)) {
-    resolved[key] = typeof value === "string" ? resolveEnvVars(value) : value;
-  }
-  return resolved;
-}
 
 async function bootstrapClient(
   client: CortexClient,
@@ -184,8 +173,7 @@ const plugin = {
 
   register(api: PluginApi) {
     const raw = api.pluginConfig ?? {};
-    const resolved = resolveConfigEnvVars(raw);
-    const parsed = CortexConfigSchema.safeParse(resolved);
+    const parsed = CortexConfigSchema.safeParse(raw);
 
     if (!parsed.success) {
       api.logger.error(

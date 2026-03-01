@@ -101,6 +101,32 @@ describe("createRecallHandler", () => {
     expect(logger.warn).toHaveBeenCalled();
   });
 
+  it("truncates prompts longer than 2000 chars", async () => {
+    const client = {
+      recall: vi.fn().mockResolvedValue({ memories: [] }),
+    } as unknown as CortexClient;
+
+    const longPrompt = "x".repeat(3000);
+    const handler = createRecallHandler(client, makeConfig(), logger);
+    await handler({ prompt: longPrompt }, {});
+
+    const calledQuery = (client.recall as ReturnType<typeof vi.fn>).mock.calls[0][0] as string;
+    expect(calledQuery.length).toBe(2000);
+  });
+
+  it("does not truncate prompts at or under 2000 chars", async () => {
+    const client = {
+      recall: vi.fn().mockResolvedValue({ memories: [] }),
+    } as unknown as CortexClient;
+
+    const exactPrompt = "y".repeat(2000);
+    const handler = createRecallHandler(client, makeConfig(), logger);
+    await handler({ prompt: exactPrompt }, {});
+
+    const calledQuery = (client.recall as ReturnType<typeof vi.fn>).mock.calls[0][0] as string;
+    expect(calledQuery.length).toBe(2000);
+  });
+
   it("passes recallLimit to client.recall", async () => {
     const client = {
       recall: vi.fn().mockResolvedValue({ memories: [] }),
@@ -116,8 +142,8 @@ describe("createRecallHandler", () => {
     );
   });
 
-  it("skips recall when knowledgeState.hasMemories is false", async () => {
-    const client = { recall: vi.fn() } as unknown as CortexClient;
+  it("skips recall when knowledgeState.hasMemories is false and recently checked", async () => {
+    const client = { recall: vi.fn(), knowledge: vi.fn() } as unknown as CortexClient;
     const ks: KnowledgeState = { hasMemories: false, totalSessions: 0, maturity: "cold", lastChecked: Date.now() };
 
     const handler = createRecallHandler(client, makeConfig(), logger, undefined, ks);
@@ -125,6 +151,73 @@ describe("createRecallHandler", () => {
 
     expect(result).toBeUndefined();
     expect(client.recall).not.toHaveBeenCalled();
+    expect(client.knowledge).not.toHaveBeenCalled();
+  });
+
+  it("re-checks knowledge when hasMemories is false and lastChecked is stale", async () => {
+    const client = {
+      recall: vi.fn().mockResolvedValue({
+        memories: [{ content: "remembered", confidence: 0.9, when: null, session_id: null, entities: [] }],
+      }),
+      knowledge: vi.fn().mockResolvedValue({ total_memories: 5, total_sessions: 2, maturity: "warming" }),
+    } as unknown as CortexClient;
+    const ks: KnowledgeState = {
+      hasMemories: false,
+      totalSessions: 0,
+      maturity: "cold",
+      lastChecked: Date.now() - 6 * 60_000, // 6 minutes ago — past the 5-min re-check interval
+    };
+
+    const handler = createRecallHandler(client, makeConfig(), logger, undefined, ks);
+    const result = await handler({ prompt: "some longer query" }, {});
+
+    expect(client.knowledge).toHaveBeenCalled();
+    expect(ks.hasMemories).toBe(true);
+    expect(ks.totalSessions).toBe(2);
+    expect(result).toBeDefined();
+    expect(result!.prependContext).toContain("remembered");
+  });
+
+  it("stays skipped after knowledge re-check still shows zero memories", async () => {
+    const client = {
+      recall: vi.fn(),
+      knowledge: vi.fn().mockResolvedValue({ total_memories: 0, total_sessions: 0, maturity: "cold" }),
+    } as unknown as CortexClient;
+    const ks: KnowledgeState = {
+      hasMemories: false,
+      totalSessions: 0,
+      maturity: "cold",
+      lastChecked: Date.now() - 6 * 60_000,
+    };
+
+    const handler = createRecallHandler(client, makeConfig(), logger, undefined, ks);
+    const result = await handler({ prompt: "some longer query" }, {});
+
+    expect(client.knowledge).toHaveBeenCalled();
+    expect(ks.hasMemories).toBe(false);
+    expect(result).toBeUndefined();
+    expect(client.recall).not.toHaveBeenCalled();
+  });
+
+  it("handles knowledge re-check failure gracefully", async () => {
+    const client = {
+      recall: vi.fn(),
+      knowledge: vi.fn().mockRejectedValue(new Error("timeout")),
+    } as unknown as CortexClient;
+    const ks: KnowledgeState = {
+      hasMemories: false,
+      totalSessions: 0,
+      maturity: "cold",
+      lastChecked: Date.now() - 6 * 60_000,
+    };
+
+    const handler = createRecallHandler(client, makeConfig(), logger, undefined, ks);
+    const result = await handler({ prompt: "some longer query" }, {});
+
+    expect(client.knowledge).toHaveBeenCalled();
+    expect(result).toBeUndefined();
+    // lastChecked should be updated so we don't re-check every call
+    expect(ks.lastChecked).toBeGreaterThan(Date.now() - 1000);
   });
 
   it("allows recall when knowledgeState.hasMemories is true", async () => {

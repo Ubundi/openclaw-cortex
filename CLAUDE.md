@@ -42,7 +42,7 @@ npm run verify-release    # checks version consistency across package.json and p
 ## Key Patterns
 
 - **Hook registration**: Uses `registerHookCompat()` which prefers `api.on()` over `api.registerHook()` — `api.registerHook()` only registers for display, `api.on()` is required for events to fire. See src/plugin/index.ts:161
-- **Config env var resolution**: Config values like `${ENV_VAR}` are resolved at registration time — see src/plugin/index.ts:111
+- **Config validation**: Plugin config is validated via Zod at registration time — see src/plugin/index.ts
 - **Capture via async jobs**: Capture flattens messages into a transcript and submits via `/v1/jobs/ingest` (async). Synchronous endpoints (`/v1/remember`, `/v1/ingest`) 503 under the Lambda proxy timeout. See src/features/capture/handler.ts
 - **Capture watermark**: Only new messages since last capture are sent to Cortex, not the full history — see src/features/capture/handler.ts
 - **API key baking**: Production builds embed the API key at build time via scripts/inject-api-key.mjs into src/internal/identity/api-key.ts
