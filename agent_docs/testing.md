@@ -39,6 +39,7 @@
 | safe-path.test.ts | Path safety validation |
 | sync.test.ts | lineDiff utility |
 | watcher.test.ts | File watcher setup |
+| audit-logger.test.ts | Audit log directory creation, index writing, payload files, rotation, error resilience |
 
 ## Integration Tests
 

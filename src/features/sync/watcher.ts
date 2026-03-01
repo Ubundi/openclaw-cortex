@@ -2,6 +2,7 @@ import { watch, type FSWatcher } from "node:fs";
 import { join } from "node:path";
 import type { CortexClient } from "../../adapters/cortex/client.js";
 import type { RetryQueue } from "../../internal/queue/retry-queue.js";
+import type { AuditLogger } from "../../internal/audit/audit-logger.js";
 import { MemoryMdSync } from "./memory-md-sync.js";
 import { DailyLogsSync } from "./daily-logs-sync.js";
 import { TranscriptsSync } from "./transcripts-sync.js";
@@ -32,6 +33,7 @@ export class FileSyncWatcher {
     private retryQueue?: RetryQueue,
     private options: FileSyncOptions = {},
     private getUserId?: () => string | undefined,
+    private auditLogger?: AuditLogger,
   ) {}
 
   start(): void {
@@ -53,6 +55,7 @@ export class FileSyncWatcher {
       this.retryQueue,
       this.workspaceDir,
       this.getUserId,
+      this.auditLogger,
     );
 
     this.dailyLogsSync = new DailyLogsSync(
@@ -62,6 +65,7 @@ export class FileSyncWatcher {
       this.retryQueue,
       memoryDir,
       this.getUserId,
+      this.auditLogger,
     );
 
     this.watchPath(
@@ -94,6 +98,7 @@ export class FileSyncWatcher {
         this.retryQueue,
         sessionsDir,
         this.getUserId,
+        this.auditLogger,
       );
       this.watchPath(
         sessionsDir,

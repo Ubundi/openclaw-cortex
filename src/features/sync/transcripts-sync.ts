@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import type { CortexClient } from "../../adapters/cortex/client.js";
 import type { RetryQueue } from "../../internal/queue/retry-queue.js";
+import type { AuditLogger } from "../../internal/audit/audit-logger.js";
 import { cleanTranscriptChunk } from "../../internal/transcript/cleaner.js";
 import { safePath } from "../../internal/fs/safe-path.js";
 
@@ -21,6 +22,7 @@ export class TranscriptsSync {
     private retryQueue?: RetryQueue,
     private allowedRoot?: string,
     private getUserId?: () => string | undefined,
+    private auditLogger?: AuditLogger,
   ) {}
 
   async onFileChange(filePath: string, filename: string): Promise<void> {
@@ -52,6 +54,19 @@ export class TranscriptsSync {
       const sessionName = filename.replace(/\.jsonl$/, "");
       const sessionId = `${this.sessionPrefix}:session:${sessionName}`;
       const referenceDate = new Date().toISOString().slice(0, 10);
+
+      if (this.auditLogger) {
+        void this.auditLogger.log({
+          feature: "file-sync-transcripts",
+          method: "POST",
+          endpoint: "/v1/remember",
+          payload: messages.map((m) => `${m.role}: ${m.content}`).join("\n\n"),
+          sessionId,
+          userId: this.getUserId?.(),
+          messageCount: messages.length,
+        });
+      }
+
       const doRemember = () => {
         // Re-evaluate userId at call time so retries use the resolved value
         const userId = this.getUserId?.();

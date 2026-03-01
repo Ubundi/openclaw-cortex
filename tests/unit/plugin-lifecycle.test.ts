@@ -168,8 +168,9 @@ describe("plugin lifecycle contract", () => {
     plugin.register(api as any);
     await flushMicrotasks();
 
-    expect(api.registerCommand).toHaveBeenCalledTimes(1);
+    expect(api.registerCommand).toHaveBeenCalledTimes(2);
     expect(commands[0]?.name).toBe("memories");
+    expect(commands[1]?.name).toBe("audit");
   });
 
   it("registers Gateway RPC method", async () => {

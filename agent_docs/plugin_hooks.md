@@ -32,6 +32,7 @@ OpenClaw calls `plugin.register(api)` with a PluginApi that provides logging, ho
   - Skipped if turn delta lacks substantive content (< 20 chars per role)
   - Awaits `userIdReady` before firing (userId is required by API)
   - Messages are trimmed to 200-item API limit
+  - Payload capped at `captureMaxPayloadBytes` (default 256KB) — oldest messages dropped if exceeded
 
 ## API Surface Beyond Hooks
 
@@ -41,6 +42,7 @@ The plugin conditionally registers these if the runtime supports them:
 |---------|-----------|---------------|
 | Agent tools (cortex_search_memory, cortex_save_memory) | `api.registerTool()` | `if (api.registerTool)` |
 | /memories command | `api.registerCommand()` | `if (api.registerCommand)` |
+| /audit command | `api.registerCommand()` | `if (api.registerCommand)` |
 | cortex.status RPC | `api.registerGatewayMethod()` | `if (api.registerGatewayMethod)` |
 
 All three degrade gracefully on older runtimes that lack these methods.
@@ -55,7 +57,7 @@ Registered via `api.registerService({ id: "cortex-services", start, stop })`:
 
 ## Configuration
 
-Defined in src/plugin/config/schema.ts using Zod. The plugin manifest (openclaw.plugin.json) mirrors this schema for OpenClaw's UI. Key defaults: autoRecall=true, autoCapture=true, fileSync=true, transcriptSync=true, recallLimit=10, recallTimeoutMs=10000, toolTimeoutMs=10000.
+Defined in src/plugin/config/schema.ts using Zod. The plugin manifest (openclaw.plugin.json) mirrors this schema for OpenClaw's UI. Key defaults: autoRecall=true, autoCapture=true, fileSync=true, transcriptSync=true, recallLimit=10, recallTimeoutMs=10000, toolTimeoutMs=10000, captureMaxPayloadBytes=262144, auditLog=false.
 
 ## Hook Registration
 

@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import type { CortexClient } from "../../adapters/cortex/client.js";
 import type { RetryQueue } from "../../internal/queue/retry-queue.js";
+import type { AuditLogger } from "../../internal/audit/audit-logger.js";
 import { safePath } from "../../internal/fs/safe-path.js";
 
 type Logger = {
@@ -20,6 +21,7 @@ export class DailyLogsSync {
     private retryQueue?: RetryQueue,
     private allowedRoot?: string,
     private getUserId?: () => string | undefined,
+    private auditLogger?: AuditLogger,
   ) {}
 
   async onFileChange(filePath: string, filename: string): Promise<void> {
@@ -42,6 +44,18 @@ export class DailyLogsSync {
 
       const sessionId = `${this.sessionPrefix}:daily:${filename}`;
       const referenceDate = extractDateFromFilename(filename);
+
+      if (this.auditLogger) {
+        void this.auditLogger.log({
+          feature: "file-sync-daily-logs",
+          method: "POST",
+          endpoint: "/v1/remember",
+          payload: newContent,
+          sessionId,
+          userId: this.getUserId?.(),
+        });
+      }
+
       const doRemember = () => {
         // Re-evaluate userId at call time so retries use the resolved value
         const userId = this.getUserId?.();

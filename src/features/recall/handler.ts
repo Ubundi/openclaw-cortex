@@ -1,6 +1,7 @@
 import type { CortexClient } from "../../adapters/cortex/client.js";
 import type { CortexConfig } from "../../plugin/config/schema.js";
 import type { KnowledgeState } from "../../plugin/index.js";
+import type { AuditLogger } from "../../internal/audit/audit-logger.js";
 import { formatMemories } from "./formatter.js";
 import { LatencyMetrics } from "../../internal/metrics/latency-metrics.js";
 
@@ -52,6 +53,7 @@ export function createRecallHandler(
   metrics?: LatencyMetrics,
   knowledgeState?: KnowledgeState,
   getUserId?: () => string | undefined,
+  auditLogger?: AuditLogger,
 ) {
   const recallMetrics = metrics ?? new LatencyMetrics();
   let consecutiveFailures = 0;
@@ -87,10 +89,22 @@ export function createRecallHandler(
       : config.recallTimeoutMs;
 
     try {
+      const currentUserId = getUserId?.();
+
+      if (auditLogger) {
+        void auditLogger.log({
+          feature: "auto-recall",
+          method: "POST",
+          endpoint: "/v1/recall",
+          payload: prompt,
+          userId: currentUserId,
+        });
+      }
+
       const response = await client.recall(
         prompt,
         effectiveTimeout,
-        { limit: config.recallLimit, userId: getUserId?.(), queryType: "factual" },
+        { limit: config.recallLimit, userId: currentUserId, queryType: "factual" },
       );
 
       const elapsed = Date.now() - start;

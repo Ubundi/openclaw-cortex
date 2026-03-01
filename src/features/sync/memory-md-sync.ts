@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import type { CortexClient } from "../../adapters/cortex/client.js";
 import type { RetryQueue } from "../../internal/queue/retry-queue.js";
+import type { AuditLogger } from "../../internal/audit/audit-logger.js";
 import { safePath } from "../../internal/fs/safe-path.js";
 
 type Logger = {
@@ -25,6 +26,7 @@ export class MemoryMdSync {
     private retryQueue?: RetryQueue,
     private allowedRoot?: string,
     private getUserId?: () => string | undefined,
+    private auditLogger?: AuditLogger,
   ) {}
 
   onFileChange(): void {
@@ -62,6 +64,17 @@ export class MemoryMdSync {
     this.lastContent = current;
 
     if (!added.trim()) return;
+
+    if (this.auditLogger) {
+      void this.auditLogger.log({
+        feature: "file-sync-memory-md",
+        method: "POST",
+        endpoint: "/v1/remember",
+        payload: added,
+        sessionId: this.sessionId,
+        userId: this.getUserId?.(),
+      });
+    }
 
     const doRemember = () => {
       // Re-evaluate userId at call time so retries use the resolved value

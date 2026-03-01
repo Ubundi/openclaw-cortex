@@ -11,6 +11,7 @@ import { LatencyMetrics } from "../internal/metrics/latency-metrics.js";
 import { loadOrCreateUserId } from "../internal/identity/user-id.js";
 import { BAKED_API_KEY } from "../internal/identity/api-key.js";
 import { formatMemories } from "../features/recall/formatter.js";
+import { AuditLogger } from "../internal/audit/audit-logger.js";
 
 export interface KnowledgeState {
   hasMemories: boolean;
@@ -216,6 +217,17 @@ const plugin = {
     let started = false;
     let watcher: FileSyncWatcher | null = null;
 
+    // Audit logger is created lazily in start(ctx) when workspaceDir is available,
+    // or on-demand via the /audit command. The proxy always exists so handlers can
+    // start logging without a restart when toggled on at runtime.
+    let auditLoggerInner: AuditLogger | undefined;
+    let workspaceDirResolved: string | undefined;
+    const auditLoggerProxy: AuditLogger = {
+      log(entry) {
+        return auditLoggerInner?.log(entry) ?? Promise.resolve();
+      },
+    } as AuditLogger;
+
     // userId: use explicit config value if provided, otherwise load/create a
     // stable UUID persisted at ~/.openclaw/cortex-user-id. Bootstrap is chained
     // off the same promise so it always runs with a resolved userId. The capture
@@ -260,7 +272,7 @@ const plugin = {
     registerHookCompat(
       api,
       "before_agent_start",
-      createRecallHandler(client, config, api.logger, recallMetrics, knowledgeState, () => userId),
+      createRecallHandler(client, config, api.logger, recallMetrics, knowledgeState, () => userId, auditLoggerProxy),
       {
         name: "openclaw-cortex.recall",
         description: "Inject relevant Cortex memories before agent turn",
@@ -271,7 +283,7 @@ const plugin = {
     registerHookCompat(
       api,
       "agent_end",
-      createCaptureHandler(client, config, api.logger, retryQueue, knowledgeState, () => userId, userIdReady, sessionId),
+      createCaptureHandler(client, config, api.logger, retryQueue, knowledgeState, () => userId, userIdReady, sessionId, auditLoggerProxy),
       {
         name: "openclaw-cortex.capture",
         description: "Extract and store facts from conversation after agent turn",
@@ -306,6 +318,14 @@ const plugin = {
           api.logger.info(`Cortex tool: cortex_search_memory called (query="${query.slice(0, 80)}", limit=${limit})`);
 
           if (userIdReady) await userIdReady;
+
+          void auditLoggerProxy.log({
+            feature: "tool-search-memory",
+            method: "POST",
+            endpoint: "/v1/recall",
+            payload: query,
+            userId,
+          });
 
           try {
             const response = await client.recall(query, config.toolTimeoutMs, {
@@ -351,6 +371,15 @@ const plugin = {
           api.logger.info(`Cortex tool: cortex_save_memory called (text="${text.slice(0, 80)}")`);
 
           if (userIdReady) await userIdReady;
+
+          void auditLoggerProxy.log({
+            feature: "tool-save-memory",
+            method: "POST",
+            endpoint: "/v1/remember",
+            payload: text,
+            sessionId,
+            userId,
+          });
 
           try {
             const res = await client.remember(text, sessionId, undefined, new Date().toISOString(), userId);
@@ -415,6 +444,14 @@ const plugin = {
           }
 
           // With args — search memories
+          void auditLoggerProxy.log({
+            feature: "command-memories",
+            method: "POST",
+            endpoint: "/v1/recall",
+            payload: query,
+            userId,
+          });
+
           try {
             const response = await client.recall(query, config.toolTimeoutMs, {
               limit: config.recallLimit,
@@ -436,7 +473,50 @@ const plugin = {
         },
       });
 
-      api.logger.info("Cortex command registered: /memories");
+      api.registerCommand({
+        name: "audit",
+        description: "Toggle or check Cortex audit log (records all data sent to Cortex)",
+        acceptsArgs: true,
+        handler: (ctx) => {
+          const arg = ctx.args?.trim().toLowerCase();
+
+          if (arg === "on") {
+            if (!workspaceDirResolved) {
+              return { text: "Cannot enable audit log — no workspace directory available." };
+            }
+            if (auditLoggerInner) {
+              return { text: `Audit log is already on.\nLog path: ${workspaceDirResolved}/.cortex/audit/` };
+            }
+            auditLoggerInner = new AuditLogger(workspaceDirResolved, api.logger);
+            api.logger.info(`Cortex audit log enabled via command: ${workspaceDirResolved}/.cortex/audit/`);
+            return { text: `Audit log enabled.\nLog path: ${workspaceDirResolved}/.cortex/audit/` };
+          }
+
+          if (arg === "off") {
+            if (!auditLoggerInner) {
+              return { text: "Audit log is already off." };
+            }
+            auditLoggerInner = undefined;
+            api.logger.info("Cortex audit log disabled via command");
+            return { text: "Audit log disabled. Existing log files are preserved." };
+          }
+
+          // No args — show status
+          const status = auditLoggerInner ? "on" : "off";
+          const lines = [
+            `**Cortex Audit Log**`,
+            `- Status: ${status}`,
+            `- Config default: ${config.auditLog ? "on" : "off"}`,
+          ];
+          if (workspaceDirResolved) {
+            lines.push(`- Log path: ${workspaceDirResolved}/.cortex/audit/`);
+          }
+          lines.push("", "Usage: `/audit on` · `/audit off`");
+          return { text: lines.join("\n") };
+        },
+      });
+
+      api.logger.info("Cortex commands registered: /memories, /audit");
     }
 
     // --- Gateway RPC ---
@@ -482,6 +562,15 @@ const plugin = {
 
         retryQueue.start();
 
+        // Capture workspaceDir for runtime audit toggle via /audit command
+        workspaceDirResolved = ctx.workspaceDir;
+
+        // Initialize audit logger if enabled via config
+        if (config.auditLog && ctx.workspaceDir) {
+          auditLoggerInner = new AuditLogger(ctx.workspaceDir, api.logger);
+          api.logger.info(`Cortex audit log enabled: ${ctx.workspaceDir}/.cortex/audit/`);
+        }
+
         // Derive workspace-scoped namespace when user didn't set one explicitly
         if (!userSetNamespace && ctx.workspaceDir) {
           namespace = deriveNamespace(ctx.workspaceDir);
@@ -502,6 +591,7 @@ const plugin = {
               retryQueue,
               { transcripts: config.transcriptSync },
               () => userId,
+              auditLoggerProxy,
             );
             newWatcher.start();
             watcher = newWatcher;

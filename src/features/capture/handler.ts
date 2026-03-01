@@ -2,6 +2,7 @@ import type { CortexClient, ConversationMessage } from "../../adapters/cortex/cl
 import type { CortexConfig } from "../../plugin/config/schema.js";
 import type { KnowledgeState } from "../../plugin/index.js";
 import type { RetryQueue } from "../../internal/queue/retry-queue.js";
+import type { AuditLogger } from "../../internal/audit/audit-logger.js";
 
 interface AgentEndEvent {
   runId?: string;
@@ -74,6 +75,7 @@ export function createCaptureHandler(
   getUserId?: () => string | undefined,
   userIdReady?: Promise<void>,
   pluginSessionId?: string,
+  auditLogger?: AuditLogger,
 ) {
   let captureCounter = 0;
   let lastCapturedAt = 0;
@@ -112,6 +114,15 @@ export function createCaptureHandler(
       const MAX_MESSAGES = 200;
       const trimmed = normalized.length > MAX_MESSAGES ? normalized.slice(-MAX_MESSAGES) : normalized;
 
+      // Enforce byte-size cap — drop oldest messages until the transcript fits.
+      // This prevents oversized payloads from pasted files or long tool outputs.
+      const maxBytes = config.captureMaxPayloadBytes ?? 262_144;
+      while (trimmed.length > 2) {
+        const estimatedSize = trimmed.reduce((sum, m) => sum + Buffer.byteLength(m.role, "utf-8") + 2 + Buffer.byteLength(m.content, "utf-8") + 2, 0);
+        if (estimatedSize <= maxBytes) break;
+        trimmed.shift();
+      }
+
       const totalChars = trimmed.reduce((sum, m) => sum + m.content.length, 0);
       logger.info(`Cortex capture: ${trimmed.length} messages, ${totalChars} chars`);
 
@@ -139,6 +150,18 @@ export function createCaptureHandler(
       const preview = (transcript.length > 200 ? transcript.slice(0, 200) + "…" : transcript).replace(/\n/g, " ");
       logger.info(`Cortex capture summary: ${trimmed.length} msgs (${roleBreakdown}), ${transcript.length} chars, sessionId=${sessionId}`);
       logger.info(`Cortex capture preview: ${preview}`);
+
+      if (auditLogger) {
+        void auditLogger.log({
+          feature: "auto-capture",
+          method: "POST",
+          endpoint: "/v1/jobs/ingest",
+          payload: transcript,
+          sessionId,
+          userId: getUserId?.(),
+          messageCount: trimmed.length,
+        });
+      }
 
       const doRemember = async () => {
         // Re-evaluate userId at call time so retries pick up the resolved value

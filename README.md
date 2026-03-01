@@ -13,7 +13,7 @@
 - **Auto-Recall** — injects relevant memories before every agent turn via `before_agent_start` hook
 - **Auto-Capture** — extracts facts from conversations via `agent_end` hook
 - **Agent Tools** — `cortex_search_memory` and `cortex_save_memory` tools the LLM can invoke directly
-- **Commands** — `/memories` auto-reply command for quick status checks and memory search
+- **Commands** — `/memories` for status and search, `/audit` to toggle local audit logging
 - **File Sync** — watches `MEMORY.md`, daily logs, and session transcripts for background ingestion
 - **Gateway RPC** — `cortex.status` method for programmatic health and metrics access
 - **Resilience** — retry queue with exponential backoff, cold-start detection, latency metrics
@@ -107,6 +107,8 @@ Add to your `openclaw.json`:
 | `toolTimeoutMs`   | number  | `10000` | Timeout for explicit tool calls (`cortex_search_memory`, `/memories`). Longer than auto-recall since the user is actively waiting. |
 | `fileSync`        | boolean | `true`  | Watch and ingest `MEMORY.md` and daily log files                                                 |
 | `transcriptSync`  | boolean | `true`  | Watch and ingest session transcript files                                                        |
+| `captureMaxPayloadBytes` | number | `262144` | Max byte size of capture payloads (256KB default). Oversized transcripts are trimmed from the oldest messages. |
+| `auditLog`        | boolean | `false` | Enable local audit log. Records every payload sent to Cortex at `.cortex/audit/` in the workspace. Also toggleable at runtime via `/audit on`. |
 | `namespace`       | string  | `"openclaw"` | Memory namespace. Auto-derived from workspace directory when not set explicitly.            |
 
 ## How It Works
@@ -130,7 +132,9 @@ src/
     recall/
     sync/
   internal/                 # Internal helpers (not stable public API)
+    audit/
     fs/
+    identity/
     metrics/
     queue/
     transcript/
@@ -182,12 +186,17 @@ These work alongside Auto-Recall/Auto-Capture — the automatic hooks handle bac
 
 ### Commands
 
-The plugin registers a `/memories` auto-reply command that executes without invoking the AI agent:
+The plugin registers auto-reply commands that execute without invoking the AI agent:
 
 ```
 /memories              # Show memory status (count, maturity, tier, latency)
 /memories dark mode    # Search memories for "dark mode"
+/audit                 # Show audit log status
+/audit on              # Start recording all data sent to Cortex
+/audit off             # Stop recording (existing logs preserved)
 ```
+
+The audit log writes to `.cortex/audit/` in your workspace — an `index.jsonl` with metadata and a `payloads/` directory with full content of every transmission. Useful for compliance, debugging, or verifying exactly what data leaves your machine.
 
 ### Gateway RPC
 
@@ -232,7 +241,11 @@ Additionally, a randomly generated installation ID (`userId`) and a workspace na
 
 Before transmission, the plugin strips system prompts, tool call JSON, and base64-encoded images from transcripts. Prior recalled memories are also stripped from captured messages to prevent feedback loops.
 
-All data is transmitted over HTTPS. Each installation's data is isolated server-side by its unique `userId` — no other installation can access your memories.
+All data is transmitted over HTTPS. Each installation's data is isolated server-side by its unique `userId` — no other installation can access your memories. This isolation has been verified via cross-user recall testing.
+
+Capture payloads are capped at 256KB by default (`captureMaxPayloadBytes`) to prevent oversized transmissions from pasted files or long tool outputs.
+
+To see exactly what data leaves your machine, enable the audit log with `/audit on` or `auditLog: true` in your config. This records every payload to `.cortex/audit/` in your workspace.
 
 To disable all network activity, set `autoRecall: false`, `autoCapture: false`, `fileSync: false`, and `transcriptSync: false` in your config.
 
@@ -251,7 +264,7 @@ If both this plugin and the Cortex SKILL.md are active, the `<cortex_memories>` 
 ```bash
 npm install
 npm run build      # TypeScript → dist/
-npm test           # Run vitest (167 tests)
+npm test           # Run vitest (174 tests)
 npm run test:watch # Watch mode
 npm run test:integration # Live Cortex API tests (uses the baked-in API key)
 ```

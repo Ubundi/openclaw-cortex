@@ -198,6 +198,66 @@ describe("createCaptureHandler", () => {
     expect(transcript).toContain("The project uses PostgreSQL with pgvector.");
   });
 
+  it("trims oldest messages when payload exceeds captureMaxPayloadBytes", async () => {
+    const submitPromise = Promise.resolve({ job_id: "job-cap", status: "pending" });
+    const submitMock = vi.fn().mockReturnValue(submitPromise);
+    const client = { submitIngest: submitMock } as unknown as CortexClient;
+
+    // Set a very small cap so normal messages exceed it
+    const handler = createCaptureHandler(
+      client,
+      makeConfig({ captureMaxPayloadBytes: 150 }),
+      logger,
+    );
+
+    await handler({
+      messages: [
+        { role: "user", content: "This is the first message which is old and should be dropped if needed" },
+        { role: "assistant", content: "This is the second message which is also old content to be dropped" },
+        { role: "user", content: "This is the third message that is newer" },
+        { role: "assistant", content: "This is the fourth and most recent message" },
+      ],
+      aborted: false,
+    });
+
+    await submitPromise;
+
+    const transcript = submitMock.mock.calls[0][0] as string;
+    // The oldest messages should have been dropped to fit under the cap
+    expect(transcript).toContain("most recent message");
+    // Transcript byte size should be under the cap
+    expect(Buffer.byteLength(transcript, "utf-8")).toBeLessThanOrEqual(150);
+  });
+
+  it("keeps at least 2 messages even if they exceed the byte cap", async () => {
+    const submitPromise = Promise.resolve({ job_id: "job-min", status: "pending" });
+    const submitMock = vi.fn().mockReturnValue(submitPromise);
+    const client = { submitIngest: submitMock } as unknown as CortexClient;
+
+    // Cap so small that even 2 messages exceed it
+    const handler = createCaptureHandler(
+      client,
+      makeConfig({ captureMaxPayloadBytes: 1024 }),
+      logger,
+    );
+
+    await handler({
+      messages: [
+        { role: "user", content: "A sufficiently long user message for testing purposes here" },
+        { role: "assistant", content: "A sufficiently long assistant response for testing purposes here" },
+      ],
+      aborted: false,
+    });
+
+    await submitPromise;
+
+    // Should still submit — the floor is 2 messages
+    expect(submitMock).toHaveBeenCalledTimes(1);
+    const transcript = submitMock.mock.calls[0][0] as string;
+    expect(transcript).toContain("user message");
+    expect(transcript).toContain("assistant response");
+  });
+
   it("falls back to sessionId when sessionKey is absent", async () => {
     const submitPromise = Promise.resolve({ job_id: "job-5", status: "pending" });
     const submitMock = vi.fn().mockReturnValue(submitPromise);

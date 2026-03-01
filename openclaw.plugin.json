@@ -46,6 +46,21 @@
         "description": "Watch sessions/*.jsonl and ingest cleaned transcripts",
         "default": true
       },
+      "toolTimeoutMs": {
+        "type": "number",
+        "description": "Timeout for explicit tool calls and /memories search (ms)",
+        "default": 10000
+      },
+      "captureMaxPayloadBytes": {
+        "type": "number",
+        "description": "Max byte size of capture payloads. Oversized transcripts are trimmed from oldest messages.",
+        "default": 262144
+      },
+      "auditLog": {
+        "type": "boolean",
+        "description": "Record all data sent to Cortex in a local audit log at .cortex/audit/",
+        "default": false
+      },
       "namespace": {
         "type": "string",
         "description": "Session namespace to isolate memory per workspace/project. Auto-derived from workspace directory if not set.",
@@ -75,6 +90,20 @@
     "transcriptSync": {
       "label": "Transcript Sync",
       "helpText": "Automatically ingest session transcripts (sessions/*.jsonl) after stripping system prompts and tool JSON."
+    },
+    "toolTimeoutMs": {
+      "label": "Tool Timeout (ms)",
+      "advanced": true,
+      "helpText": "Timeout for cortex_search_memory tool and /memories command searches."
+    },
+    "captureMaxPayloadBytes": {
+      "label": "Capture Max Payload Size",
+      "advanced": true,
+      "helpText": "Maximum byte size for capture payloads (default 256KB). Oversized transcripts are trimmed from oldest messages."
+    },
+    "auditLog": {
+      "label": "Audit Log",
+      "helpText": "Records every payload sent to Cortex at .cortex/audit/ in your workspace. Also toggleable at runtime via /audit on."
     },
     "namespace": {
       "label": "Namespace",
