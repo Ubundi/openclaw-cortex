@@ -34,7 +34,7 @@ before each turn and capture new facts after each turn. Also syncs local files
 npm ci                    # install deps
 npm run build             # tsc + inject-api-key (needs BUILD_API_KEY env var for prod builds)
 npx tsc --noEmit          # type check only
-npm test                  # unit tests (174 tests, no API key needed)
+npm test                  # unit tests (230 tests, no API key needed)
 npm run test:integration  # live API tests (needs CORTEX_API_KEY)
 npm run verify-release    # checks version consistency across package.json and plugin manifest
 ```
@@ -47,7 +47,7 @@ npm run verify-release    # checks version consistency across package.json and p
 - **Capture watermark**: Only new messages since last capture are sent to Cortex, not the full history — see src/features/capture/handler.ts
 - **API key baking**: Production builds embed the API key at build time via scripts/inject-api-key.mjs into src/internal/identity/api-key.ts
 - **Namespace derivation**: Workspace directory is hashed to auto-scope memories per project — see src/plugin/index.ts:33
-- **userId lifecycle**: Resolved async at startup, all handlers await `userIdReady` before firing — see src/plugin/index.ts:220
+- **userId lifecycle**: Resolved lazily in `start()` (not `register()`) to avoid filesystem/network work during plugin install/update. All handlers await `userIdReady` before firing — see src/plugin/index.ts
 
 ## Non-Obvious Things
 

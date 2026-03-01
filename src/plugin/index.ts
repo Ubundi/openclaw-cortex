@@ -130,12 +130,11 @@ async function bootstrapClient(
   try {
     const healthy = await client.healthCheck();
     if (!healthy) {
-      logger.warn("Cortex health check failed — API may be unreachable");
+      logger.info("Cortex offline — API unreachable");
       return;
     }
-    logger.info("Cortex health check passed");
   } catch {
-    logger.warn("Cortex health check failed — API may be unreachable");
+    logger.info("Cortex offline — API unreachable");
     return;
   }
 
@@ -146,12 +145,12 @@ async function bootstrapClient(
     knowledgeState.maturity = knowledge.maturity;
     knowledgeState.lastChecked = Date.now();
 
-    const tier = deriveTier(knowledge.total_sessions);
     logger.info(
-      `Cortex knowledge: maturity=${knowledge.maturity}, sessions=${knowledge.total_sessions}, memories=${knowledge.total_memories}, tier=${tier}`,
+      `Cortex connected — ${knowledge.total_memories.toLocaleString()} memories, ${knowledge.total_sessions} sessions (${knowledge.maturity})`,
     );
   } catch {
-    logger.debug?.("Cortex knowledge check skipped — endpoint unavailable");
+    // Knowledge endpoint unavailable — health check passed so API is reachable
+    logger.info("Cortex connected");
   }
 }
 
@@ -228,43 +227,16 @@ const plugin = {
       },
     } as AuditLogger;
 
-    // userId: use explicit config value if provided, otherwise load/create a
-    // stable UUID persisted at ~/.openclaw/cortex-user-id. Bootstrap is chained
-    // off the same promise so it always runs with a resolved userId. The capture
-    // handler also awaits userIdReady before firing — user_id is required by the
-    // API and sending null/missing would 422.
+    // userId: use explicit config value if provided, otherwise resolved lazily
+    // in start() to avoid filesystem/network work during plugin install/update.
+    // The capture handler awaits userIdReady before firing — user_id is required
+    // by the API and sending null/missing would 422.
     let userId: string | undefined = config.userId;
-    const userIdReady: Promise<void> = userId
-      ? Promise.resolve()
-      : loadOrCreateUserId()
-          .then((id) => {
-            userId = id;
-            api.logger.info(`Cortex user ID: ${id}`);
-          })
-          .catch(() => {
-            userId = randomUUID();
-            api.logger.warn("Cortex: could not persist user ID, using ephemeral ID for this session");
-          });
+    let userIdReady: Promise<void> = config.userId ? Promise.resolve() : new Promise(() => {});
+    // Replaced with a real promise in start() — handlers that run before start()
+    // will block indefinitely (which is fine, they shouldn't fire during install).
 
-    if (config.userId) {
-      api.logger.info(`Cortex user ID (from config): ${userId}`);
-    }
-
-    api.logger.info(`Cortex plugin registered (namespace=${namespace})`);
-
-    // First-run data disclosure — log what features are active so users know
-    // what data will be sent to the Cortex API.
-    const activeFeatures: string[] = [];
-    if (config.autoRecall) activeFeatures.push("auto-recall (sends prompts)");
-    if (config.autoCapture) activeFeatures.push("auto-capture (sends conversation transcripts)");
-    if (config.fileSync) activeFeatures.push("file-sync (sends MEMORY.md and daily log changes)");
-    if (config.transcriptSync) activeFeatures.push("transcript-sync (sends session transcripts)");
-    if (activeFeatures.length > 0) {
-      api.logger.info(`Cortex data features active: ${activeFeatures.join(", ")}. All data sent over HTTPS to ${config.baseUrl}. See README for details.`);
-    }
-
-    // Async health check + knowledge probe — chained after userId resolves
-    void userIdReady.then(() => bootstrapClient(client, api.logger, knowledgeState, userId));
+    api.logger.info(`Cortex v${version} ready`);
 
     // --- Hooks ---
 
@@ -315,9 +287,9 @@ const plugin = {
           const query = String(params.query ?? "");
           const limit = Math.min(Math.max(Number(params.limit) || 10, 1), 50);
 
-          api.logger.info(`Cortex tool: cortex_search_memory called (query="${query.slice(0, 80)}", limit=${limit})`);
-
           if (userIdReady) await userIdReady;
+
+          api.logger.debug?.(`Cortex search: "${query.slice(0, 80)}" (limit=${limit})`);
 
           void auditLoggerProxy.log({
             feature: "tool-search-memory",
@@ -335,15 +307,14 @@ const plugin = {
             });
 
             if (!response.memories?.length) {
-              api.logger.info("Cortex tool: cortex_search_memory returned 0 results");
               return { content: [{ type: "text", text: "No memories found matching that query." }] };
             }
 
-            api.logger.info(`Cortex tool: cortex_search_memory returned ${response.memories.length} memories`);
+            api.logger.debug?.(`Cortex search returned ${response.memories.length} memories`);
             const formatted = formatMemories(response.memories);
             return { content: [{ type: "text", text: formatted }] };
           } catch (err) {
-            api.logger.warn(`Cortex tool: cortex_search_memory failed: ${String(err)}`);
+            api.logger.warn(`Cortex search failed: ${String(err)}`);
             return { content: [{ type: "text", text: `Memory search failed: ${String(err)}` }] };
           }
         },
@@ -368,9 +339,9 @@ const plugin = {
             return { content: [{ type: "text", text: "Text too short to save as a memory." }] };
           }
 
-          api.logger.info(`Cortex tool: cortex_save_memory called (text="${text.slice(0, 80)}")`);
-
           if (userIdReady) await userIdReady;
+
+          api.logger.debug?.(`Cortex save: "${text.slice(0, 80)}"`);
 
           void auditLoggerProxy.log({
             feature: "tool-save-memory",
@@ -386,7 +357,7 @@ const plugin = {
             if (knowledgeState && res.memories_created > 0) {
               knowledgeState.hasMemories = true;
             }
-            api.logger.info(`Cortex tool: cortex_save_memory created ${res.memories_created} memories, entities: ${res.entities_found.join(", ") || "none"}`);
+            api.logger.debug?.(`Cortex saved ${res.memories_created} memories`);
             const parts = [`Saved ${res.memories_created} memory/memories.`];
             if (res.entities_found.length) parts.push(`Entities: ${res.entities_found.join(", ")}.`);
             if (res.facts.length) parts.push(`Facts: ${res.facts.join("; ")}.`);
@@ -401,13 +372,13 @@ const plugin = {
               }],
             };
           } catch (err) {
-            api.logger.warn(`Cortex tool: cortex_save_memory failed: ${String(err)}`);
+            api.logger.warn(`Cortex save failed: ${String(err)}`);
             return { content: [{ type: "text", text: `Failed to save memory: ${String(err)}` }] };
           }
         },
       });
 
-      api.logger.info("Cortex agent tools registered: cortex_search_memory, cortex_save_memory");
+      api.logger.debug?.("Cortex tools registered: cortex_search_memory, cortex_save_memory");
     }
 
     // --- Auto-Reply Commands ---
@@ -516,7 +487,7 @@ const plugin = {
         },
       });
 
-      api.logger.info("Cortex commands registered: /memories, /audit");
+      api.logger.debug?.("Cortex commands registered: /memories, /audit");
     }
 
     // --- Gateway RPC ---
@@ -546,7 +517,7 @@ const plugin = {
         });
       });
 
-      api.logger.info("Cortex RPC registered: cortex.status");
+      api.logger.debug?.("Cortex RPC registered: cortex.status");
     }
 
     // --- Services: retry queue, file sync ---
@@ -560,6 +531,23 @@ const plugin = {
         }
         started = true;
 
+        // Resolve userId now that we're in an actual session (not install/update).
+        // This avoids filesystem + network work during plugin install/update.
+        if (!config.userId) {
+          userIdReady = loadOrCreateUserId()
+            .then((id) => {
+              userId = id;
+              api.logger.debug?.(`Cortex user ID: ${id}`);
+            })
+            .catch(() => {
+              userId = randomUUID();
+              api.logger.warn("Cortex: could not persist user ID, using ephemeral ID for this session");
+            });
+        }
+
+        // Health check + knowledge probe — runs after userId resolves
+        void userIdReady.then(() => bootstrapClient(client, api.logger, knowledgeState, userId));
+
         retryQueue.start();
 
         // Capture workspaceDir for runtime audit toggle via /audit command
@@ -568,13 +556,13 @@ const plugin = {
         // Initialize audit logger if enabled via config
         if (config.auditLog && ctx.workspaceDir) {
           auditLoggerInner = new AuditLogger(ctx.workspaceDir, api.logger);
-          api.logger.info(`Cortex audit log enabled: ${ctx.workspaceDir}/.cortex/audit/`);
+          api.logger.debug?.(`Cortex audit log enabled: ${ctx.workspaceDir}/.cortex/audit/`);
         }
 
         // Derive workspace-scoped namespace when user didn't set one explicitly
         if (!userSetNamespace && ctx.workspaceDir) {
           namespace = deriveNamespace(ctx.workspaceDir);
-          api.logger.info(`Cortex namespace auto-derived from workspace: ${namespace}`);
+          api.logger.debug?.(`Cortex namespace: ${namespace}`);
         }
 
         // File sync (MEMORY.md, daily logs, transcripts)
@@ -595,11 +583,11 @@ const plugin = {
             );
             newWatcher.start();
             watcher = newWatcher;
-            api.logger.info("Cortex file sync started");
+            api.logger.debug?.("Cortex file sync started");
           }
         }
 
-        api.logger.info("Cortex services started");
+        api.logger.debug?.("Cortex services started");
       },
       stop() {
         if (!started) return;
@@ -611,8 +599,8 @@ const plugin = {
 
         const summary = recallMetrics.summary();
         if (summary.count > 0) {
-          api.logger.info(
-            `Cortex recall latency (${summary.count} samples): p50=${summary.p50}ms p95=${summary.p95}ms p99=${summary.p99}ms`,
+          api.logger.debug?.(
+            `Cortex session end — recall latency: p50=${summary.p50}ms p95=${summary.p95}ms (${summary.count} calls)`,
           );
         }
       },

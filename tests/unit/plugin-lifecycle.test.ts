@@ -104,6 +104,8 @@ describe("plugin lifecycle contract", () => {
     });
 
     plugin.register(api as any);
+    // Bootstrap (userId + healthCheck) now runs in start(), not register()
+    services[0].start?.({});
     await new Promise((r) => setTimeout(r, 20));
 
     // Should use api.on() (preferred over registerHook)
@@ -275,7 +277,8 @@ describe("plugin lifecycle contract", () => {
     });
 
     plugin.register(api as any);
-    // Wait for bootstrapClient to set knowledgeState.hasMemories = true
+    // Bootstrap runs in start() — call it so knowledgeState.hasMemories gets set
+    services[0].start?.({});
     await new Promise((r) => setTimeout(r, 50));
 
     await hooks.before_agent_start[0](
@@ -283,10 +286,9 @@ describe("plugin lifecycle contract", () => {
       {},
     );
 
-    services[0].start?.({});
     services[0].stop?.call(services[0]);
 
-    expect(logger.info).toHaveBeenCalledWith(expect.stringContaining("Cortex recall latency ("));
+    expect(logger.debug).toHaveBeenCalledWith(expect.stringContaining("Cortex session end — recall latency:"));
   });
 
   it("invalid config refuses registration", () => {
@@ -311,16 +313,17 @@ describe("plugin lifecycle contract", () => {
     mockClientHealth();
     mockClientKnowledge({ total_memories: 142, total_sessions: 18, maturity: "warming" });
 
-    const { api, logger } = makeApi({
+    const { api, logger, services } = makeApi({
       fileSync: false,
     });
 
     plugin.register(api as any);
-    // Allow the bootstrapClient promise chain (userId + healthCheck + knowledge) to resolve
+    // Bootstrap runs in start(), not register()
+    services[0].start?.({});
     await new Promise((r) => setTimeout(r, 50));
 
     expect(logger.info).toHaveBeenCalledWith(
-      "Cortex knowledge: maturity=warming, sessions=18, memories=142, tier=2",
+      "Cortex connected — 142 memories, 18 sessions (warming)",
     );
   });
 

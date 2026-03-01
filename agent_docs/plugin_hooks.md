@@ -51,9 +51,10 @@ All three degrade gracefully on older runtimes that lack these methods.
 
 Registered via `api.registerService({ id: "cortex-services", start, stop })`:
 
-- **start**: Boots retry queue, derives namespace from workspace dir, starts file sync watchers
-- **stop**: Stops watchers, drains retry queue, logs recall latency summary
-- Idempotency guard prevents double-start — see src/plugin/index.ts:446
+- **start**: Resolves userId (deferred from `register()` to avoid work during install/update), runs health check + knowledge probe, boots retry queue, derives namespace from workspace dir, starts file sync watchers
+- **stop**: Stops watchers, drains retry queue
+- Idempotency guard prevents double-start
+- Only `register()` runs during install/update — `start()` is only called during active sessions
 
 ## Configuration
 

@@ -215,13 +215,14 @@ The `cortex.status` RPC method exposes plugin health and metrics programmaticall
 
 ### Observability
 
-On shutdown, the plugin logs recall latency percentiles:
+On session start, the plugin logs a single status line:
 
 ```
-Cortex recall latency (847 samples): p50=120ms p95=340ms p99=480ms
+Cortex v1.1.2 ready
+Cortex connected — 1,173 memories, 4 sessions (cold)
 ```
 
-Use this to tune `recallTimeoutMs` for your deployment.
+Recall latency percentiles are logged at debug level on shutdown. Enable verbose logging to see them, or use the `/memories` command for live metrics.
 
 ![Observability](assets/readme_assets/Observability.png)
 
@@ -264,7 +265,7 @@ If both this plugin and the Cortex SKILL.md are active, the `<cortex_memories>` 
 ```bash
 npm install
 npm run build      # TypeScript → dist/
-npm test           # Run vitest (174 tests)
+npm test           # Run vitest (230 tests)
 npm run test:watch # Watch mode
 npm run test:integration # Live Cortex API tests (uses the baked-in API key)
 ```

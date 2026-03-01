@@ -4,6 +4,34 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Changed
+
+- **Clean logging**: Consolidated plugin output to two info-level lines max (`Cortex v{version} ready` + connection status). All registration internals, tool call details, and latency stats moved to debug level.
+- **Deferred bootstrap**: userId resolution, health check, and knowledge probe now run in `start()` instead of `register()`, eliminating unnecessary network/filesystem work during `openclaw plugins install` and `openclaw plugins update`.
+
+## [1.1.2] - 2026-03-01
+
+### Fixed
+
+- **Capture 422 fix**: Enforce 50,000 character limit on capture payloads to prevent Cortex API rejections. After byte-size trimming, a second pass drops oldest messages until the transcript fits within the API's character limit.
+
+## [1.1.1] - 2026-03-01
+
+### Added
+
+- **Capture content filter**: `captureFilter` config with regex-based pattern matching to drop low-signal content (heartbeat messages, TUI artifacts, token counters) before ingestion.
+
+### Changed
+
+- **File sync logging**: Upgraded watch start/stop and sync events from debug to info/warn with path details for better production visibility.
+
+## [1.1.0] - 2026-03-01
+
+### Added
+
+- **Audit logging**: `/audit` command and `auditLog` config option. Records every payload sent to Cortex at `.cortex/audit/` in the workspace — index file with metadata plus full payload content. Toggleable at runtime via `/audit on` and `/audit off`.
+- **Capture payload size cap**: `captureMaxPayloadBytes` config (default 256KB). Oversized transcripts are trimmed from the oldest messages to stay within the limit.
+
 ## [1.0.0] - 2026-02-27
 
 ### Added
