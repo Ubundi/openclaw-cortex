@@ -3,6 +3,7 @@ import type { CortexClient } from "../../adapters/cortex/client.js";
 import type { RetryQueue } from "../../internal/queue/retry-queue.js";
 import type { AuditLogger } from "../../internal/audit/audit-logger.js";
 import { safePath } from "../../internal/fs/safe-path.js";
+import { filterLowSignalLines } from "../capture/filter.js";
 
 type Logger = {
   debug?(...args: unknown[]): void;
@@ -27,6 +28,7 @@ export class MemoryMdSync {
     private allowedRoot?: string,
     private getUserId?: () => string | undefined,
     private auditLogger?: AuditLogger,
+    private captureFilter = true,
   ) {}
 
   onFileChange(): void {
@@ -60,8 +62,12 @@ export class MemoryMdSync {
 
     if (current === this.lastContent) return;
 
-    const added = lineDiff(this.lastContent, current);
+    let added = lineDiff(this.lastContent, current);
     this.lastContent = current;
+
+    if (this.captureFilter) {
+      added = filterLowSignalLines(added);
+    }
 
     if (!added.trim()) return;
 

@@ -16,6 +16,7 @@ type Logger = {
 
 export interface FileSyncOptions {
   transcripts?: boolean;
+  captureFilter?: boolean;
 }
 
 export class FileSyncWatcher {
@@ -43,6 +44,8 @@ export class FileSyncWatcher {
     }
     this.started = true;
 
+    this.logger.info(`File sync: workspaceDir=${this.workspaceDir}`);
+
     const memoryMdPath = join(this.workspaceDir, "MEMORY.md");
     const memoryDir = join(this.workspaceDir, "memory");
     const sessionsDir = join(this.workspaceDir, "sessions");
@@ -56,6 +59,7 @@ export class FileSyncWatcher {
       this.workspaceDir,
       this.getUserId,
       this.auditLogger,
+      this.options.captureFilter ?? true,
     );
 
     this.dailyLogsSync = new DailyLogsSync(
@@ -66,18 +70,26 @@ export class FileSyncWatcher {
       memoryDir,
       this.getUserId,
       this.auditLogger,
+      this.options.captureFilter ?? true,
     );
 
-    this.watchPath(
+    const watched: string[] = [];
+    const failed: string[] = [];
+
+    if (this.watchPath(
       memoryMdPath,
       () => {
         this.memoryMdSync?.onFileChange();
       },
       "File sync: watching MEMORY.md",
       "File sync: MEMORY.md not found, skipping",
-    );
+    )) {
+      watched.push("MEMORY.md");
+    } else {
+      failed.push("MEMORY.md");
+    }
 
-    this.watchPath(
+    if (this.watchPath(
       memoryDir,
       (_event, filename) => {
         if (typeof filename !== "string" || !filename.endsWith(".md")) return;
@@ -87,7 +99,11 @@ export class FileSyncWatcher {
       "File sync: watching memory/*.md",
       "File sync: memory/ directory not found, skipping",
       { recursive: true },
-    );
+    )) {
+      watched.push("memory/*.md");
+    } else {
+      failed.push("memory/*.md");
+    }
 
     // Watch sessions/*.jsonl (transcripts)
     if (this.options.transcripts !== false) {
@@ -100,7 +116,7 @@ export class FileSyncWatcher {
         this.getUserId,
         this.auditLogger,
       );
-      this.watchPath(
+      if (this.watchPath(
         sessionsDir,
         (_event, filename) => {
           if (typeof filename !== "string" || !filename.endsWith(".jsonl")) return;
@@ -110,8 +126,17 @@ export class FileSyncWatcher {
         "File sync: watching sessions/*.jsonl",
         "File sync: sessions/ directory not found, skipping",
         { recursive: true },
-      );
+      )) {
+        watched.push("sessions/*.jsonl");
+      } else {
+        failed.push("sessions/*.jsonl");
+      }
     }
+
+    const parts = [`File sync: watching ${watched.length} paths`];
+    if (watched.length > 0) parts.push(`(${watched.join(", ")})`);
+    if (failed.length > 0) parts.push(`— failed: ${failed.join(", ")}`);
+    this.logger.info(parts.join(" "));
   }
 
   stop(): void {
@@ -137,13 +162,15 @@ export class FileSyncWatcher {
     successMessage: string,
     skipMessage: string,
     options?: { recursive: true },
-  ): void {
+  ): boolean {
     try {
       const watcher = options ? watch(path, options, handler) : watch(path, handler);
       this.watchers.push(watcher);
-      this.logger.debug?.(successMessage);
-    } catch {
-      this.logger.debug?.(skipMessage);
+      this.logger.info(successMessage);
+      return true;
+    } catch (err) {
+      this.logger.warn(`${skipMessage} (${err instanceof Error ? err.message : String(err)})`);
+      return false;
     }
   }
 }

@@ -3,6 +3,7 @@ import type { CortexConfig } from "../../plugin/config/schema.js";
 import type { KnowledgeState } from "../../plugin/index.js";
 import type { RetryQueue } from "../../internal/queue/retry-queue.js";
 import type { AuditLogger } from "../../internal/audit/audit-logger.js";
+import { filterLowSignalMessages } from "./filter.js";
 
 interface AgentEndEvent {
   runId?: string;
@@ -27,7 +28,7 @@ type Logger = {
   error(...args: unknown[]): void;
 };
 
-const MIN_CONTENT_LENGTH = 20;
+const MIN_CONTENT_LENGTH = 50;
 
 /** Strip injected recall block so we don't re-ingest recalled memories as new content */
 const RECALL_BLOCK_RE = /\s*<cortex_memories>[\s\S]*?<\/cortex_memories>\s*/g;
@@ -105,14 +106,19 @@ export function createCaptureHandler(
         }))
         .filter((msg) => msg.content.length > 0);
 
-      if (!isWorthCapturing(normalized)) {
+      // Drop low-signal messages (heartbeats, status lines, TUI artifacts)
+      const filtered = config.captureFilter !== false
+        ? filterLowSignalMessages(normalized)
+        : normalized;
+
+      if (!isWorthCapturing(filtered)) {
         logger.info("Cortex capture: skipping — not enough substantive content");
         return;
       }
 
       // API caps at 200 messages — take the most recent to stay within the limit
       const MAX_MESSAGES = 200;
-      const trimmed = normalized.length > MAX_MESSAGES ? normalized.slice(-MAX_MESSAGES) : normalized;
+      const trimmed = filtered.length > MAX_MESSAGES ? filtered.slice(-MAX_MESSAGES) : filtered;
 
       // Enforce byte-size cap — drop oldest messages until the transcript fits.
       // This prevents oversized payloads from pasted files or long tool outputs.

@@ -56,7 +56,7 @@ describe("DailyLogsSync", () => {
     await sync.onFileChange("/workspace/memory/2026-02-17.md", "2026-02-17.md");
 
     expect(client.remember).toHaveBeenCalledWith(
-      "line1\nline2\n",
+      "line1\nline2",
       "test-ns:daily:2026-02-17.md",
       undefined,
       "2026-02-17",
@@ -77,7 +77,49 @@ describe("DailyLogsSync", () => {
 
     expect(client.remember).toHaveBeenCalledTimes(2);
     const secondCall = (client.remember as ReturnType<typeof vi.fn>).mock.calls[1];
-    expect(secondCall[0]).toBe("line3\n");
+    expect(secondCall[0]).toBe("line3");
+  });
+
+  it("strips low-signal lines from new content before ingestion", async () => {
+    const client = makeClient();
+    const logger = makeLogger();
+    const sync = new DailyLogsSync(client, "test-ns", logger);
+
+    mockReadFile.mockResolvedValue("User prefers dark mode\nHEARTBEAT_OK\nconnected | idle\nProject uses React");
+
+    await sync.onFileChange("/workspace/memory/2026-03-01.md", "2026-03-01.md");
+
+    const content = (client.remember as ReturnType<typeof vi.fn>).mock.calls[0][0] as string;
+    expect(content).toContain("User prefers dark mode");
+    expect(content).toContain("Project uses React");
+    expect(content).not.toContain("HEARTBEAT_OK");
+    expect(content).not.toContain("connected | idle");
+  });
+
+  it("skips ingestion when all new content is low-signal", async () => {
+    const client = makeClient();
+    const logger = makeLogger();
+    const sync = new DailyLogsSync(client, "test-ns", logger);
+
+    mockReadFile.mockResolvedValue("HEARTBEAT_OK\nok\nconnected | idle");
+
+    await sync.onFileChange("/workspace/memory/2026-03-01.md", "2026-03-01.md");
+
+    expect(client.remember).not.toHaveBeenCalled();
+  });
+
+  it("skips filtering when captureFilter is false", async () => {
+    const client = makeClient();
+    const logger = makeLogger();
+    // Pass captureFilter=false as the 8th constructor arg
+    const sync = new DailyLogsSync(client, "ns", logger, undefined, undefined, undefined, undefined, false);
+
+    mockReadFile.mockResolvedValue("HEARTBEAT_OK\nsubstantive content");
+
+    await sync.onFileChange("/workspace/memory/log.md", "log.md");
+
+    const content = (client.remember as ReturnType<typeof vi.fn>).mock.calls[0][0] as string;
+    expect(content).toContain("HEARTBEAT_OK");
   });
 
   it("skips when new content is only whitespace", async () => {

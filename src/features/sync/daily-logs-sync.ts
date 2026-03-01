@@ -3,6 +3,7 @@ import type { CortexClient } from "../../adapters/cortex/client.js";
 import type { RetryQueue } from "../../internal/queue/retry-queue.js";
 import type { AuditLogger } from "../../internal/audit/audit-logger.js";
 import { safePath } from "../../internal/fs/safe-path.js";
+import { filterLowSignalLines } from "../capture/filter.js";
 
 type Logger = {
   debug?(...args: unknown[]): void;
@@ -22,6 +23,7 @@ export class DailyLogsSync {
     private allowedRoot?: string,
     private getUserId?: () => string | undefined,
     private auditLogger?: AuditLogger,
+    private captureFilter = true,
   ) {}
 
   async onFileChange(filePath: string, filename: string): Promise<void> {
@@ -37,8 +39,12 @@ export class DailyLogsSync {
 
       const content = await readFile(filePath, "utf-8");
       const lastOffset = this.offsets.get(filePath) ?? 0;
-      const newContent = content.slice(lastOffset);
+      let newContent = content.slice(lastOffset);
       this.offsets.set(filePath, content.length);
+
+      if (this.captureFilter) {
+        newContent = filterLowSignalLines(newContent);
+      }
 
       if (!newContent.trim()) return;
 

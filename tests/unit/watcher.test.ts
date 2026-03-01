@@ -113,7 +113,7 @@ describe("FileSyncWatcher", () => {
     expect(TranscriptsSync).not.toHaveBeenCalled();
   });
 
-  it("start() handles missing directories gracefully", () => {
+  it("start() handles missing directories gracefully with warn logging", () => {
     const logger = makeLogger();
 
     // Make all watch calls throw (directories don't exist)
@@ -130,9 +130,53 @@ describe("FileSyncWatcher", () => {
 
     // Should not throw
     expect(() => watcher.start()).not.toThrow();
-    expect(logger.debug).toHaveBeenCalledWith(
+    // Failures now logged at warn level with error message
+    expect(logger.warn).toHaveBeenCalledWith(
       expect.stringContaining("not found"),
     );
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.stringContaining("ENOENT"),
+    );
+  });
+
+  it("start() logs workspaceDir and summary at info level", () => {
+    const logger = makeLogger();
+    mockWatch.mockImplementation(() => ({ close: vi.fn() }));
+
+    const watcher = new FileSyncWatcher(
+      "/workspace",
+      makeClient(),
+      "ns",
+      logger,
+    );
+
+    watcher.start();
+
+    expect(logger.info).toHaveBeenCalledWith(
+      expect.stringContaining("workspaceDir=/workspace"),
+    );
+    // Summary line
+    expect(logger.info).toHaveBeenCalledWith(
+      expect.stringContaining("watching 3 paths"),
+    );
+  });
+
+  it("start() logs successful watches at info level", () => {
+    const logger = makeLogger();
+    mockWatch.mockImplementation(() => ({ close: vi.fn() }));
+
+    const watcher = new FileSyncWatcher(
+      "/workspace",
+      makeClient(),
+      "ns",
+      logger,
+    );
+
+    watcher.start();
+
+    expect(logger.info).toHaveBeenCalledWith("File sync: watching MEMORY.md");
+    expect(logger.info).toHaveBeenCalledWith("File sync: watching memory/*.md");
+    expect(logger.info).toHaveBeenCalledWith("File sync: watching sessions/*.jsonl");
   });
 
   it("stop() closes all watchers and sub-syncs", () => {

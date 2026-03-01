@@ -107,6 +107,65 @@ describe("MemoryMdSync", () => {
     expect(client.remember).not.toHaveBeenCalled();
   });
 
+  it("strips low-signal lines from diff before ingestion", async () => {
+    const client = makeClient();
+    const logger = makeLogger();
+    const sync = new MemoryMdSync("/workspace/MEMORY.md", client, "mem-session", logger);
+
+    mockReadFile.mockResolvedValue("HEARTBEAT_OK\nUser prefers TypeScript\nconnected | idle");
+
+    sync.onFileChange();
+    await vi.advanceTimersByTimeAsync(2000);
+
+    expect(client.remember).toHaveBeenCalledWith(
+      expect.not.stringContaining("HEARTBEAT_OK"),
+      "mem-session",
+      undefined,
+      undefined,
+      undefined,
+    );
+    expect(client.remember).toHaveBeenCalledWith(
+      expect.stringContaining("User prefers TypeScript"),
+      "mem-session",
+      undefined,
+      undefined,
+      undefined,
+    );
+  });
+
+  it("skips ingestion when diff is entirely low-signal", async () => {
+    const client = makeClient();
+    const logger = makeLogger();
+    const sync = new MemoryMdSync("/workspace/MEMORY.md", client, "s", logger);
+
+    mockReadFile.mockResolvedValue("HEARTBEAT_OK\nconnected | idle\nok");
+
+    sync.onFileChange();
+    await vi.advanceTimersByTimeAsync(2000);
+
+    expect(client.remember).not.toHaveBeenCalled();
+  });
+
+  it("skips filtering when captureFilter is false", async () => {
+    const client = makeClient();
+    const logger = makeLogger();
+    // Pass captureFilter=false as 9th constructor arg
+    const sync = new MemoryMdSync("/workspace/MEMORY.md", client, "s", logger, undefined, undefined, undefined, undefined, false);
+
+    mockReadFile.mockResolvedValue("HEARTBEAT_OK\nUser prefers TypeScript");
+
+    sync.onFileChange();
+    await vi.advanceTimersByTimeAsync(2000);
+
+    expect(client.remember).toHaveBeenCalledWith(
+      expect.stringContaining("HEARTBEAT_OK"),
+      expect.any(String),
+      undefined,
+      undefined,
+      undefined,
+    );
+  });
+
   it("skips when diff is only whitespace", async () => {
     const client = makeClient();
     const logger = makeLogger();

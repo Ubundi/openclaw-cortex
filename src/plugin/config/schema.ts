@@ -35,6 +35,7 @@ export const CortexConfigSchema = z.object({
   fileSync: z.boolean().default(true),
   transcriptSync: z.boolean().default(true),
   captureMaxPayloadBytes: z.number().int().min(1024).max(1_048_576).default(262_144),
+  captureFilter: z.boolean().default(true),
   auditLog: z.boolean().default(false),
   namespace: z.string().min(1).default("openclaw"),
 });

@@ -589,7 +589,7 @@ const plugin = {
               namespace,
               api.logger,
               retryQueue,
-              { transcripts: config.transcriptSync },
+              { transcripts: config.transcriptSync, captureFilter: config.captureFilter },
               () => userId,
               auditLoggerProxy,
             );

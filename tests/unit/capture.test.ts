@@ -13,6 +13,7 @@ function makeConfig(overrides: Partial<CortexConfig> = {}): CortexConfig {
     toolTimeoutMs: 10000,
     fileSync: true,
     transcriptSync: true,
+    captureFilter: true,
     ...overrides,
     namespace: overrides.namespace ?? "test",
   };
@@ -35,8 +36,8 @@ describe("createCaptureHandler", () => {
 
     await handler({
       messages: [
-        { role: "user", content: "What is the deployment strategy for our backend?" },
-        { role: "assistant", content: "The backend uses blue-green deployment on ECS Fargate with ALB." },
+        { role: "user", content: "What is the deployment strategy for our backend services?" },
+        { role: "assistant", content: "The backend uses blue-green deployment on ECS Fargate with ALB routing." },
       ],
       aborted: false,
       sessionKey: "sess-1",
@@ -45,7 +46,7 @@ describe("createCaptureHandler", () => {
     await submitPromise;
 
     expect(submitMock).toHaveBeenCalledWith(
-      "user: What is the deployment strategy for our backend?\n\nassistant: The backend uses blue-green deployment on ECS Fargate with ALB.",
+      "user: What is the deployment strategy for our backend services?\n\nassistant: The backend uses blue-green deployment on ECS Fargate with ALB routing.",
       "sess-1",
       expect.any(String),
       undefined,
@@ -97,7 +98,7 @@ describe("createCaptureHandler", () => {
 
     await handler({
       messages: [
-        { role: "user", content: "What database does the project use and why?" },
+        { role: "user", content: "What database does the project use and why was it chosen?" },
         {
           role: "assistant",
           content: [
@@ -123,9 +124,9 @@ describe("createCaptureHandler", () => {
 
     await handler({
       messages: [
-        { role: "user", content: "What files are in the src directory?" },
+        { role: "user", content: "What files are in the src directory of this project?" },
         { role: "assistant", content: [{ type: "tool_use", id: "toolu_01", name: "exec", input: { command: "ls src" } }] },
-        { role: "tool", content: [{ type: "tool_result", tool_use_id: "toolu_01", content: "index.ts\nplugin.ts\nclient.ts" }] },
+        { role: "tool", content: [{ type: "tool_result", tool_use_id: "toolu_01", content: "index.ts\nplugin.ts\nclient.ts\nhandler.ts\nformatter.ts" }] },
         { role: "assistant", content: [{ type: "text", text: "The src directory contains index.ts, plugin.ts, and client.ts." }] },
       ],
       aborted: false,
@@ -144,8 +145,8 @@ describe("createCaptureHandler", () => {
     const handler = createCaptureHandler(client, makeConfig(), logger);
 
     const turn1Messages = [
-      { role: "user", content: "What is the deployment strategy for our backend?" },
-      { role: "assistant", content: "The backend uses blue-green deployment on ECS Fargate with ALB." },
+      { role: "user", content: "What is the deployment strategy for our backend services?" },
+      { role: "assistant", content: "The backend uses blue-green deployment on ECS Fargate with ALB routing." },
     ];
 
     // Turn 1: full history is [turn1]
@@ -153,8 +154,8 @@ describe("createCaptureHandler", () => {
     await vi.waitFor(() => expect(submitMock).toHaveBeenCalledTimes(1));
 
     const turn2Delta = [
-      { role: "user", content: "How does the health check work for the blue-green swap?" },
-      { role: "assistant", content: "ALB checks the /health endpoint before shifting traffic to the new target group." },
+      { role: "user", content: "How does the health check work during the blue-green deployment swap?" },
+      { role: "assistant", content: "ALB checks the /health endpoint before shifting traffic to the new target group automatically." },
     ];
 
     // Turn 2: cumulative history is [turn1..., turn2...]
@@ -163,7 +164,7 @@ describe("createCaptureHandler", () => {
 
     // Second call should only contain the turn 2 delta, not turn 1 again
     const secondTranscript = submitMock.mock.calls[1][0] as string;
-    expect(secondTranscript).toContain("How does the health check work for the blue-green swap?");
+    expect(secondTranscript).toContain("How does the health check work during the blue-green deployment swap?");
     expect(secondTranscript).not.toContain("What is the deployment strategy");
   });
 
@@ -183,8 +184,8 @@ describe("createCaptureHandler", () => {
 
     await handler({
       messages: [
-        { role: "user", content: `${recallBlock}\n\nWhat database does the project use?` },
-        { role: "assistant", content: "The project uses PostgreSQL with pgvector." },
+        { role: "user", content: `${recallBlock}\n\nWhat database does the project use and how is it configured?` },
+        { role: "assistant", content: "The project uses PostgreSQL with pgvector for embedding storage." },
       ],
       aborted: false,
     });
@@ -194,8 +195,8 @@ describe("createCaptureHandler", () => {
     const transcript = submitMock.mock.calls[0][0] as string;
     expect(transcript).not.toContain("cortex_memories");
     expect(transcript).not.toContain("recalled memories");
-    expect(transcript).toContain("What database does the project use?");
-    expect(transcript).toContain("The project uses PostgreSQL with pgvector.");
+    expect(transcript).toContain("What database does the project use and how is it configured?");
+    expect(transcript).toContain("The project uses PostgreSQL with pgvector for embedding storage.");
   });
 
   it("trims oldest messages when payload exceeds captureMaxPayloadBytes", async () => {
@@ -214,8 +215,8 @@ describe("createCaptureHandler", () => {
       messages: [
         { role: "user", content: "This is the first message which is old and should be dropped if needed" },
         { role: "assistant", content: "This is the second message which is also old content to be dropped" },
-        { role: "user", content: "This is the third message that is newer" },
-        { role: "assistant", content: "This is the fourth and most recent message" },
+        { role: "user", content: "This is the third message that is newer and should be kept" },
+        { role: "assistant", content: "This is the fourth and most recent message in the conversation" },
       ],
       aborted: false,
     });
@@ -243,8 +244,8 @@ describe("createCaptureHandler", () => {
 
     await handler({
       messages: [
-        { role: "user", content: "A sufficiently long user message for testing purposes here" },
-        { role: "assistant", content: "A sufficiently long assistant response for testing purposes here" },
+        { role: "user", content: "A sufficiently long user message for testing purposes here in the project" },
+        { role: "assistant", content: "A sufficiently long assistant response for testing purposes here in the project" },
       ],
       aborted: false,
     });
@@ -258,6 +259,69 @@ describe("createCaptureHandler", () => {
     expect(transcript).toContain("assistant response");
   });
 
+  it("skips messages between 20 and 50 chars (raised threshold)", async () => {
+    const submitMock = vi.fn();
+    const client = { submitIngest: submitMock } as unknown as CortexClient;
+    const handler = createCaptureHandler(client, makeConfig(), logger);
+
+    await handler({
+      messages: [
+        { role: "user", content: "What does this function do?" },      // 27 chars
+        { role: "assistant", content: "It returns a boolean value." },  // 27 chars
+      ],
+      aborted: false,
+    });
+
+    expect(submitMock).not.toHaveBeenCalled();
+  });
+
+  it("filters low-signal messages before ingestion", async () => {
+    const submitPromise = Promise.resolve({ job_id: "job-filter", status: "pending" });
+    const submitMock = vi.fn().mockReturnValue(submitPromise);
+    const client = { submitIngest: submitMock } as unknown as CortexClient;
+
+    const handler = createCaptureHandler(client, makeConfig(), logger);
+
+    await handler({
+      messages: [
+        { role: "user", content: "What is the deployment strategy for our backend services?" },
+        { role: "assistant", content: "HEARTBEAT_OK" },
+        { role: "assistant", content: "The backend uses blue-green deployment on ECS Fargate with ALB routing." },
+      ],
+      aborted: false,
+    });
+
+    await submitPromise;
+
+    const transcript = submitMock.mock.calls[0][0] as string;
+    expect(transcript).not.toContain("HEARTBEAT_OK");
+    expect(transcript).toContain("blue-green deployment");
+  });
+
+  it("skips filtering when captureFilter is false", async () => {
+    const submitPromise = Promise.resolve({ job_id: "job-nofilter", status: "pending" });
+    const submitMock = vi.fn().mockReturnValue(submitPromise);
+    const client = { submitIngest: submitMock } as unknown as CortexClient;
+
+    const handler = createCaptureHandler(client, makeConfig({ captureFilter: false }), logger);
+
+    await handler({
+      messages: [
+        { role: "user", content: "What is the deployment strategy for our backend services?" },
+        { role: "assistant", content: "The backend uses blue-green deployment on ECS Fargate with ALB routing." },
+        { role: "user", content: "ok" },
+        { role: "assistant", content: "Let me know if you need anything else about the deployment setup." },
+      ],
+      aborted: false,
+    });
+
+    await submitPromise;
+
+    const transcript = submitMock.mock.calls[0][0] as string;
+    // "ok" should NOT be filtered when captureFilter is false
+    expect(transcript).toContain("ok");
+  });
+
   it("falls back to sessionId when sessionKey is absent", async () => {
     const submitPromise = Promise.resolve({ job_id: "job-5", status: "pending" });
     const submitMock = vi.fn().mockReturnValue(submitPromise);
@@ -267,8 +331,8 @@ describe("createCaptureHandler", () => {
 
     await handler({
       messages: [
-        { role: "user", content: "What is the deployment strategy for our backend?" },
-        { role: "assistant", content: "The backend uses blue-green deployment on ECS Fargate with ALB." },
+        { role: "user", content: "What is the deployment strategy for our backend services?" },
+        { role: "assistant", content: "The backend uses blue-green deployment on ECS Fargate with ALB routing." },
       ],
       aborted: false,
       sessionId: "fallback-id",
