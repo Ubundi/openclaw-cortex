@@ -34,7 +34,7 @@ before each turn and capture new facts after each turn. Also syncs local files
 npm ci                    # install deps
 npm run build             # tsc + inject-api-key (needs BUILD_API_KEY env var for prod builds)
 npx tsc --noEmit          # type check only
-npm test                  # unit tests (230 tests, no API key needed)
+npm test                  # unit tests (262 tests, no API key needed)
 npm run test:integration  # live API tests (needs CORTEX_API_KEY)
 npm run verify-release    # checks version consistency across package.json and plugin manifest
 ```
@@ -47,10 +47,11 @@ npm run verify-release    # checks version consistency across package.json and p
 - **Capture watermark**: Only new messages since last capture are sent to Cortex, not the full history — see src/features/capture/handler.ts
 - **API key baking**: Production builds embed the API key at build time via scripts/inject-api-key.mjs into src/internal/identity/api-key.ts
 - **Namespace derivation**: Workspace directory is hashed to auto-scope memories per project — see src/plugin/index.ts:33
-- **userId lifecycle**: Resolved lazily in `start()` (not `register()`) to avoid filesystem/network work during plugin install/update. All handlers await `userIdReady` before firing — see src/plugin/index.ts
+- **userId lifecycle**: Resolved eagerly in `register()` (not `start()`). This is critical because the OpenClaw runtime runs two plugin instances (`[gateway]` and `[plugins]`) — only `[gateway]` gets `start()` called. Commands like `/memories` and hooks like recall/capture must work on both instances. The capture handler awaits `userIdReady` before firing — see src/plugin/index.ts
 
 ## Non-Obvious Things
 
+- **Dual-instance runtime**: OpenClaw runs two plugin instances — `[gateway]` (gets `start()` called, has workspaceDir) and `[plugins]` (only gets `register()`, no `start()`). All initialization that commands or hooks depend on MUST happen in `register()`, not `start()`. Use `start()` only for things that genuinely need workspaceDir (file sync, audit logging, namespace derivation). Deferring userId or bootstrapClient to `start()` will break the `[plugins]` instance silently.
 - `npm run build` requires `BUILD_API_KEY` env var to bake the API key into the bundle. Without it, the baked key is empty and the plugin authenticates with whatever the runtime provides.
 - `npm run version` auto-syncs the version from package.json into openclaw.plugin.json before git add.
 - Integration and manual tests hit the live Cortex API and need `CORTEX_API_KEY` set.

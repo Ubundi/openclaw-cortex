@@ -51,10 +51,11 @@ All three degrade gracefully on older runtimes that lack these methods.
 
 Registered via `api.registerService({ id: "cortex-services", start, stop })`:
 
-- **start**: Resolves userId (deferred from `register()` to avoid work during install/update), runs health check + knowledge probe, boots retry queue, derives namespace from workspace dir, starts file sync watchers
+- **register()**: Resolves userId eagerly, runs health check + knowledge probe via `bootstrapClient()`. This must happen in `register()` because the OpenClaw runtime runs two plugin instances (`[gateway]` and `[plugins]`) and only `[gateway]` gets `start()` called. Commands and hooks must work on both.
+- **start**: Boots retry queue, derives namespace from workspace dir, starts file sync watchers, initializes audit logger if enabled
 - **stop**: Stops watchers, drains retry queue
 - Idempotency guard prevents double-start
-- Only `register()` runs during install/update — `start()` is only called during active sessions
+- `start()` is only called on the `[gateway]` instance — never assume it will fire
 
 ## Configuration
 

@@ -4,10 +4,16 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- **`/memories` command hang**: The `/memories` command hung indefinitely when dispatched to the `[plugins]` runtime instance, which never calls `start()`. The `userIdReady` promise was initialized as a never-resolving placeholder and only replaced in `start()` — but the command handler awaited it before any logging, causing a silent infinite hang. Moved userId resolution back to `register()` so it resolves eagerly in all runtime instances.
+- **Recall skipping on `[plugins]` instance**: The `[plugins]` runtime instance always skipped recall with "no memories yet" because `bootstrapClient()` (which probes `/knowledge` and sets `hasMemories`) was only called in `start()`. Moved the knowledge probe to `register()` so both `[gateway]` and `[plugins]` instances know about existing memories.
+- **Capture silently dropping data**: The capture handler received `userIdReady` by value at registration time, capturing the initial never-resolving promise. When `start()` reassigned the variable, the capture handler still held the stale reference. Any turn with real content to capture would hang at the await and silently fail to ingest. Fixed by making `userIdReady` a `const` resolved eagerly in `register()`.
+
 ### Changed
 
 - **Clean logging**: Consolidated plugin output to two info-level lines max (`Cortex v{version} ready` + connection status). All registration internals, tool call details, and latency stats moved to debug level.
-- **Deferred bootstrap**: userId resolution, health check, and knowledge probe now run in `start()` instead of `register()`, eliminating unnecessary network/filesystem work during `openclaw plugins install` and `openclaw plugins update`.
+- **Eager bootstrap**: userId resolution, health check, and knowledge probe now run in `register()` instead of `start()`. This is necessary because the OpenClaw runtime runs two plugin instances (`[gateway]` and `[plugins]`) and only `[gateway]` gets `start()` called. Commands and hooks must work on both instances.
 
 ## [1.1.2] - 2026-03-01
 

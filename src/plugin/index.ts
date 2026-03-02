@@ -215,14 +215,28 @@ const plugin = {
       },
     } as AuditLogger;
 
-    // userId: use explicit config value if provided, otherwise resolved lazily
-    // in start() to avoid filesystem/network work during plugin install/update.
-    // The capture handler awaits userIdReady before firing — user_id is required
-    // by the API and sending null/missing would 422.
+    // userId: use explicit config value if provided, otherwise load/create a
+    // stable UUID persisted at ~/.openclaw/cortex-user-id. Resolved eagerly so
+    // commands and hooks work even if start() is never called (e.g. [plugins]
+    // instances in multi-process runtimes). The capture handler awaits
+    // userIdReady before firing — user_id is required by the API.
     let userId: string | undefined = config.userId;
-    let userIdReady: Promise<void> = config.userId ? Promise.resolve() : new Promise(() => {});
-    // Replaced with a real promise in start() — handlers that run before start()
-    // will block indefinitely (which is fine, they shouldn't fire during install).
+    const userIdReady: Promise<void> = userId
+      ? Promise.resolve()
+      : loadOrCreateUserId()
+          .then((id) => {
+            userId = id;
+            api.logger.debug?.(`Cortex user ID: ${id}`);
+          })
+          .catch(() => {
+            userId = randomUUID();
+            api.logger.warn("Cortex: could not persist user ID, using ephemeral ID for this session");
+          });
+
+    // Health check + knowledge probe — runs after userId resolves so recall
+    // knows whether memories exist. Must happen in register() because some
+    // runtime instances never call start().
+    void userIdReady.then(() => bootstrapClient(client, api.logger, knowledgeState, userId));
 
     api.logger.info(`Cortex v${version} ready`);
 
@@ -275,7 +289,7 @@ const plugin = {
           const query = String(params.query ?? "");
           const limit = Math.min(Math.max(Number(params.limit) || 10, 1), 50);
 
-          if (userIdReady) await userIdReady;
+          await userIdReady;
 
           api.logger.debug?.(`Cortex search: "${query.slice(0, 80)}" (limit=${limit})`);
 
@@ -327,7 +341,7 @@ const plugin = {
             return { content: [{ type: "text", text: "Text too short to save as a memory." }] };
           }
 
-          if (userIdReady) await userIdReady;
+          await userIdReady;
 
           api.logger.debug?.(`Cortex save: "${text.slice(0, 80)}"`);
 
@@ -377,7 +391,7 @@ const plugin = {
         description: "Show Cortex memory status or search memories",
         acceptsArgs: true,
         handler: async (ctx) => {
-          if (userIdReady) await userIdReady;
+          await userIdReady;
 
           const query = ctx.args?.trim();
 
@@ -518,23 +532,6 @@ const plugin = {
           return;
         }
         started = true;
-
-        // Resolve userId now that we're in an actual session (not install/update).
-        // This avoids filesystem + network work during plugin install/update.
-        if (!config.userId) {
-          userIdReady = loadOrCreateUserId()
-            .then((id) => {
-              userId = id;
-              api.logger.debug?.(`Cortex user ID: ${id}`);
-            })
-            .catch(() => {
-              userId = randomUUID();
-              api.logger.warn("Cortex: could not persist user ID, using ephemeral ID for this session");
-            });
-        }
-
-        // Health check + knowledge probe — runs after userId resolves
-        void userIdReady.then(() => bootstrapClient(client, api.logger, knowledgeState, userId));
 
         retryQueue.start();
 
