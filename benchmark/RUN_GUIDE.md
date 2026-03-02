@@ -568,3 +568,215 @@ Run config: default flags — no shuffle, shuffle-seed 1337, answer-concurrency 
 | `LLM API 429` | Rate limited — lower concurrency flags, retry, or use a higher-tier key |
 | Result JSON is very large | Run without `--debug-report` (default is trimmed) |
 | Reflect logs 0 nodes/edges | This is a response schema mismatch — not a real failure. Check `/v1/stats` for ELABORATES edges to confirm reflect ran correctly. |
+
+---
+
+## V2: Real OpenClaw Runtime Benchmark
+
+Tests the Cortex plugin in a **live OpenClaw agent** — no simulation. Conversations and recall probes are sent through the real agent via `openclaw agent` CLI, exercising the full stack: real compaction, real `memory_search`, real plugin hooks, real file sync.
+
+### What It Measures
+
+Two conditions tested sequentially (before/after plugin install):
+
+| Condition | Agent Configuration |
+|-----------|---------------------|
+| **Baseline** | OpenClaw agent without the Cortex plugin — native memory only |
+| **Cortex** | Same agent with the Cortex plugin installed and active |
+
+Reuses the V1.1 Arclight dataset (45 sessions, 50 prompts) for direct comparison with simulated results.
+
+### What V2 Adds Over V1/V1.1
+
+| Aspect | V1/V1.1 (simulated) | V2 (real runtime) |
+|--------|---------------------|-------------------|
+| Baseline memory | Simulated compaction + retrieval | Real OpenClaw compaction + pruning + workspace files |
+| Retrieval | Direct Cortex API call | Through plugin recall handler (`before_agent_start` hook) |
+| Memory formatting | Raw API results as XML | Plugin's `<cortex_memories>` XML with safety preamble |
+| Agent behavior | Isolated LLM call | Full agent turn with tool use, multi-step reasoning |
+| Capture | Not tested | Real auto-capture via `agent_end` hook |
+| File sync | Not tested | Real MEMORY.md / daily log sync to Cortex |
+| End-to-end latency | Retrieve API only | Full turn: hook dispatch → retrieve → format → LLM → response |
+
+### Prerequisites
+
+- A running OpenClaw agent (direct install or Docker)
+- SSH access to the server if running remotely (e.g., EC2)
+- `openclaw` CLI accessible on the server
+- Node.js 20+ and the benchmark code on the server
+- `JUDGE_API_KEY` for the LLM judge (OpenAI-compatible)
+
+### Running on EC2 / Remote Server
+
+The typical setup for benchmarking against a production-like OpenClaw instance:
+
+```bash
+# 1. SSH into the server
+ssh -i your-key.pem ec2-user@<instance-ip>
+
+# 2. Start a tmux session (survives SSH disconnects)
+tmux new -s benchmark
+
+# 3. Clone the repo (or pull latest if already there)
+git clone <repo-url> openclaw-cortex
+cd openclaw-cortex
+npm ci
+
+# 4. Verify the agent is reachable
+openclaw agent --agent <agent-id> --message "hello" --json
+
+# 5. Set the judge API key
+export JUDGE_API_KEY="sk-..."
+
+# 6. Run baseline (no Cortex plugin installed)
+npx tsx benchmark/v2/run.ts --condition baseline --agent <agent-id>
+
+# 7. Install the Cortex plugin on the agent, then run cortex condition
+npx tsx benchmark/v2/run.ts --condition cortex --agent <agent-id>
+
+# 8. Compare results
+npx tsx benchmark/v2/run.ts --compare results/baseline-*.json results/cortex-*.json
+
+# 9. Copy results to local machine (from your local terminal)
+scp -i your-key.pem ec2-user@<ip>:~/openclaw-cortex/benchmark/v2/results/*.json benchmark/v2/results/
+```
+
+**Tips:**
+- Use `tmux` or `screen` — the seed phase sends 136 agent turns sequentially and can take 30-60+ minutes
+- Detach tmux with `Ctrl+B, D` and reattach with `tmux attach -t benchmark`
+- Use separate agent IDs for each condition (e.g., `bench-baseline` and `bench-cortex`) to keep memory state isolated
+
+### Quick Start (Local)
+
+```bash
+# Dry run — validates the full pipeline without touching the agent
+npx tsx benchmark/v2/run.ts --dry-run --condition baseline
+
+# Baseline run against a local agent
+JUDGE_API_KEY=sk-... npx tsx benchmark/v2/run.ts --condition baseline --agent my-agent
+
+# Cortex run (skip re-seeding if agent already has history)
+JUDGE_API_KEY=sk-... npx tsx benchmark/v2/run.ts --condition cortex --agent my-agent --skip-seed
+
+# Compare two result files
+npx tsx benchmark/v2/run.ts --compare results/baseline-*.json results/cortex-*.json
+```
+
+### Environment Variables
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `JUDGE_API_KEY` | Yes | — | OpenAI-compatible API key for judge LLM |
+| `JUDGE_BASE_URL` | No | `https://api.openai.com/v1` | Judge LLM endpoint |
+| `JUDGE_MODEL` | No | `gpt-4.1-mini` | Model for scoring answers |
+| `OPENCLAW_TIMEOUT` | No | `120` | Timeout in seconds for `openclaw agent` calls |
+
+### CLI Flags
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--condition <baseline\|cortex>` | `baseline` | Which condition to run |
+| `--agent <id>` | — | OpenClaw agent ID to target (required unless `--dry-run`) |
+| `--dry-run` | `false` | Validate pipeline without touching the agent |
+| `--skip-seed` | `false` | Skip the seed phase (use if agent already has conversation history) |
+| `--seed-concurrency <int>` | `1` | Concurrent seed sessions (keep at 1 to avoid overwhelming the agent) |
+| `--probe-concurrency <int>` | `1` | Concurrent probe prompts |
+| `--settle-seconds <int>` | `10` | Wait time after seeding for memory processing |
+| `--openclaw-timeout <int>` | `120` | Timeout per agent turn in seconds |
+| `--judge-passes <int>` | `3` | Judge passes per answer (mean aggregation) |
+| `--judge-temperature <float>` | `0.3` | Judge temperature (defaults to 0.3 for multi-pass, 0 for single-pass) |
+| `--judge-concurrency <int>` | `4` | Worker pool for judge scoring |
+| `--compare <file1> <file2>` | — | Compare two result files instead of running a benchmark |
+
+### Execution Phases
+
+1. **Seed** — Sends 45 Arclight conversations (136 user turns total) through the live agent. Each session gets a unique session ID (`benchmark-seed-{sessionId}-{timestamp}`). Only user turns are sent — the agent generates its own responses, building real memory from its own understanding.
+
+2. **Settle** — Waits for OpenClaw to process the seeded conversations: compaction, file sync, Cortex capture jobs (if plugin is active). Default: 10 seconds.
+
+3. **Probe** — Sends 50 recall prompts to a **fresh session** (`benchmark-probe-{condition}-{timestamp}`). No prior conversation context — the agent must rely entirely on its memory system.
+
+4. **Judge** — Scores all 50 responses against V1.1 ground truth using the same 0-3 LLM-as-judge scale. 3-pass mean judging by default for stability.
+
+5. **Report** — Writes JSON results to `benchmark/v2/results/` and prints a markdown summary. Results are named `{condition}-{timestamp}.json`.
+
+### Output
+
+**Single-condition summary** (printed after each run):
+
+```
+============================================================
+               BENCHMARK V2 RESULTS
+               Condition: BASELINE
+============================================================
+
+| Category                       | Score    |
+|--------------------------------|----------|
+| **Overall Mean**               |     2.XX |
+| F: Factual (15)                |     ...  |
+| R: Rationale (10)              |     ...  |
+| ...                            |          |
+```
+
+**Comparison output** (from `--compare`):
+
+```
+============================================================
+               BENCHMARK V2 COMPARISON
+        BASELINE  vs  CORTEX
+============================================================
+
+| Category                       | baseline | cortex   | Delta  |
+|--------------------------------|----------|----------|--------|
+| **Overall Mean**               |     2.XX |     2.XX |  +0.XX |
+| ...                            |          |          |        |
+```
+
+The comparison also includes:
+- Per-prompt delta table (every prompt with both scores and the difference)
+- V1.1 simulated reference table for cross-version comparison
+
+**JSON results** saved to `benchmark/v2/results/{condition}-{timestamp}.json` containing seed results, probe results (with raw agent responses), judgments, and run config.
+
+### State Isolation Between Conditions
+
+The baseline and cortex runs must use separate agent memory state. Two approaches:
+
+**Option A: Separate agent IDs (recommended)**
+```bash
+npx tsx benchmark/v2/run.ts --condition baseline --agent bench-baseline
+npx tsx benchmark/v2/run.ts --condition cortex --agent bench-cortex
+```
+
+**Option B: Reset agent state between runs**
+Clear the agent's workspace files (MEMORY.md, daily logs, session transcripts, SQLite index) between conditions. This is riskier — make sure no other work is using the agent.
+
+### Time Estimates
+
+| Phase | Duration (estimate) | Notes |
+|-------|-------------------|-------|
+| Seed | 30-60 min | 136 turns × 10-30s per turn |
+| Settle | 10s (configurable) | Memory processing |
+| Probe | 10-25 min | 50 turns × 10-30s per turn |
+| Judge | 2-5 min | 50 × 3 passes, concurrent |
+| **Total per condition** | **~45-90 min** | Depends on agent response time |
+
+### Interpreting Results
+
+- **Compare V2 results to V1.1 simulated reference** — the `--compare` output includes V1.1 numbers. If V2 deltas match V1.1 deltas, the simulation was accurate. If they diverge, the real runtime behaves differently than simulated.
+- **Baseline score** tells you how well OpenClaw's native memory works in practice (not simulated)
+- **Cortex delta** is the real-world additive value of the plugin
+- **Per-prompt table** reveals which specific questions benefit most from Cortex
+
+### Troubleshooting
+
+| Problem | Fix |
+|---------|-----|
+| `--agent is required` | Provide the OpenClaw agent ID with `--agent <id>` |
+| `JUDGE_API_KEY is required` | Set the environment variable |
+| `openclaw: command not found` | Ensure `openclaw` CLI is in PATH on the server |
+| Agent turns timing out | Increase `--openclaw-timeout` (default 120s) |
+| Seed phase takes too long | Expected: 30-60 min for 136 turns. Use `tmux` for long-running sessions |
+| Agent not responding | Verify with `openclaw agent --agent <id> --message "hello" --json` |
+| Comparison fails | Ensure both result files exist and were generated with different `--condition` values |
+| SSH disconnects during run | Use `tmux` or `screen` to persist the session |

@@ -25,7 +25,7 @@ before each turn and capture new facts after each turn. Also syncs local files
 - `tests/unit/` — Unit tests (all mocked, no API key needed)
 - `tests/integration/` — Live API tests (requires CORTEX_API_KEY)
 - `tests/manual/` — End-to-end lifecycle simulations
-- `benchmark/` — Recall quality benchmarks
+- `benchmark/` — Recall quality benchmarks (V1: simulated 3-way, V1.1: simulated full-fidelity, V2: real runtime)
 - `scripts/` — Build helpers (API key injection, version sync, release verification)
 
 ## Build & Verify
@@ -61,6 +61,23 @@ npm run verify-release    # checks version consistency across package.json and p
 ## Skills
 
 - `/release [patch|minor|major] [--dry-run]` — Bump version, run checks, commit, tag, and push to trigger npm publish. See `.claude/skills/release.md`
+
+## Benchmarks
+
+Three benchmark versions measure recall quality:
+
+- **V1** (`benchmark/v1/`) — Simulated 3-way comparison (bare / OpenClaw / +Cortex), 8 sessions, 40 prompts
+- **V1.1** (`benchmark/v1.1/`) — Simulated full-fidelity OpenClaw baseline, 45 sessions, 50 prompts. Reference result: +0.10 overall, +0.50 rationale, +0.33 synthesis
+- **V2** (`benchmark/v2/`) — Real OpenClaw runtime via `openclaw agent` CLI, same 45-session Arclight dataset. Run on EC2 against a live agent
+
+```bash
+# V2 quick start (on the server with a running agent):
+npx tsx benchmark/v2/run.ts --condition baseline --agent <agent-id>
+npx tsx benchmark/v2/run.ts --condition cortex --agent <agent-id>
+npx tsx benchmark/v2/run.ts --compare results/baseline-*.json results/cortex-*.json
+```
+
+See `benchmark/RUN_GUIDE.md` for full instructions, `benchmark/FINDINGS.md` for results, `benchmark/BENCHMARK_PLAN.md` for design rationale.
 
 ## Agent Docs
 

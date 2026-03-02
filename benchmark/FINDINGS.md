@@ -215,6 +215,48 @@ Short declarative rules — "never auto-commit", "no `as` type assertions" — s
 
 ---
 
+## V2 Benchmark (Real OpenClaw Runtime)
+
+### Methodology
+
+V2 replaces simulation with a live OpenClaw agent. Conversations and recall probes are sent through `openclaw agent --message "..." --json`, exercising the full runtime stack — real compaction, real `memory_search`, real plugin hooks, real file sync.
+
+Two conditions run sequentially on separate agent instances:
+
+| Condition | Agent Configuration |
+|-----------|---------------------|
+| **Baseline** | OpenClaw agent without the Cortex plugin — native memory only |
+| **Cortex** | Same agent with the Cortex plugin installed and active |
+
+Reuses V1.1's Arclight dataset (45 sessions / 136 user turns for seeding, 50 recall prompts with ground truth) for direct comparison. Agent generates its own responses to seed conversations rather than being fed scripted answers — knowledge captured depends on the agent's actual understanding.
+
+Judging: same 0-3 scale, `gpt-4.1-mini`, 3-pass mean (temp=0.3).
+
+### Results
+
+*Pending first live run. Results will appear here after running against a live OpenClaw instance on EC2.*
+
+### What to Watch For
+
+- **Baseline vs V1.1 simulated baseline** — Does the real OpenClaw native memory score similarly to V1.1's simulated 2.49? If so, the simulation was accurate. If the real agent scores higher (from workspace files, SOUL.md, better compaction), the simulated baseline was pessimistic. If lower, real compaction is lossier than simulated.
+
+- **Cortex delta vs V1.1 delta** — V1.1 showed +0.10 overall, +0.50 rationale, +0.33 synthesis. If V2 shows similar deltas, the plugin works as expected in production. If deltas are larger, real-world capture + file sync adds value the simulation missed. If smaller, the simulation overestimated Cortex's contribution.
+
+- **Temporal/Evolution regression** — V1.1 showed -0.14 Evolution and -0.19 Temporal on warm Tier 3. Does the real agent exhibit the same pattern? If the real agent handles recency better (via its own temporal decay + Cortex together), the regression may be smaller.
+
+- **Agent response latency** — V2 measures full turn time (not just retrieval). The overhead of the Cortex plugin on end-to-end response time.
+
+- **Capture quality** — V1/V1.1 seeded Cortex directly via API. V2 seeds through the agent, so Cortex captures whatever the `agent_end` hook extracts. If capture misses key facts, recall quality will suffer regardless of retrieval quality.
+
+### Run History
+
+| Date | Commit | Condition | Overall | Agent | Notes |
+|------|--------|-----------|---------|-------|-------|
+| *pending* | | baseline | | | |
+| *pending* | | cortex | | | |
+
+---
+
 ## Conclusion
 
 Cortex delivers a consistent, meaningful improvement to an already-functional OpenClaw agent. The **V1.1 3-pass warm result (+0.10 overall) is the reference number** for production scenarios — it uses the most reliable judging methodology against the strongest baseline. The +0.05 from 1-pass judging understated the true signal by suppressing Synthesis and inflating the Factual regression.

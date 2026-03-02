@@ -1,8 +1,8 @@
 # OpenClaw Cortex Benchmark Plan
 
-**Version:** 0.4.0
-**Date:** 2026-02-21
-**Status:** V1 Complete — V1.1 Built (not yet run live) — V2 Planning
+**Version:** 0.5.0
+**Date:** 2026-03-02
+**Status:** V1 Complete — V1.1 Complete (live results) — V2 Built (ready to run)
 
 ## Objective
 
@@ -499,11 +499,17 @@ benchmark/
 
 ---
 
-## V2: Full Agent Loop (Requires OpenClaw Runtime)
+## V2: Full Agent Loop (Real OpenClaw Runtime)
 
-V2 tests the complete integration: the plugin running inside OpenClaw, injecting memories via `prependContext`, with OpenClaw's full memory stack active (sessions, pruning, compaction, workspace files).
+**Status:** Built and dry-run validated. Ready for live runs.
 
-**Prerequisite:** A way to programmatically run OpenClaw agent sessions and capture turn-level events (hook timing, injected context, agent response). If OpenClaw doesn't expose this, we build a minimal simulation harness that mimics the plugin API contract.
+V2 tests the complete integration by sending conversations and recall probes through a live OpenClaw agent via the `openclaw agent` CLI. Unlike V1/V1.1 which simulate OpenClaw's memory pipeline, V2 exercises the real stack: compaction, memory_search, file sync, plugin hooks.
+
+**Approach:** Sequential before/after comparison. Run the same Arclight dataset (45 sessions, 50 prompts) through two agent conditions — baseline (no Cortex plugin) and cortex (with plugin installed). Judge responses against V1.1 ground truth for direct comparison with simulated results.
+
+**Communication:** Shells out to `openclaw agent --message "..." --json` via `execFileSync` (no shell injection risk). Each seed conversation gets its own session ID; probes go to a fresh session.
+
+**Implementation:** Single file at `benchmark/v2/run.ts` (~700 lines).
 
 ### V2.1 What V2 Adds Over V1
 
@@ -578,40 +584,54 @@ Metrics: `tokens_injected_p50`, `context_budget_pct` (as % of model context limi
 | Sustained failures | 100+ failed captures | RetryQueue caps at 100 tasks, memory stable |
 | Recovery | Restore after 30s outage | Recall resumes within one turn |
 
-### V2.4 Infrastructure
+### V2.4 Infrastructure (Implemented)
 
 ```
 benchmark/
-├── v1/                         # (from V1, kept as-is)
-│   ├── run.ts
-│   ├── seed-data.json
-│   ├── prompts.json
-│   └── results/
-│
-├── v2/
-│   ├── harness.ts              # Agent session simulator / OpenClaw integration
-│   ├── scenarios/
-│   │   ├── quality.ts          # 40-prompt quality evaluation through plugin
-│   │   ├── continuity.ts       # 5-session multi-session arc
-│   │   ├── latency.ts          # Turn latency across modes
-│   │   └── failure.ts          # Degraded API scenarios
-│   ├── mock-server.ts          # Local mock Cortex API for failure/latency testing
-│   ├── collectors/
-│   │   ├── latency.ts          # Turn timing
-│   │   ├── tokens.ts           # Context window measurement
-│   │   └── resources.ts        # Memory, event loop
-│   └── results/
-│       └── .gitkeep
-│
-├── shared/
-│   ├── seed-data.json          # Shared seed data (used by both V1 and V2)
-│   ├── prompts.json            # Shared evaluation prompts
-│   ├── judge.ts                # LLM-as-judge scorer
-│   └── reporter.ts             # Markdown + JSON output
-│
-└── results/                    # Aggregated results across versions
-    └── .gitkeep
+├── v1/                         # V1: 3-way comparison (bare/OC/+Cortex)
+├── v1.1/                       # V1.1: 2-way simulated (OC/+Cortex)
+│   ├── seed-data.json          # 45 Arclight sessions (shared with V2)
+│   └── prompts.json            # 50 evaluation prompts (shared with V2)
+└── v2/
+    ├── run.ts                  # Single-file orchestrator (~700 lines)
+    └── results/
+        └── .gitkeep
 ```
+
+V2 reuses V1.1's seed data and prompts (no duplication). The original plan called for separate harness, scenarios, mock-server, and collectors — simplified to a single `run.ts` that covers quality evaluation through the live runtime. Performance scenarios (latency, failure modes, resource footprint) can be added as the need arises.
+
+### V2.5 Usage
+
+```bash
+# Run baseline (no Cortex plugin installed):
+npx tsx benchmark/v2/run.ts --condition baseline --agent <agent-id>
+
+# Run with Cortex plugin installed (skip re-seeding if agent already has history):
+npx tsx benchmark/v2/run.ts --condition cortex --agent <agent-id> --skip-seed
+
+# Compare results:
+npx tsx benchmark/v2/run.ts --compare results/baseline-*.json results/cortex-*.json
+
+# Dry run (validate pipeline without touching the agent):
+npx tsx benchmark/v2/run.ts --dry-run --condition baseline
+```
+
+CLI flags: `--seed-concurrency`, `--probe-concurrency`, `--judge-passes`, `--judge-temperature`, `--settle-seconds`, `--openclaw-timeout`.
+
+Env vars: `JUDGE_MODEL`, `JUDGE_API_KEY`, `JUDGE_BASE_URL`, `OPENCLAW_TIMEOUT`.
+
+### V2.6 Implementation Checklist
+
+- [x] Create `run.ts` with seed → settle → probe → judge → report phases
+- [x] Reuse V1.1 Arclight dataset (45 sessions, 50 prompts)
+- [x] Agent communication via `openclaw agent --json` (execFileSync, no shell injection)
+- [x] Session isolation (unique session IDs per seed conversation, fresh session for probes)
+- [x] LLM-as-judge with multi-pass voting (same methodology as V1.1)
+- [x] Comparison mode with per-prompt delta table and V1.1 reference data
+- [x] Dry-run validated (all 45 sessions, 50 prompts, correct output format)
+- [ ] Run baseline condition against live agent
+- [ ] Run cortex condition against live agent
+- [ ] Compare results and update FINDINGS.md
 
 ---
 
@@ -679,13 +699,15 @@ Include cluster-level detail in reflect response: entity name, facts analyzed, o
 
 ## Open Questions
 
-1. **OpenClaw test runtime** — Do we have a way to programmatically run OpenClaw agent sessions? This blocks V2 but not V1 or V1.1. *(V1/V1.1 unblocked — both bypass runtime entirely.)*
-2. **LLM judge model** — GPT-4o avoids self-evaluation bias if the agent under test uses Claude. For V1/V1.1 this is the judge for answer quality scoring. *(Resolved for V1/V1.1: using `gpt-4.1-mini` as judge, configurable via `JUDGE_MODEL`.)*
-3. **Compaction fidelity** — The V1/V1.1 compacted summary is generated by a one-shot LLM call. Real OpenClaw compaction may behave differently (incremental, per-session). For V2, we should use actual OpenClaw compaction output. *(V1/V1.1 use deterministic one-shot compaction with `temperature=0`. V2 should capture real compaction output.)*
-4. **Namespace isolation** — V1/V1.1 needs a clean Cortex namespace per run. Does the API support namespace deletion/reset, or do we need a fresh namespace each time? *(Resolved: namespace maps to `session_id`, not server-side tenant isolation — all data shares the tenant for a given API key. Use `--namespace-suffix` to isolate runs logically. Polluted tenants from old runs degrade latency 3-4x but do not affect quality scores.)*
-5. **Reflect endpoint** — `/v1/reflect` currently returns 404. V1 and V1.1 quality tests work without it; V1.1 calls reflect post-seed but handles failure gracefully. Add reflection benchmarks when it ships. *(Still outstanding.)*
-6. **Compaction variability** — Compaction output varies by LLM run. *(Resolved for V1/V1.1: compacted summary is regenerated each run at `temperature=0`, making it deterministic for a given model and transcripts.)*
-7. **Retrieval deduplication** — V1 analysis revealed Cortex returns semantically near-duplicate results from different sessions, consuming result slots. Categories C and D showed +0.00 delta. V1.1 addresses this partly by using `reflect` post-seed for entity consolidation, and by using a larger dataset where result diversity becomes more meaningful. *(Partially addressed — server-side deduplication still a proposed improvement.)*
-8. **Cross-session synthesis gap** — V1 Category D (cross-session) scored 2.40 for both conditions. V1.1 Category S and T directly target this with 15 prompts requiring synthesis and temporal reasoning. *(Being tested in V1.1 — results pending first live run.)*
-9. **Memory note extraction quality** — V1.1 uses LLM-extracted notes to simulate OpenClaw's MEMORY.md/daily logs. The extraction quality (what facts get preserved vs dropped) affects the fairness of the OpenClaw baseline. *(Open — review extraction prompts after first live run.)*
-10. **OpenClaw simulation accuracy** — The V1.1 OC simulation is an approximation. Real OpenClaw also has workspace files (SOUL.md, USER.md), pruning, and the memory flush race condition (~50% skip rate). These are not simulated — the benchmark gives OpenClaw a slightly optimistic baseline. *(Acceptable for V1.1 — V2 should use real OpenClaw runtime.)*
+1. ~~**OpenClaw test runtime** — Do we have a way to programmatically run OpenClaw agent sessions?~~ **Resolved in V2:** `openclaw agent --message "..." --json` via `execFileSync`. V2 sends conversations and probes through the live agent CLI.
+2. ~~**LLM judge model**~~ **Resolved:** Using `gpt-4.1-mini` as judge, configurable via `JUDGE_MODEL`.
+3. ~~**Compaction fidelity**~~ **Resolved in V2:** V2 uses real OpenClaw compaction (not simulated). The agent processes conversations through its real memory pipeline.
+4. ~~**Namespace isolation**~~ **Resolved:** Use `--namespace-suffix` for V1/V1.1. V2 uses separate agent IDs for condition isolation.
+5. **Reflect endpoint** — `/v1/reflect` may still return 404. V1.1 handles failure gracefully. Monitor for availability.
+6. ~~**Compaction variability**~~ **Resolved:** V1/V1.1 use `temperature=0`. V2 uses real compaction (variability is part of the measurement).
+7. **Retrieval deduplication** — Cortex returns near-duplicate results from different sessions. Partially addressed by `reflect` entity consolidation. Server-side dedup still a proposed improvement.
+8. ~~**Cross-session synthesis gap**~~ **Resolved in V1.1:** Category S (+0.33) and T (-0.19) results confirm Cortex helps synthesis but regresses on temporal recency.
+9. ~~**Memory note extraction quality**~~ **Resolved in V2:** V2 bypasses simulated note extraction entirely — the real agent generates its own memory from live conversations.
+10. ~~**OpenClaw simulation accuracy**~~ **Resolved in V2:** V2 uses the real OpenClaw runtime with workspace files, pruning, and actual compaction behavior. V1.1 simulation accuracy will be validated by comparing V2 results to V1.1 results.
+11. **Capture quality in V2** — V2 seeds Cortex through the `agent_end` hook (not direct API ingestion). If the capture handler misses key facts from conversations, recall quality will suffer regardless of retrieval quality. Monitor capture completeness after first V2 run.
+12. **Agent response variability** — V2 sends only user turns; the agent generates its own responses. Different runs may produce different agent responses, leading to different facts being captured. This makes V2 results less reproducible than V1/V1.1 but more realistic.
