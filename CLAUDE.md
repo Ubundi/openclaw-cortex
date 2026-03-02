@@ -58,6 +58,10 @@ npm run verify-release    # checks version consistency across package.json and p
 - The plugin registers as `kind: "memory"` which is mutually exclusive in OpenClaw — only one memory plugin can be active.
 - CI runs on Node 20 and 22. Tests must pass on both.
 
+## Skills
+
+- `/release [patch|minor|major] [--dry-run]` — Bump version, run checks, commit, tag, and push to trigger npm publish. See `.claude/skills/release.md`
+
 ## Agent Docs
 
 Read the relevant files before starting work:
