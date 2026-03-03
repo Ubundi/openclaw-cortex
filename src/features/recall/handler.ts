@@ -140,11 +140,26 @@ export function createRecallHandler(
         });
       }
 
-      const response = await client.recall(
-        prompt,
-        effectiveTimeout,
-        { limit: config.recallLimit, userId: currentUserId, queryType: "factual" },
-      );
+      let response;
+      try {
+        response = await client.recall(
+          prompt,
+          effectiveTimeout,
+          { limit: config.recallLimit, userId: currentUserId, queryType: "factual" },
+        );
+      } catch (retryErr) {
+        // Single retry on transient 502/503 gateway errors
+        if (/50[23]/.test(String(retryErr))) {
+          await new Promise((r) => setTimeout(r, 1000));
+          response = await client.recall(
+            prompt,
+            effectiveTimeout,
+            { limit: config.recallLimit, userId: currentUserId, queryType: "factual" },
+          );
+        } else {
+          throw retryErr;
+        }
+      }
 
       const elapsed = Date.now() - start;
       recallMetrics.record(elapsed);

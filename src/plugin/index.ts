@@ -315,11 +315,23 @@ const plugin = {
           });
 
           try {
-            const response = await client.recall(query, config.toolTimeoutMs, {
-              limit,
-              userId: userId,
-              queryType: "combined",
-            });
+            const doRecall = async (attempt = 0): ReturnType<typeof client.recall> => {
+              try {
+                return await client.recall(query, config.toolTimeoutMs, {
+                  limit,
+                  userId: userId,
+                  queryType: "combined",
+                });
+              } catch (err) {
+                if (attempt < 1 && /50[23]/.test(String(err))) {
+                  await new Promise((r) => setTimeout(r, 1500));
+                  return doRecall(attempt + 1);
+                }
+                throw err;
+              }
+            };
+
+            const response = await doRecall();
 
             if (!response.memories?.length) {
               return { content: [{ type: "text", text: "No memories found matching that query." }] };
@@ -426,10 +438,22 @@ const plugin = {
 
           const query = ctx.args?.trim();
 
-          // No args — show status
+          // No args — show status (retry once on transient 502/503)
           if (!query) {
+            const fetchKnowledge = async (attempt = 0): ReturnType<typeof client.knowledge> => {
+              try {
+                return await client.knowledge(undefined, userId);
+              } catch (err) {
+                if (attempt < 1 && /50[23]/.test(String(err))) {
+                  await new Promise((r) => setTimeout(r, 2000));
+                  return fetchKnowledge(attempt + 1);
+                }
+                throw err;
+              }
+            };
+
             try {
-              const knowledge = await client.knowledge(undefined, userId);
+              const knowledge = await fetchKnowledge();
               const tier = deriveTier(knowledge.total_sessions);
               const recallSummary = recallMetrics.summary();
               const lines = [
