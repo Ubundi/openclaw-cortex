@@ -50,10 +50,14 @@ const KNOWLEDGE_RECHECK_INTERVAL_MS = 5 * 60_000; // 5 minutes
  * Derives an effective recall timeout that respects the server's adaptive pipeline tiers.
  * Higher tiers run heavier pipelines (reranking, graph traversal) that need more time.
  * The pipeline tier is fetched from the Cortex `/v1/stats` endpoint and cached.
+ *
+ * Tier 1: flat retrieval — use the configured timeout as-is.
+ * Tier 2: reranking — multiply by 1.5× (minimum 12s).
+ * Tier 3: graph traversal + reranking — multiply by 2× (minimum 20s).
  */
 export function deriveEffectiveTimeout(configuredMs: number, pipelineTier: 1 | 2 | 3): number {
-  if (pipelineTier >= 3) return Math.max(configuredMs, 2000);
-  if (pipelineTier >= 2) return Math.max(configuredMs, 1500);
+  if (pipelineTier >= 3) return Math.max(configuredMs * 2, 20_000);
+  if (pipelineTier >= 2) return Math.max(configuredMs * 1.5, 12_000);
   return configuredMs;
 }
 
@@ -195,9 +199,12 @@ export function createRecallHandler(
         consecutiveFailures = 0;
       }
 
-      // Silent degradation — proceed without memories
+      // Silent degradation — proceed without memories.
+      // Timeouts indicate a slow-but-running service, not a dead one —
+      // don't count them toward the cold-start gate.
       if ((err as Error).name === "AbortError") {
         logger.debug?.("Cortex recall timed out, proceeding without memories");
+        consecutiveFailures = Math.max(consecutiveFailures - 1, 0); // undo the increment above
       } else {
         logger.warn(`Cortex recall failed: ${String(err)}`);
       }

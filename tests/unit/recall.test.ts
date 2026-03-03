@@ -250,8 +250,8 @@ describe("createRecallHandler", () => {
     const handler = createRecallHandler(client, makeConfig({ recallTimeoutMs: 500 }), logger, undefined, ks);
     await handler({ prompt: "some longer query" }, {});
 
-    // Tier 2 floor is 1500ms, should override the configured 500ms
-    expect(client.recall).toHaveBeenCalledWith("some longer query", 1500, { limit: 10, queryType: "combined", userId: undefined });
+    // Tier 2: max(500 * 1.5, 12000) = 12000ms
+    expect(client.recall).toHaveBeenCalledWith("some longer query", 12000, { limit: 10, queryType: "combined", userId: undefined });
   });
 
   it("uses tier-aware timeout for Tier 3", async () => {
@@ -263,8 +263,8 @@ describe("createRecallHandler", () => {
     const handler = createRecallHandler(client, makeConfig({ recallTimeoutMs: 500 }), logger, undefined, ks);
     await handler({ prompt: "some longer query" }, {});
 
-    // Tier 3 floor is 2000ms, should override the configured 500ms
-    expect(client.recall).toHaveBeenCalledWith("some longer query", 2000, { limit: 10, queryType: "combined", userId: undefined });
+    // Tier 3: max(500 * 2, 20000) = 20000ms
+    expect(client.recall).toHaveBeenCalledWith("some longer query", 20000, { limit: 10, queryType: "combined", userId: undefined });
   });
 
   it("respects user-configured timeout when higher than tier floor", async () => {
@@ -273,11 +273,11 @@ describe("createRecallHandler", () => {
     } as unknown as CortexClient;
     const ks: KnowledgeState = { hasMemories: true, totalSessions: 35, pipelineTier: 3, maturity: "mature", lastChecked: Date.now() };
 
-    const handler = createRecallHandler(client, makeConfig({ recallTimeoutMs: 5000 }), logger, undefined, ks);
+    const handler = createRecallHandler(client, makeConfig({ recallTimeoutMs: 15000 }), logger, undefined, ks);
     await handler({ prompt: "some longer query" }, {});
 
-    // User configured 5000ms > Tier 3 floor 2000ms, so use 5000ms
-    expect(client.recall).toHaveBeenCalledWith("some longer query", 5000, { limit: 10, queryType: "combined", userId: undefined });
+    // Tier 3: max(15000 * 2, 20000) = 30000ms
+    expect(client.recall).toHaveBeenCalledWith("some longer query", 30000, { limit: 10, queryType: "combined", userId: undefined });
   });
 });
 
@@ -286,13 +286,13 @@ describe("deriveEffectiveTimeout", () => {
     expect(deriveEffectiveTimeout(500, 1)).toBe(500);
   });
 
-  it("enforces 1500ms floor for Tier 2", () => {
-    expect(deriveEffectiveTimeout(500, 2)).toBe(1500);
-    expect(deriveEffectiveTimeout(2000, 2)).toBe(2000);
+  it("scales 1.5× with 12s floor for Tier 2", () => {
+    expect(deriveEffectiveTimeout(500, 2)).toBe(12000);    // max(750, 12000)
+    expect(deriveEffectiveTimeout(10000, 2)).toBe(15000);  // max(15000, 12000)
   });
 
-  it("enforces 2000ms floor for Tier 3", () => {
-    expect(deriveEffectiveTimeout(500, 3)).toBe(2000);
-    expect(deriveEffectiveTimeout(3000, 3)).toBe(3000);
+  it("scales 2× with 20s floor for Tier 3", () => {
+    expect(deriveEffectiveTimeout(500, 3)).toBe(20000);    // max(1000, 20000)
+    expect(deriveEffectiveTimeout(15000, 3)).toBe(30000);  // max(30000, 20000)
   });
 });
