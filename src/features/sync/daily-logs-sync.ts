@@ -73,8 +73,8 @@ export class DailyLogsSync {
           userId,
           "openclaw",
           "OpenClaw",
-        ).then((res) => {
-          this.logger.debug?.(`Daily log sync: remembered ${res.memories_created} memories for ${filename}`);
+        ).then(() => {
+          this.logger.debug?.(`Daily log sync: remember accepted for ${filename}`);
         });
       };
 

@@ -28,7 +28,7 @@ function makeLogger() {
 
 function makeClient(overrides: Partial<CortexClient> = {}): CortexClient {
   return {
-    remember: vi.fn().mockResolvedValue({ session_id: null, memories_created: 1, entities_found: [], facts: [] }),
+    remember: vi.fn().mockResolvedValue({ session_id: null, status: "accepted" }),
     ...overrides,
   } as unknown as CortexClient;
 }

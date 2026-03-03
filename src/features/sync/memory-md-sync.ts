@@ -93,8 +93,8 @@ export class MemoryMdSync {
         userId,
         "openclaw",
         "OpenClaw",
-      ).then((res) => {
-        this.logger.debug?.(`MEMORY.md sync: remembered ${res.memories_created} memories`);
+      ).then(() => {
+        this.logger.debug?.("MEMORY.md sync: remember accepted");
       });
     };
 

@@ -122,6 +122,11 @@ export interface RecallResponse {
   memories: RecallMemory[];
 }
 
+export interface RememberAcceptedResponse {
+  session_id: string | null;
+  status?: string;
+}
+
 export interface RememberResponse {
   session_id: string | null;
   memories_created: number;
@@ -422,9 +427,9 @@ export class CortexClient {
     userId?: string,
     sourceOrigin?: string,
     sourceApp?: string,
-  ): Promise<RememberResponse> {
-    return this.fetchJsonWithTimeout<RememberResponse>(
-      `${this.baseUrl}/v1/remember?sync=true`,
+  ): Promise<RememberAcceptedResponse> {
+    return this.fetchJsonWithTimeout<RememberAcceptedResponse>(
+      `${this.baseUrl}/v1/remember`,
       {
         text,
         session_id: sessionId ?? null,
@@ -446,9 +451,9 @@ export class CortexClient {
     userId?: string,
     sourceOrigin?: string,
     sourceApp?: string,
-  ): Promise<RememberResponse> {
-    return this.fetchJsonWithTimeout<RememberResponse>(
-      `${this.baseUrl}/v1/remember?sync=true`,
+  ): Promise<RememberAcceptedResponse> {
+    return this.fetchJsonWithTimeout<RememberAcceptedResponse>(
+      `${this.baseUrl}/v1/remember`,
       {
         messages,
         session_id: sessionId ?? null,

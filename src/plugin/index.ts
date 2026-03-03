@@ -384,7 +384,7 @@ const plugin = {
           try {
             const now = new Date();
             const referenceDate = now.toISOString().slice(0, 10);
-            const res = await client.remember(
+            await client.remember(
               text,
               sessionId,
               config.toolTimeoutMs,
@@ -393,21 +393,14 @@ const plugin = {
               "openclaw",
               "OpenClaw",
             );
-            if (knowledgeState && res.memories_created > 0) {
+            if (knowledgeState) {
               knowledgeState.hasMemories = true;
             }
-            api.logger.debug?.(`Cortex saved ${res.memories_created} memories`);
-            const parts = [`Saved ${res.memories_created} memory/memories.`];
-            if (res.entities_found.length) parts.push(`Entities: ${res.entities_found.join(", ")}.`);
-            if (res.facts.length) parts.push(`Facts: ${res.facts.join("; ")}.`);
-            if (res.emotions.length) parts.push(`Emotions: ${res.emotions.join(", ")}.`);
-            if (res.values.length) parts.push(`Values: ${res.values.join(", ")}.`);
-            if (res.beliefs.length) parts.push(`Beliefs: ${res.beliefs.join("; ")}.`);
-            if (res.insights.length) parts.push(`Insights: ${res.insights.join("; ")}.`);
+            api.logger.debug?.("Cortex remember accepted");
             return {
               content: [{
                 type: "text",
-                text: parts.join(" "),
+                text: "Memory submitted for processing. It should be available shortly.",
               }],
             };
           } catch (err) {

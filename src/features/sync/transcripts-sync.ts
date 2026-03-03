@@ -78,8 +78,8 @@ export class TranscriptsSync {
           userId,
           "openclaw",
           "OpenClaw",
-        ).then((res) => {
-          this.logger.debug?.(`Transcript sync: remembered ${res.memories_created} memories for ${filename}`);
+        ).then(() => {
+          this.logger.debug?.(`Transcript sync: remember accepted for ${filename}`);
         });
       };
 

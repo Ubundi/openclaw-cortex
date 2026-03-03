@@ -4,11 +4,9 @@ import { CortexClient } from "../../src/adapters/cortex/client.js";
 const mockFetch = vi.fn();
 vi.stubGlobal("fetch", mockFetch);
 
-const MOCK_REMEMBER_RESPONSE = {
+const MOCK_REMEMBER_ACCEPTED = {
   session_id: "session-1",
-  memories_created: 2,
-  entities_found: ["TypeScript"],
-  facts: ["User likes TypeScript"],
+  status: "accepted",
 };
 
 describe("CortexClient", () => {
@@ -82,23 +80,22 @@ describe("CortexClient", () => {
   });
 
   describe("remember", () => {
-    it("sends text with session id", async () => {
+    it("sends text with session id (async, no sync=true)", async () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,
-        json: async () => MOCK_REMEMBER_RESPONSE,
+        json: async () => MOCK_REMEMBER_ACCEPTED,
       });
 
       const result = await client.remember("some fact", "session-1");
 
       expect(mockFetch).toHaveBeenCalledWith(
-        "https://api.example.com/v1/remember?sync=true",
+        "https://api.example.com/v1/remember",
         expect.objectContaining({
           method: "POST",
           body: JSON.stringify({ text: "some fact", session_id: "session-1", reference_date: null }),
         }),
       );
-      expect(result.memories_created).toBe(2);
-      expect(result.facts).toHaveLength(1);
+      expect(result.session_id).toBe("session-1");
     });
 
     it("aborts on timeout with AbortError", async () => {
@@ -118,10 +115,10 @@ describe("CortexClient", () => {
   });
 
   describe("rememberConversation", () => {
-    it("sends messages array", async () => {
+    it("sends messages array (async, no sync=true)", async () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,
-        json: async () => MOCK_REMEMBER_RESPONSE,
+        json: async () => MOCK_REMEMBER_ACCEPTED,
       });
 
       const messages = [
@@ -131,12 +128,12 @@ describe("CortexClient", () => {
       const result = await client.rememberConversation(messages, "sess-1");
 
       expect(mockFetch).toHaveBeenCalledWith(
-        "https://api.example.com/v1/remember?sync=true",
+        "https://api.example.com/v1/remember",
         expect.objectContaining({
           body: JSON.stringify({ messages, session_id: "sess-1", reference_date: null }),
         }),
       );
-      expect(result.memories_created).toBe(2);
+      expect(result.session_id).toBe("session-1");
     });
 
     it("aborts on timeout", async () => {
@@ -228,7 +225,7 @@ describe("CortexClient", () => {
     it("remember without sessionId sends null session_id", async () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,
-        json: async () => MOCK_REMEMBER_RESPONSE,
+        json: async () => MOCK_REMEMBER_ACCEPTED,
       });
 
       await client.remember("some text");
@@ -242,7 +239,7 @@ describe("CortexClient", () => {
     it("includes user_id in remember body when provided", async () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,
-        json: async () => MOCK_REMEMBER_RESPONSE,
+        json: async () => MOCK_REMEMBER_ACCEPTED,
       });
 
       await client.remember("some fact", "sess-1", undefined, undefined, "user-abc");
@@ -254,7 +251,7 @@ describe("CortexClient", () => {
     it("omits user_id from remember body when not provided", async () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,
-        json: async () => MOCK_REMEMBER_RESPONSE,
+        json: async () => MOCK_REMEMBER_ACCEPTED,
       });
 
       await client.remember("some fact", "sess-1");
