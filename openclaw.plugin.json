@@ -33,11 +33,12 @@
       },
       "recallQueryType": {
         "type": "string",
-        "description": "Recall query type to use for automatic recall (factual, emotional, or combined)",
+        "description": "Recall query type to use for automatic recall (factual, emotional, combined, or codex)",
         "enum": [
           "factual",
           "emotional",
-          "combined"
+          "combined",
+          "codex"
         ],
         "default": "combined"
       },

@@ -50,6 +50,11 @@ export interface IngestResponse {
   edges_created: number;
   facts: IngestFact[];
   entities: IngestEntity[];
+  emotions?: string[];
+  values?: string[];
+  beliefs?: string[];
+  insights?: string[];
+  life_context?: string[];
 }
 
 export interface ReflectResponse {
@@ -69,12 +74,16 @@ export interface ConversationMessage {
   content: string;
 }
 
-export type QueryType = "factual" | "emotional" | "combined";
+export type QueryType = "factual" | "emotional" | "combined" | "codex";
 
 export interface BatchIngestItem {
   text: string;
   session_id?: string;
   reference_date?: string;
+  user_id?: string;
+  source_origin?: string;
+  derivation_mode?: string;
+  source_app?: string;
 }
 
 export interface BatchIngestResponse {
@@ -241,7 +250,7 @@ export class CortexClient {
     mode: "fast" | "full",
     timeoutMs: number,
     queryType?: QueryType,
-    options?: { referenceDate?: string; debug?: boolean },
+    options?: { referenceDate?: string; debug?: boolean; userId?: string; sessionId?: string; forceTier?: 1 | 2 | 3 },
   ): Promise<RetrieveResponse> {
     return this.fetchJsonWithTimeout<RetrieveResponse>(
       `${this.baseUrl}/v1/retrieve`,
@@ -252,6 +261,9 @@ export class CortexClient {
         query_type: queryType,
         reference_date: options?.referenceDate ?? undefined,
         debug: options?.debug ?? undefined,
+        ...(options?.userId ? { user_id: options.userId } : {}),
+        ...(options?.sessionId ? { session_id: options.sessionId } : {}),
+        ...(options?.forceTier ? { force_tier: options.forceTier } : {}),
       },
       timeoutMs,
       "retrieve",
@@ -263,10 +275,20 @@ export class CortexClient {
     sessionId?: string,
     timeoutMs = DEFAULT_INGEST_TIMEOUT_MS,
     referenceDate?: string,
+    userId?: string,
+    sourceOrigin?: string,
+    sourceApp?: string,
   ): Promise<IngestResponse> {
     return this.fetchJsonWithTimeout<IngestResponse>(
       `${this.baseUrl}/v1/ingest`,
-      { text, session_id: sessionId, reference_date: referenceDate ?? null },
+      {
+        text,
+        session_id: sessionId,
+        reference_date: referenceDate ?? null,
+        ...(userId ? { user_id: userId } : {}),
+        ...(sourceOrigin ? { source_origin: sourceOrigin } : {}),
+        ...(sourceApp ? { source_app: sourceApp } : {}),
+      },
       timeoutMs,
       "ingest",
     );
@@ -277,10 +299,20 @@ export class CortexClient {
     sessionId?: string,
     timeoutMs = DEFAULT_INGEST_TIMEOUT_MS,
     referenceDate?: string,
+    userId?: string,
+    sourceOrigin?: string,
+    sourceApp?: string,
   ): Promise<IngestResponse> {
     return this.fetchJsonWithTimeout<IngestResponse>(
       `${this.baseUrl}/v1/ingest/conversation`,
-      { messages, session_id: sessionId, reference_date: referenceDate ?? null },
+      {
+        messages,
+        session_id: sessionId,
+        reference_date: referenceDate ?? null,
+        ...(userId ? { user_id: userId } : {}),
+        ...(sourceOrigin ? { source_origin: sourceOrigin } : {}),
+        ...(sourceApp ? { source_app: sourceApp } : {}),
+      },
       timeoutMs,
       "ingest/conversation",
     );
@@ -356,22 +388,25 @@ export class CortexClient {
   async batchIngest(
     items: BatchIngestItem[],
     timeoutMs = DEFAULT_INGEST_TIMEOUT_MS,
+    userId?: string,
   ): Promise<BatchIngestResponse> {
+    const enrichedItems = userId
+      ? items.map((item) => (item.user_id ? item : { ...item, user_id: userId }))
+      : items;
     return this.fetchJsonWithTimeout<BatchIngestResponse>(
       `${this.baseUrl}/v1/ingest/batch`,
-      { items },
+      { items: enrichedItems },
       timeoutMs,
       "ingest/batch",
     );
   }
 
   async reflect(
-    sessionId?: string,
     timeoutMs = DEFAULT_REFLECT_TIMEOUT_MS,
   ): Promise<ReflectResponse> {
     return this.fetchJsonWithTimeout<ReflectResponse>(
       `${this.baseUrl}/v1/reflect`,
-      { session_id: sessionId },
+      {},
       timeoutMs,
       "reflect",
     );
@@ -438,6 +473,9 @@ export class CortexClient {
       queryType?: QueryType;
       minConfidence?: number;
       includeUngrounded?: boolean;
+      includeOrigins?: string[];
+      excludeOrigins?: string[];
+      derivationMode?: string;
     },
   ): Promise<RecallResponse> {
     return this.fetchJsonWithTimeout<RecallResponse>(
@@ -451,6 +489,9 @@ export class CortexClient {
         query_type: options?.queryType ?? undefined,
         min_confidence: options?.minConfidence ?? undefined,
         include_ungrounded: options?.includeUngrounded ?? undefined,
+        ...(options?.includeOrigins ? { include_origins: options.includeOrigins } : {}),
+        ...(options?.excludeOrigins ? { exclude_origins: options.excludeOrigins } : {}),
+        ...(options?.derivationMode ? { derivation_mode: options.derivationMode } : {}),
       },
       timeoutMs,
       "recall",

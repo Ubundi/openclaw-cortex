@@ -275,5 +275,53 @@ describe("CortexClient", () => {
       expect(body.user_id).toBe("user-abc");
       expect(body.query_type).toBe("factual");
     });
+
+    it("includes codex filter params in recall when provided", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ memories: [] }),
+      });
+
+      await client.recall("query", 500, {
+        queryType: "codex",
+        includeOrigins: ["transcript"],
+        excludeOrigins: ["manual"],
+        derivationMode: "extracted",
+      });
+
+      const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+      expect(body.query_type).toBe("codex");
+      expect(body.include_origins).toEqual(["transcript"]);
+      expect(body.exclude_origins).toEqual(["manual"]);
+      expect(body.derivation_mode).toBe("extracted");
+    });
+
+    it("omits codex filter params from recall when not provided", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ memories: [] }),
+      });
+
+      await client.recall("query", 500, { limit: 5 });
+
+      const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+      expect(body).not.toHaveProperty("include_origins");
+      expect(body).not.toHaveProperty("exclude_origins");
+      expect(body).not.toHaveProperty("derivation_mode");
+    });
+  });
+
+  describe("reflect", () => {
+    it("sends empty body", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ nodes_created: 1, edges_created: 2, entities_processed: 3, entities_skipped: 0 }),
+      });
+
+      await client.reflect();
+
+      const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+      expect(body).toEqual({});
+    });
   });
 });
