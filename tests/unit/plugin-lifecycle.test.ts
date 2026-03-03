@@ -164,6 +164,45 @@ describe("plugin lifecycle contract", () => {
     expect(toolNames).toContain("cortex_save_memory");
   });
 
+  it("falls back to async ingest when cortex_save_memory sync remember fails", async () => {
+    vi.spyOn(CortexClient.prototype, "remember").mockRejectedValue(
+      new Error("Cortex remember failed: 500 — {\"detail\":\"Internal server error\"}"),
+    );
+    vi.spyOn(CortexClient.prototype, "submitIngest").mockResolvedValue({
+      job_id: "job-123",
+      status: "pending",
+    });
+
+    const { api, tools } = makeApi({
+      fileSync: false,
+      toolTimeoutMs: 1000,
+    });
+
+    plugin.register(api as any);
+    await flushMicrotasks();
+
+    const saveTool = tools.find((t) => t.name === "cortex_save_memory");
+    expect(saveTool).toBeDefined();
+
+    const result = await saveTool!.execute("tool-1", { text: "User prefers dark mode interfaces." });
+    const responseText = result.content[0]?.text ?? "";
+
+    expect(responseText).toContain("Memory save queued (job job-123, status=pending)");
+    expect(CortexClient.prototype.remember).toHaveBeenCalledWith(
+      "User prefers dark mode interfaces.",
+      expect.any(String),
+      1000,
+      expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
+      expect.any(String),
+    );
+    expect(CortexClient.prototype.submitIngest).toHaveBeenCalledWith(
+      "User prefers dark mode interfaces.",
+      expect.any(String),
+      expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/),
+      expect.any(String),
+    );
+  });
+
   it("registers auto-reply command", async () => {
     const { api, commands } = makeApi({ fileSync: false });
 

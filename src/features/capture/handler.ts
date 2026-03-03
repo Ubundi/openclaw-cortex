@@ -79,7 +79,7 @@ export function createCaptureHandler(
   auditLogger?: AuditLogger,
 ) {
   let captureCounter = 0;
-  let lastCapturedAt = 0;
+  const lastCapturedAtBySession = new Map<string, number>();
   let capturesSinceRefresh = 0;
 
   return async (event: AgentEndEvent): Promise<void> => {
@@ -90,7 +90,11 @@ export function createCaptureHandler(
     if (!event.messages?.length) return;
 
     try {
-      const delta = event.messages.slice(lastCapturedAt);
+      const sessionId = event.sessionKey ?? event.sessionId ?? pluginSessionId;
+      const watermarkKey = sessionId ?? "__default__";
+      const previousWatermark = lastCapturedAtBySession.get(watermarkKey) ?? 0;
+      const watermark = previousWatermark > event.messages.length ? 0 : previousWatermark;
+      const delta = event.messages.slice(watermark);
 
       const normalized: ConversationMessage[] = delta
         .filter(
@@ -143,13 +147,12 @@ export function createCaptureHandler(
       logger.info(`Cortex capture: ${trimmed.length} messages, ${totalChars} chars`);
 
       // Advance watermark before async work so a second turn doesn't re-send this delta
-      lastCapturedAt = event.messages.length;
+      lastCapturedAtBySession.set(watermarkKey, event.messages.length);
 
       // Ensure userId is resolved before sending — in practice this resolves in <100ms
       // at startup, well before agent_end fires, but we await explicitly to be correct.
       if (userIdReady) await userIdReady;
 
-      const sessionId = event.sessionKey ?? event.sessionId ?? pluginSessionId;
       logger.debug?.(`Cortex capture: sessionId=${sessionId}, userId=${getUserId?.()}`);
 
       // Flatten messages into a role: content transcript for ingestion

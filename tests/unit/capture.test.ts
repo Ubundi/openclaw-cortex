@@ -168,6 +168,29 @@ describe("createCaptureHandler", () => {
     expect(secondTranscript).not.toContain("What is the deployment strategy");
   });
 
+  it("tracks watermarks per session", async () => {
+    const submitMock = vi.fn().mockResolvedValue({ job_id: "job-per-session", status: "pending" });
+    const client = { submitIngest: submitMock } as unknown as CortexClient;
+    const handler = createCaptureHandler(client, makeConfig(), logger);
+
+    const session1Turn1 = [
+      { role: "user", content: "Session one asks about deployment strategy for backend services and blue-green rollout details." },
+      { role: "assistant", content: "Session one response explains blue-green deployment on ECS with ALB target group traffic shifting." },
+    ];
+    await handler({ messages: session1Turn1, aborted: false, sessionKey: "sess-1" });
+
+    const session2Turn1 = [
+      { role: "user", content: "Session two asks about PostgreSQL indexing strategy for event stream query performance under load." },
+      { role: "assistant", content: "Session two response recommends BRIN for time-ordered data and targeted B-tree indexes for lookups." },
+    ];
+    await handler({ messages: session2Turn1, aborted: false, sessionKey: "sess-2" });
+
+    await vi.waitFor(() => expect(submitMock).toHaveBeenCalledTimes(2));
+    const secondTranscript = submitMock.mock.calls[1][0] as string;
+    expect(secondTranscript).toContain("Session two asks about PostgreSQL indexing strategy");
+    expect(secondTranscript).toContain("Session two response recommends BRIN");
+  });
+
   it("strips injected recall block from captured messages", async () => {
     const submitPromise = Promise.resolve({ job_id: "job-strip", status: "pending" });
     const submitMock = vi.fn().mockReturnValue(submitPromise);

@@ -183,6 +183,19 @@ const plugin = {
       return;
     }
 
+    // BUILD_API_KEY must be injected into dist at build/publish time.
+    // If the placeholder is still present, Cortex calls will all fail at runtime.
+    // Keep unit tests working by allowing placeholder in test environment only.
+    const hasInjectedApiKey = BAKED_API_KEY !== "__OPENCLAW_API_KEY__";
+    if (!hasInjectedApiKey) {
+      api.logger.error(
+        "Cortex plugin misconfigured: build-time API key placeholder detected. Rebuild with BUILD_API_KEY=... npm run build, or install the published package.",
+      );
+      if (process.env.NODE_ENV !== "test") {
+        return;
+      }
+    }
+
     const config: CortexConfig = parsed.data;
     const client = new CortexClient(config.baseUrl, BAKED_API_KEY);
     const retryQueue = new RetryQueue(api.logger);
@@ -355,7 +368,9 @@ const plugin = {
           });
 
           try {
-            const res = await client.remember(text, sessionId, undefined, new Date().toISOString(), userId);
+            const now = new Date();
+            const referenceDate = now.toISOString().slice(0, 10);
+            const res = await client.remember(text, sessionId, config.toolTimeoutMs, referenceDate, userId);
             if (knowledgeState && res.memories_created > 0) {
               knowledgeState.hasMemories = true;
             }
@@ -374,8 +389,24 @@ const plugin = {
               }],
             };
           } catch (err) {
-            api.logger.warn(`Cortex save failed: ${String(err)}`);
-            return { content: [{ type: "text", text: `Failed to save memory: ${String(err)}` }] };
+            api.logger.warn(`Cortex save failed, falling back to async ingest: ${String(err)}`);
+
+            try {
+              const referenceDate = new Date().toISOString();
+              const job = await client.submitIngest(text, sessionId, referenceDate, userId);
+              if (knowledgeState) {
+                knowledgeState.hasMemories = true;
+              }
+              return {
+                content: [{
+                  type: "text",
+                  text: `Memory save queued (job ${job.job_id}, status=${job.status}). It should be available shortly.`,
+                }],
+              };
+            } catch (fallbackErr) {
+              api.logger.warn(`Cortex save fallback failed: ${String(fallbackErr)}`);
+              return { content: [{ type: "text", text: `Failed to save memory: ${String(err)}` }] };
+            }
           }
         },
       });
