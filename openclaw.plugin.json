@@ -44,7 +44,7 @@
       "recallTimeoutMs": {
         "type": "number",
         "description": "Maximum time to wait for memory recall (ms)",
-        "default": 15000
+        "default": 60000
       },
       "fileSync": {
         "type": "boolean",
@@ -59,7 +59,7 @@
       "toolTimeoutMs": {
         "type": "number",
         "description": "Timeout for explicit tool calls and /memories search (ms)",
-        "default": 30000
+        "default": 60000
       },
       "captureMaxPayloadBytes": {
         "type": "number",

@@ -80,8 +80,8 @@ Add to your `openclaw.json`:
           autoRecall: true,
           autoCapture: true,
           recallLimit: 10,
-          recallTimeoutMs: 15000,
-          toolTimeoutMs: 30000,
+          recallTimeoutMs: 60000,
+          toolTimeoutMs: 60000,
           fileSync: true,
           transcriptSync: true,
           // userId: "my-team-shared-id",  // override the auto-generated install ID
@@ -103,8 +103,8 @@ Add to your `openclaw.json`:
 | `autoRecall`      | boolean | `true`  | Inject relevant memories before each agent turn                                                  |
 | `autoCapture`     | boolean | `true`  | Extract and store facts after each agent turn                                                    |
 | `recallLimit`     | number  | `10`    | Max number of memories returned per recall                                                       |
-| `recallTimeoutMs` | number  | `15000` | Auto-recall timeout in ms. Scales with knowledge tier via `deriveEffectiveTimeout`.              |
-| `toolTimeoutMs`   | number  | `30000` | Timeout for explicit tool calls (`cortex_search_memory`, `/memories`). Longer than auto-recall since the user is actively waiting. |
+| `recallTimeoutMs` | number  | `60000` | Auto-recall timeout in ms. Scales with knowledge tier via `deriveEffectiveTimeout`.              |
+| `toolTimeoutMs`   | number  | `60000` | Timeout for explicit tool calls (`cortex_search_memory`, `/memories`). Longer than auto-recall since the user is actively waiting. |
 | `fileSync`        | boolean | `true`  | Watch and ingest `MEMORY.md` and daily log files                                                 |
 | `transcriptSync`  | boolean | `true`  | Watch and ingest session transcript files                                                        |
 | `captureMaxPayloadBytes` | number | `262144` | Max byte size of capture payloads (256KB default). Oversized transcripts are trimmed from the oldest messages. |
