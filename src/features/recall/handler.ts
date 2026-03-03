@@ -49,11 +49,12 @@ const KNOWLEDGE_RECHECK_INTERVAL_MS = 5 * 60_000; // 5 minutes
 /**
  * Derives an effective recall timeout that respects the server's adaptive pipeline tiers.
  * Higher tiers run heavier pipelines (reranking, graph traversal) that need more time.
+ * The pipeline tier is fetched from the Cortex `/v1/stats` endpoint and cached.
  */
-export function deriveEffectiveTimeout(configuredMs: number, totalSessions: number): number {
-  if (totalSessions >= 30) return Math.max(configuredMs, 2000); // Tier 3
-  if (totalSessions >= 15) return Math.max(configuredMs, 1500); // Tier 2
-  return configuredMs; // Tier 1
+export function deriveEffectiveTimeout(configuredMs: number, pipelineTier: 1 | 2 | 3): number {
+  if (pipelineTier >= 3) return Math.max(configuredMs, 2000);
+  if (pipelineTier >= 2) return Math.max(configuredMs, 1500);
+  return configuredMs;
 }
 
 export function createRecallHandler(
@@ -89,10 +90,16 @@ export function createRecallHandler(
       // Re-check knowledge state in the background (non-blocking)
       try {
         const userId = getUserId?.();
-        const knowledge = await client.knowledge(undefined, userId);
+        const [knowledge, stats] = await Promise.all([
+          client.knowledge(undefined, userId),
+          client.stats(undefined, userId).catch(() => null),
+        ]);
         knowledgeState.hasMemories = knowledge.total_memories > 0;
         knowledgeState.totalSessions = knowledge.total_sessions;
         knowledgeState.maturity = knowledge.maturity;
+        if (stats) {
+          knowledgeState.pipelineTier = stats.pipeline_tier;
+        }
         knowledgeState.lastChecked = Date.now();
         if (!knowledgeState.hasMemories) {
           logger.info("Cortex recall: skipped (no memories yet)");
@@ -124,7 +131,7 @@ export function createRecallHandler(
     const start = Date.now();
 
     const effectiveTimeout = knowledgeState
-      ? deriveEffectiveTimeout(config.recallTimeoutMs, knowledgeState.totalSessions)
+      ? deriveEffectiveTimeout(config.recallTimeoutMs, knowledgeState.pipelineTier)
       : config.recallTimeoutMs;
 
     try {

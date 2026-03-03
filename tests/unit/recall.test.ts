@@ -144,7 +144,7 @@ describe("createRecallHandler", () => {
 
   it("skips recall when knowledgeState.hasMemories is false and recently checked", async () => {
     const client = { recall: vi.fn(), knowledge: vi.fn() } as unknown as CortexClient;
-    const ks: KnowledgeState = { hasMemories: false, totalSessions: 0, maturity: "cold", lastChecked: Date.now() };
+    const ks: KnowledgeState = { hasMemories: false, totalSessions: 0, pipelineTier: 1, maturity: "cold", lastChecked: Date.now() };
 
     const handler = createRecallHandler(client, makeConfig(), logger, undefined, ks);
     const result = await handler({ prompt: "some longer query" }, {});
@@ -160,10 +160,12 @@ describe("createRecallHandler", () => {
         memories: [{ content: "remembered", confidence: 0.9, when: null, session_id: null, entities: [] }],
       }),
       knowledge: vi.fn().mockResolvedValue({ total_memories: 5, total_sessions: 2, maturity: "warming" }),
+      stats: vi.fn().mockResolvedValue({ pipeline_tier: 2, pipeline_maturity: "warming" }),
     } as unknown as CortexClient;
     const ks: KnowledgeState = {
       hasMemories: false,
       totalSessions: 0,
+      pipelineTier: 1,
       maturity: "cold",
       lastChecked: Date.now() - 6 * 60_000, // 6 minutes ago — past the 5-min re-check interval
     };
@@ -182,10 +184,12 @@ describe("createRecallHandler", () => {
     const client = {
       recall: vi.fn(),
       knowledge: vi.fn().mockResolvedValue({ total_memories: 0, total_sessions: 0, maturity: "cold" }),
+      stats: vi.fn().mockResolvedValue({ pipeline_tier: 1, pipeline_maturity: "cold" }),
     } as unknown as CortexClient;
     const ks: KnowledgeState = {
       hasMemories: false,
       totalSessions: 0,
+      pipelineTier: 1,
       maturity: "cold",
       lastChecked: Date.now() - 6 * 60_000,
     };
@@ -207,6 +211,7 @@ describe("createRecallHandler", () => {
     const ks: KnowledgeState = {
       hasMemories: false,
       totalSessions: 0,
+      pipelineTier: 1,
       maturity: "cold",
       lastChecked: Date.now() - 6 * 60_000,
     };
@@ -226,7 +231,7 @@ describe("createRecallHandler", () => {
         memories: [{ content: "test", confidence: 0.9, when: null, session_id: null, entities: [] }],
       }),
     } as unknown as CortexClient;
-    const ks: KnowledgeState = { hasMemories: true, totalSessions: 5, maturity: "warming", lastChecked: Date.now() };
+    const ks: KnowledgeState = { hasMemories: true, totalSessions: 5, pipelineTier: 1, maturity: "warming", lastChecked: Date.now() };
 
     const handler = createRecallHandler(client, makeConfig(), logger, undefined, ks);
     const result = await handler({ prompt: "some longer query" }, {});
@@ -239,7 +244,7 @@ describe("createRecallHandler", () => {
     const client = {
       recall: vi.fn().mockResolvedValue({ memories: [] }),
     } as unknown as CortexClient;
-    const ks: KnowledgeState = { hasMemories: true, totalSessions: 20, maturity: "warming", lastChecked: Date.now() };
+    const ks: KnowledgeState = { hasMemories: true, totalSessions: 20, pipelineTier: 2, maturity: "warming", lastChecked: Date.now() };
 
     const handler = createRecallHandler(client, makeConfig({ recallTimeoutMs: 500 }), logger, undefined, ks);
     await handler({ prompt: "some longer query" }, {});
@@ -252,7 +257,7 @@ describe("createRecallHandler", () => {
     const client = {
       recall: vi.fn().mockResolvedValue({ memories: [] }),
     } as unknown as CortexClient;
-    const ks: KnowledgeState = { hasMemories: true, totalSessions: 35, maturity: "mature", lastChecked: Date.now() };
+    const ks: KnowledgeState = { hasMemories: true, totalSessions: 35, pipelineTier: 3, maturity: "mature", lastChecked: Date.now() };
 
     const handler = createRecallHandler(client, makeConfig({ recallTimeoutMs: 500 }), logger, undefined, ks);
     await handler({ prompt: "some longer query" }, {});
@@ -265,7 +270,7 @@ describe("createRecallHandler", () => {
     const client = {
       recall: vi.fn().mockResolvedValue({ memories: [] }),
     } as unknown as CortexClient;
-    const ks: KnowledgeState = { hasMemories: true, totalSessions: 35, maturity: "mature", lastChecked: Date.now() };
+    const ks: KnowledgeState = { hasMemories: true, totalSessions: 35, pipelineTier: 3, maturity: "mature", lastChecked: Date.now() };
 
     const handler = createRecallHandler(client, makeConfig({ recallTimeoutMs: 5000 }), logger, undefined, ks);
     await handler({ prompt: "some longer query" }, {});
@@ -276,20 +281,17 @@ describe("createRecallHandler", () => {
 });
 
 describe("deriveEffectiveTimeout", () => {
-  it("returns config value for Tier 1 (<15 sessions)", () => {
-    expect(deriveEffectiveTimeout(500, 0)).toBe(500);
-    expect(deriveEffectiveTimeout(500, 14)).toBe(500);
+  it("returns config value for Tier 1", () => {
+    expect(deriveEffectiveTimeout(500, 1)).toBe(500);
   });
 
-  it("enforces 1500ms floor for Tier 2 (15-29 sessions)", () => {
-    expect(deriveEffectiveTimeout(500, 15)).toBe(1500);
-    expect(deriveEffectiveTimeout(500, 29)).toBe(1500);
-    expect(deriveEffectiveTimeout(2000, 20)).toBe(2000);
+  it("enforces 1500ms floor for Tier 2", () => {
+    expect(deriveEffectiveTimeout(500, 2)).toBe(1500);
+    expect(deriveEffectiveTimeout(2000, 2)).toBe(2000);
   });
 
-  it("enforces 2000ms floor for Tier 3 (30+ sessions)", () => {
-    expect(deriveEffectiveTimeout(500, 30)).toBe(2000);
-    expect(deriveEffectiveTimeout(500, 100)).toBe(2000);
-    expect(deriveEffectiveTimeout(3000, 50)).toBe(3000);
+  it("enforces 2000ms floor for Tier 3", () => {
+    expect(deriveEffectiveTimeout(500, 3)).toBe(2000);
+    expect(deriveEffectiveTimeout(3000, 3)).toBe(3000);
   });
 });

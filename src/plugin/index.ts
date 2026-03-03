@@ -16,14 +16,9 @@ import { AuditLogger } from "../internal/audit/audit-logger.js";
 export interface KnowledgeState {
   hasMemories: boolean;
   totalSessions: number;
+  pipelineTier: 1 | 2 | 3;
   maturity: "cold" | "warming" | "mature" | "unknown";
   lastChecked: number;
-}
-
-export function deriveTier(totalSessions: number): 1 | 2 | 3 {
-  if (totalSessions >= 30) return 3;
-  if (totalSessions >= 15) return 2;
-  return 1;
 }
 
 /**
@@ -128,14 +123,20 @@ async function bootstrapClient(
   }
 
   try {
-    const knowledge = await client.knowledge(undefined, userId);
+    const [knowledge, stats] = await Promise.all([
+      client.knowledge(undefined, userId),
+      client.stats(undefined, userId).catch(() => null),
+    ]);
     knowledgeState.hasMemories = knowledge.total_memories > 0;
     knowledgeState.totalSessions = knowledge.total_sessions;
     knowledgeState.maturity = knowledge.maturity;
+    if (stats) {
+      knowledgeState.pipelineTier = stats.pipeline_tier;
+    }
     knowledgeState.lastChecked = Date.now();
 
     logger.info(
-      `Cortex connected — ${knowledge.total_memories.toLocaleString()} memories, ${knowledge.total_sessions} sessions (${knowledge.maturity})`,
+      `Cortex connected — ${knowledge.total_memories.toLocaleString()} memories, ${knowledge.total_sessions} sessions (${knowledge.maturity}), tier ${knowledgeState.pipelineTier}`,
     );
   } catch {
     // Knowledge endpoint unavailable — health check passed so API is reachable
@@ -203,6 +204,7 @@ const plugin = {
     const knowledgeState: KnowledgeState = {
       hasMemories: false,
       totalSessions: 0,
+      pipelineTier: 1,
       maturity: "unknown",
       lastChecked: 0,
     };
@@ -454,14 +456,18 @@ const plugin = {
 
             try {
               const knowledge = await fetchKnowledge();
-              const tier = deriveTier(knowledge.total_sessions);
+              // Refresh cached tier from /v1/stats alongside the knowledge check
+              try {
+                const stats = await client.stats(undefined, userId);
+                knowledgeState.pipelineTier = stats.pipeline_tier;
+              } catch {}
               const recallSummary = recallMetrics.summary();
               const lines = [
                 `**Cortex Memory Status**`,
                 `- Memories: ${knowledge.total_memories}`,
                 `- Sessions: ${knowledge.total_sessions}`,
                 `- Maturity: ${knowledge.maturity}`,
-                `- Tier: ${tier}`,
+                `- Tier: ${knowledgeState.pipelineTier}`,
                 `- Recall latency: ${recallSummary.count > 0 ? `p50=${recallSummary.p50}ms, p95=${recallSummary.p95}ms (${recallSummary.count} samples)` : "no samples yet"}`,
                 `- Retry queue: ${retryQueue.pending} pending`,
               ];
@@ -559,7 +565,7 @@ const plugin = {
             hasMemories: knowledgeState.hasMemories,
             totalSessions: knowledgeState.totalSessions,
             maturity: knowledgeState.maturity,
-            tier: deriveTier(knowledgeState.totalSessions),
+            tier: knowledgeState.pipelineTier,
             lastChecked: knowledgeState.lastChecked,
           },
           recallMetrics: recallSummary,

@@ -92,6 +92,7 @@ describe("plugin lifecycle contract", () => {
     vi.clearAllMocks();
     mockClientHealth();
     mockClientKnowledge();
+    vi.spyOn(CortexClient.prototype, "stats").mockResolvedValue({ pipeline_tier: 1, pipeline_maturity: "cold" });
   });
 
   afterEach(() => {
@@ -351,6 +352,7 @@ describe("plugin lifecycle contract", () => {
     vi.restoreAllMocks();
     mockClientHealth();
     mockClientKnowledge({ total_memories: 142, total_sessions: 18, maturity: "warming" });
+    vi.spyOn(CortexClient.prototype, "stats").mockResolvedValue({ pipeline_tier: 2, pipeline_maturity: "warming" });
 
     const { api, logger, services } = makeApi({
       fileSync: false,
@@ -362,7 +364,7 @@ describe("plugin lifecycle contract", () => {
     await new Promise((r) => setTimeout(r, 50));
 
     expect(logger.info).toHaveBeenCalledWith(
-      "Cortex connected — 142 memories, 18 sessions (warming)",
+      "Cortex connected — 142 memories, 18 sessions (warming), tier 2",
     );
   });
 
