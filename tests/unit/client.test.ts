@@ -91,7 +91,7 @@ describe("CortexClient", () => {
       const result = await client.remember("some fact", "session-1");
 
       expect(mockFetch).toHaveBeenCalledWith(
-        "https://api.example.com/v1/remember",
+        "https://api.example.com/v1/remember?sync=true",
         expect.objectContaining({
           method: "POST",
           body: JSON.stringify({ text: "some fact", session_id: "session-1", reference_date: null }),
@@ -131,7 +131,7 @@ describe("CortexClient", () => {
       const result = await client.rememberConversation(messages, "sess-1");
 
       expect(mockFetch).toHaveBeenCalledWith(
-        "https://api.example.com/v1/remember",
+        "https://api.example.com/v1/remember?sync=true",
         expect.objectContaining({
           body: JSON.stringify({ messages, session_id: "sess-1", reference_date: null }),
         }),

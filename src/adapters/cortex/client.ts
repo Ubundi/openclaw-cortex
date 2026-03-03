@@ -389,7 +389,7 @@ export class CortexClient {
     sourceApp?: string,
   ): Promise<RememberResponse> {
     return this.fetchJsonWithTimeout<RememberResponse>(
-      `${this.baseUrl}/v1/remember`,
+      `${this.baseUrl}/v1/remember?sync=true`,
       {
         text,
         session_id: sessionId ?? null,
@@ -413,7 +413,7 @@ export class CortexClient {
     sourceApp?: string,
   ): Promise<RememberResponse> {
     return this.fetchJsonWithTimeout<RememberResponse>(
-      `${this.baseUrl}/v1/remember`,
+      `${this.baseUrl}/v1/remember?sync=true`,
       {
         messages,
         session_id: sessionId ?? null,
