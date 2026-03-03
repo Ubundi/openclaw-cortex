@@ -31,10 +31,16 @@
         "description": "Maximum number of memories to retrieve per turn",
         "default": 10
       },
+      "recallQueryType": {
+        "type": "string",
+        "description": "Recall query type to use for automatic recall (factual, emotional, or combined)",
+        "enum": ["factual", "emotional", "combined"],
+        "default": "combined"
+      },
       "recallTimeoutMs": {
         "type": "number",
         "description": "Maximum time to wait for memory recall (ms)",
-        "default": 10000
+        "default": 15000
       },
       "fileSync": {
         "type": "boolean",
@@ -49,7 +55,7 @@
       "toolTimeoutMs": {
         "type": "number",
         "description": "Timeout for explicit tool calls and /memories search (ms)",
-        "default": 10000
+        "default": 30000
       },
       "captureMaxPayloadBytes": {
         "type": "number",

@@ -80,8 +80,8 @@ Add to your `openclaw.json`:
           autoRecall: true,
           autoCapture: true,
           recallLimit: 10,
-          recallTimeoutMs: 10000,
-          toolTimeoutMs: 10000,
+          recallTimeoutMs: 15000,
+          toolTimeoutMs: 30000,
           fileSync: true,
           transcriptSync: true,
           // userId: "my-team-shared-id",  // override the auto-generated install ID
@@ -103,8 +103,8 @@ Add to your `openclaw.json`:
 | `autoRecall`      | boolean | `true`  | Inject relevant memories before each agent turn                                                  |
 | `autoCapture`     | boolean | `true`  | Extract and store facts after each agent turn                                                    |
 | `recallLimit`     | number  | `10`    | Max number of memories returned per recall                                                       |
-| `recallTimeoutMs` | number  | `10000` | Auto-recall timeout in ms. Scales with knowledge tier via `deriveEffectiveTimeout`.              |
-| `toolTimeoutMs`   | number  | `10000` | Timeout for explicit tool calls (`cortex_search_memory`, `/memories`). Longer than auto-recall since the user is actively waiting. |
+| `recallTimeoutMs` | number  | `15000` | Auto-recall timeout in ms. Scales with knowledge tier via `deriveEffectiveTimeout`.              |
+| `toolTimeoutMs`   | number  | `30000` | Timeout for explicit tool calls (`cortex_search_memory`, `/memories`). Longer than auto-recall since the user is actively waiting. |
 | `fileSync`        | boolean | `true`  | Watch and ingest `MEMORY.md` and daily log files                                                 |
 | `transcriptSync`  | boolean | `true`  | Watch and ingest session transcript files                                                        |
 | `captureMaxPayloadBytes` | number | `262144` | Max byte size of capture payloads (256KB default). Oversized transcripts are trimmed from the oldest messages. |
@@ -153,7 +153,7 @@ Before every agent turn, the plugin queries Cortex's `/v1/recall` endpoint and p
 </cortex_memories>
 ```
 
-If the request exceeds `recallTimeoutMs`, the agent proceeds without memories (silent degradation). After 3 consecutive failures, recall is disabled for 30 seconds (cold-start detection) to avoid hammering a cold ECS task.
+If the request exceeds `recallTimeoutMs`, the agent proceeds without memories (silent degradation). After 3 consecutive hard failures (connection errors, not timeouts), recall is disabled for 30 seconds (cold-start detection) to avoid hammering a dead service. Timeouts from a slow-but-running backend do not trigger the cold-start gate.
 
 ![Recall Strategy Tiers](assets/readme_assets/Recall.png)
 
