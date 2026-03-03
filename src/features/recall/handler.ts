@@ -152,7 +152,7 @@ export function createRecallHandler(
         response = await client.recall(
           prompt,
           effectiveTimeout,
-          { limit: config.recallLimit, userId: currentUserId, queryType: "factual" },
+          { limit: config.recallLimit, userId: currentUserId, queryType: config.recallQueryType },
         );
       } catch (retryErr) {
         // Single retry on transient 502/503 gateway errors
@@ -161,7 +161,7 @@ export function createRecallHandler(
           response = await client.recall(
             prompt,
             effectiveTimeout,
-            { limit: config.recallLimit, userId: currentUserId, queryType: "factual" },
+            { limit: config.recallLimit, userId: currentUserId, queryType: config.recallQueryType },
           );
         } else {
           throw retryErr;
@@ -174,7 +174,7 @@ export function createRecallHandler(
 
       if (!response.memories?.length) return;
 
-      const formatted = formatMemories(response.memories);
+      const formatted = formatMemories(response.memories, config.recallTopK);
       if (!formatted) return;
 
       logger.debug?.(

@@ -195,12 +195,16 @@ describe("plugin lifecycle contract", () => {
       1000,
       expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
       expect.any(String),
+      "openclaw",
+      "OpenClaw",
     );
     expect(CortexClient.prototype.submitIngest).toHaveBeenCalledWith(
       "User prefers dark mode interfaces.",
       expect.any(String),
       expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/),
       expect.any(String),
+      "openclaw",
+      "OpenClaw",
     );
   });
 

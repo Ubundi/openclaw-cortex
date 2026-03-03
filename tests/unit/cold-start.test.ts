@@ -10,6 +10,7 @@ function makeConfig(overrides: Partial<CortexConfig> = {}): CortexConfig {
     autoRecall: true,
     autoCapture: true,
     recallLimit: 10,
+    recallQueryType: "combined",
     recallTimeoutMs: 500,
     fileSync: true,
     transcriptSync: true,

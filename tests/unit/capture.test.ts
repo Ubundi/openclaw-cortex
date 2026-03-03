@@ -9,6 +9,7 @@ function makeConfig(overrides: Partial<CortexConfig> = {}): CortexConfig {
     autoRecall: true,
     autoCapture: true,
     recallLimit: 10,
+    recallQueryType: "combined",
     recallTimeoutMs: 500,
     toolTimeoutMs: 10000,
     fileSync: true,
@@ -26,11 +27,16 @@ const logger = {
   error: vi.fn(),
 };
 
+function submittedTranscript(submitMock: ReturnType<typeof vi.fn>, callIndex = 0): string {
+  const messages = submitMock.mock.calls[callIndex][0] as Array<{ role: string; content: string }>;
+  return messages.map((m) => `${m.role}: ${m.content}`).join("\n\n");
+}
+
 describe("createCaptureHandler", () => {
   it("submits ingestion job on successful agent end", async () => {
     const submitPromise = Promise.resolve({ job_id: "job-1", status: "pending" });
     const submitMock = vi.fn().mockReturnValue(submitPromise);
-    const client = { submitIngest: submitMock } as unknown as CortexClient;
+    const client = { submitIngestConversation: submitMock } as unknown as CortexClient;
 
     const handler = createCaptureHandler(client, makeConfig(), logger);
 
@@ -46,16 +52,21 @@ describe("createCaptureHandler", () => {
     await submitPromise;
 
     expect(submitMock).toHaveBeenCalledWith(
-      "user: What is the deployment strategy for our backend services?\n\nassistant: The backend uses blue-green deployment on ECS Fargate with ALB routing.",
+      [
+        { role: "user", content: "What is the deployment strategy for our backend services?" },
+        { role: "assistant", content: "The backend uses blue-green deployment on ECS Fargate with ALB routing." },
+      ],
       "sess-1",
       expect.any(String),
       undefined,
+      "openclaw",
+      "OpenClaw",
     );
   });
 
   it("skips when autoCapture is disabled", async () => {
     const submitMock = vi.fn();
-    const client = { submitIngest: submitMock } as unknown as CortexClient;
+    const client = { submitIngestConversation: submitMock } as unknown as CortexClient;
     const handler = createCaptureHandler(client, makeConfig({ autoCapture: false }), logger);
 
     await handler({ messages: [{ role: "user", content: "test" }], aborted: false });
@@ -65,7 +76,7 @@ describe("createCaptureHandler", () => {
 
   it("skips when agent run was aborted", async () => {
     const submitMock = vi.fn();
-    const client = { submitIngest: submitMock } as unknown as CortexClient;
+    const client = { submitIngestConversation: submitMock } as unknown as CortexClient;
     const handler = createCaptureHandler(client, makeConfig(), logger);
 
     await handler({ messages: [{ role: "user", content: "long enough content to matter" }], aborted: true });
@@ -75,7 +86,7 @@ describe("createCaptureHandler", () => {
 
   it("skips when messages are too short", async () => {
     const submitMock = vi.fn();
-    const client = { submitIngest: submitMock } as unknown as CortexClient;
+    const client = { submitIngestConversation: submitMock } as unknown as CortexClient;
     const handler = createCaptureHandler(client, makeConfig(), logger);
 
     await handler({
@@ -92,7 +103,7 @@ describe("createCaptureHandler", () => {
   it("handles array content blocks", async () => {
     const submitPromise = Promise.resolve({ job_id: "job-2", status: "pending" });
     const submitMock = vi.fn().mockReturnValue(submitPromise);
-    const client = { submitIngest: submitMock } as unknown as CortexClient;
+    const client = { submitIngestConversation: submitMock } as unknown as CortexClient;
 
     const handler = createCaptureHandler(client, makeConfig(), logger);
 
@@ -111,14 +122,14 @@ describe("createCaptureHandler", () => {
 
     await submitPromise;
 
-    const transcript = submitMock.mock.calls[0][0] as string;
+    const transcript = submittedTranscript(submitMock);
     expect(transcript).toContain("The project uses PostgreSQL with pgvector for embedding storage.");
   });
 
   it("extracts tool_result content from tool messages", async () => {
     const submitPromise = Promise.resolve({ job_id: "job-3", status: "pending" });
     const submitMock = vi.fn().mockReturnValue(submitPromise);
-    const client = { submitIngest: submitMock } as unknown as CortexClient;
+    const client = { submitIngestConversation: submitMock } as unknown as CortexClient;
 
     const handler = createCaptureHandler(client, makeConfig(), logger);
 
@@ -134,13 +145,13 @@ describe("createCaptureHandler", () => {
 
     await submitPromise;
 
-    const transcript = submitMock.mock.calls[0][0] as string;
+    const transcript = submittedTranscript(submitMock);
     expect(transcript).toContain("index.ts\nplugin.ts\nclient.ts");
   });
 
   it("only sends the delta on subsequent turns (watermark)", async () => {
     const submitMock = vi.fn().mockResolvedValue({ job_id: "job-4", status: "pending" });
-    const client = { submitIngest: submitMock } as unknown as CortexClient;
+    const client = { submitIngestConversation: submitMock } as unknown as CortexClient;
 
     const handler = createCaptureHandler(client, makeConfig(), logger);
 
@@ -163,14 +174,14 @@ describe("createCaptureHandler", () => {
     await vi.waitFor(() => expect(submitMock).toHaveBeenCalledTimes(2));
 
     // Second call should only contain the turn 2 delta, not turn 1 again
-    const secondTranscript = submitMock.mock.calls[1][0] as string;
+    const secondTranscript = submittedTranscript(submitMock, 1);
     expect(secondTranscript).toContain("How does the health check work during the blue-green deployment swap?");
     expect(secondTranscript).not.toContain("What is the deployment strategy");
   });
 
   it("tracks watermarks per session", async () => {
     const submitMock = vi.fn().mockResolvedValue({ job_id: "job-per-session", status: "pending" });
-    const client = { submitIngest: submitMock } as unknown as CortexClient;
+    const client = { submitIngestConversation: submitMock } as unknown as CortexClient;
     const handler = createCaptureHandler(client, makeConfig(), logger);
 
     const session1Turn1 = [
@@ -186,7 +197,7 @@ describe("createCaptureHandler", () => {
     await handler({ messages: session2Turn1, aborted: false, sessionKey: "sess-2" });
 
     await vi.waitFor(() => expect(submitMock).toHaveBeenCalledTimes(2));
-    const secondTranscript = submitMock.mock.calls[1][0] as string;
+    const secondTranscript = submittedTranscript(submitMock, 1);
     expect(secondTranscript).toContain("Session two asks about PostgreSQL indexing strategy");
     expect(secondTranscript).toContain("Session two response recommends BRIN");
   });
@@ -194,7 +205,7 @@ describe("createCaptureHandler", () => {
   it("strips injected recall block from captured messages", async () => {
     const submitPromise = Promise.resolve({ job_id: "job-strip", status: "pending" });
     const submitMock = vi.fn().mockReturnValue(submitPromise);
-    const client = { submitIngest: submitMock } as unknown as CortexClient;
+    const client = { submitIngestConversation: submitMock } as unknown as CortexClient;
 
     const handler = createCaptureHandler(client, makeConfig(), logger);
 
@@ -215,7 +226,7 @@ describe("createCaptureHandler", () => {
 
     await submitPromise;
 
-    const transcript = submitMock.mock.calls[0][0] as string;
+    const transcript = submittedTranscript(submitMock);
     expect(transcript).not.toContain("cortex_memories");
     expect(transcript).not.toContain("recalled memories");
     expect(transcript).toContain("What database does the project use and how is it configured?");
@@ -225,7 +236,7 @@ describe("createCaptureHandler", () => {
   it("trims oldest messages when payload exceeds captureMaxPayloadBytes", async () => {
     const submitPromise = Promise.resolve({ job_id: "job-cap", status: "pending" });
     const submitMock = vi.fn().mockReturnValue(submitPromise);
-    const client = { submitIngest: submitMock } as unknown as CortexClient;
+    const client = { submitIngestConversation: submitMock } as unknown as CortexClient;
 
     // Set a very small cap so normal messages exceed it
     const handler = createCaptureHandler(
@@ -246,7 +257,7 @@ describe("createCaptureHandler", () => {
 
     await submitPromise;
 
-    const transcript = submitMock.mock.calls[0][0] as string;
+    const transcript = submittedTranscript(submitMock);
     // The oldest messages should have been dropped to fit under the cap
     expect(transcript).toContain("most recent message");
     // Transcript byte size should be under the cap
@@ -256,7 +267,7 @@ describe("createCaptureHandler", () => {
   it("keeps at least 2 messages even if they exceed the byte cap", async () => {
     const submitPromise = Promise.resolve({ job_id: "job-min", status: "pending" });
     const submitMock = vi.fn().mockReturnValue(submitPromise);
-    const client = { submitIngest: submitMock } as unknown as CortexClient;
+    const client = { submitIngestConversation: submitMock } as unknown as CortexClient;
 
     // Cap so small that even 2 messages exceed it
     const handler = createCaptureHandler(
@@ -277,7 +288,7 @@ describe("createCaptureHandler", () => {
 
     // Should still submit — the floor is 2 messages
     expect(submitMock).toHaveBeenCalledTimes(1);
-    const transcript = submitMock.mock.calls[0][0] as string;
+    const transcript = submittedTranscript(submitMock);
     expect(transcript).toContain("user message");
     expect(transcript).toContain("assistant response");
   });
@@ -285,7 +296,7 @@ describe("createCaptureHandler", () => {
   it("trims oldest messages when transcript exceeds 50,000 char API limit", async () => {
     const submitPromise = Promise.resolve({ job_id: "job-charlimit", status: "pending" });
     const submitMock = vi.fn().mockReturnValue(submitPromise);
-    const client = { submitIngest: submitMock } as unknown as CortexClient;
+    const client = { submitIngestConversation: submitMock } as unknown as CortexClient;
 
     const handler = createCaptureHandler(client, makeConfig(), logger);
 
@@ -303,7 +314,7 @@ describe("createCaptureHandler", () => {
 
     await submitPromise;
 
-    const transcript = submitMock.mock.calls[0][0] as string;
+    const transcript = submittedTranscript(submitMock);
     // Should have dropped oldest messages to fit under 50k chars
     expect(transcript.length).toBeLessThanOrEqual(50_000);
     expect(transcript).toContain("Recent");
@@ -311,7 +322,7 @@ describe("createCaptureHandler", () => {
 
   it("skips messages between 20 and 50 chars (raised threshold)", async () => {
     const submitMock = vi.fn();
-    const client = { submitIngest: submitMock } as unknown as CortexClient;
+    const client = { submitIngestConversation: submitMock } as unknown as CortexClient;
     const handler = createCaptureHandler(client, makeConfig(), logger);
 
     await handler({
@@ -328,7 +339,7 @@ describe("createCaptureHandler", () => {
   it("filters low-signal messages before ingestion", async () => {
     const submitPromise = Promise.resolve({ job_id: "job-filter", status: "pending" });
     const submitMock = vi.fn().mockReturnValue(submitPromise);
-    const client = { submitIngest: submitMock } as unknown as CortexClient;
+    const client = { submitIngestConversation: submitMock } as unknown as CortexClient;
 
     const handler = createCaptureHandler(client, makeConfig(), logger);
 
@@ -343,7 +354,7 @@ describe("createCaptureHandler", () => {
 
     await submitPromise;
 
-    const transcript = submitMock.mock.calls[0][0] as string;
+    const transcript = submittedTranscript(submitMock);
     expect(transcript).not.toContain("HEARTBEAT_OK");
     expect(transcript).toContain("blue-green deployment");
   });
@@ -351,7 +362,7 @@ describe("createCaptureHandler", () => {
   it("skips filtering when captureFilter is false", async () => {
     const submitPromise = Promise.resolve({ job_id: "job-nofilter", status: "pending" });
     const submitMock = vi.fn().mockReturnValue(submitPromise);
-    const client = { submitIngest: submitMock } as unknown as CortexClient;
+    const client = { submitIngestConversation: submitMock } as unknown as CortexClient;
 
     const handler = createCaptureHandler(client, makeConfig({ captureFilter: false }), logger);
 
@@ -367,7 +378,7 @@ describe("createCaptureHandler", () => {
 
     await submitPromise;
 
-    const transcript = submitMock.mock.calls[0][0] as string;
+    const transcript = submittedTranscript(submitMock);
     // "ok" should NOT be filtered when captureFilter is false
     expect(transcript).toContain("ok");
   });
@@ -375,7 +386,7 @@ describe("createCaptureHandler", () => {
   it("falls back to sessionId when sessionKey is absent", async () => {
     const submitPromise = Promise.resolve({ job_id: "job-5", status: "pending" });
     const submitMock = vi.fn().mockReturnValue(submitPromise);
-    const client = { submitIngest: submitMock } as unknown as CortexClient;
+    const client = { submitIngestConversation: submitMock } as unknown as CortexClient;
 
     const handler = createCaptureHandler(client, makeConfig(), logger);
 
@@ -389,6 +400,13 @@ describe("createCaptureHandler", () => {
     });
 
     await submitPromise;
-    expect(submitMock).toHaveBeenCalledWith(expect.any(String), "fallback-id", expect.any(String), undefined);
+    expect(submitMock).toHaveBeenCalledWith(
+      expect.any(Array),
+      "fallback-id",
+      expect.any(String),
+      undefined,
+      "openclaw",
+      "OpenClaw",
+    );
   });
 });

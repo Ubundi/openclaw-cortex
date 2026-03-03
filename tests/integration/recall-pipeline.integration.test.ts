@@ -28,6 +28,7 @@ describeIf(!!API_KEY)("Recall pipeline integration", () => {
     autoRecall: true,
     autoCapture: true,
     recallLimit: 10,
+    recallQueryType: "combined",
     recallTimeoutMs: 5000,
     fileSync: true,
     transcriptSync: true,

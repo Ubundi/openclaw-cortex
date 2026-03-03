@@ -11,6 +11,7 @@ function makeConfig(overrides: Partial<CortexConfig> = {}): CortexConfig {
     autoRecall: true,
     autoCapture: true,
     recallLimit: 10,
+    recallQueryType: "combined",
     recallTimeoutMs: 500,
     fileSync: true,
     transcriptSync: true,
@@ -138,7 +139,7 @@ describe("createRecallHandler", () => {
     expect(client.recall).toHaveBeenCalledWith(
       "some query here",
       500,
-      { limit: 15, queryType: "factual", userId: undefined },
+      { limit: 15, queryType: "combined", userId: undefined },
     );
   });
 
@@ -250,7 +251,7 @@ describe("createRecallHandler", () => {
     await handler({ prompt: "some longer query" }, {});
 
     // Tier 2 floor is 1500ms, should override the configured 500ms
-    expect(client.recall).toHaveBeenCalledWith("some longer query", 1500, { limit: 10, queryType: "factual", userId: undefined });
+    expect(client.recall).toHaveBeenCalledWith("some longer query", 1500, { limit: 10, queryType: "combined", userId: undefined });
   });
 
   it("uses tier-aware timeout for Tier 3", async () => {
@@ -263,7 +264,7 @@ describe("createRecallHandler", () => {
     await handler({ prompt: "some longer query" }, {});
 
     // Tier 3 floor is 2000ms, should override the configured 500ms
-    expect(client.recall).toHaveBeenCalledWith("some longer query", 2000, { limit: 10, queryType: "factual", userId: undefined });
+    expect(client.recall).toHaveBeenCalledWith("some longer query", 2000, { limit: 10, queryType: "combined", userId: undefined });
   });
 
   it("respects user-configured timeout when higher than tier floor", async () => {
@@ -276,7 +277,7 @@ describe("createRecallHandler", () => {
     await handler({ prompt: "some longer query" }, {});
 
     // User configured 5000ms > Tier 3 floor 2000ms, so use 5000ms
-    expect(client.recall).toHaveBeenCalledWith("some longer query", 5000, { limit: 10, queryType: "factual", userId: undefined });
+    expect(client.recall).toHaveBeenCalledWith("some longer query", 5000, { limit: 10, queryType: "combined", userId: undefined });
   });
 });
 

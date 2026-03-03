@@ -104,6 +104,9 @@ export interface RecallMemory {
   entities: string[];
   type?: NodeType;
   grounded?: boolean;
+  source_origin?: string;
+  derivation_mode?: string;
+  source_app?: string;
 }
 
 export interface RecallResponse {
@@ -309,10 +312,19 @@ export class CortexClient {
     sessionId?: string,
     referenceDate?: string,
     userId?: string,
+    sourceOrigin?: string,
+    sourceApp?: string,
   ): Promise<JobSubmitResponse> {
     return this.fetchJsonWithTimeout<JobSubmitResponse>(
       `${this.baseUrl}/v1/jobs/ingest`,
-      { text, session_id: sessionId, reference_date: referenceDate ?? null, ...(userId ? { user_id: userId } : {}) },
+      {
+        text,
+        session_id: sessionId,
+        reference_date: referenceDate ?? null,
+        ...(userId ? { user_id: userId } : {}),
+        ...(sourceOrigin ? { source_origin: sourceOrigin } : {}),
+        ...(sourceApp ? { source_app: sourceApp } : {}),
+      },
       DEFAULT_SUBMIT_TIMEOUT_MS,
       "jobs/ingest",
     );
@@ -322,10 +334,20 @@ export class CortexClient {
     messages: ConversationMessage[],
     sessionId?: string,
     referenceDate?: string,
+    userId?: string,
+    sourceOrigin?: string,
+    sourceApp?: string,
   ): Promise<JobSubmitResponse> {
     return this.fetchJsonWithTimeout<JobSubmitResponse>(
       `${this.baseUrl}/v1/jobs/ingest/conversation`,
-      { messages, session_id: sessionId, reference_date: referenceDate ?? null },
+      {
+        messages,
+        session_id: sessionId,
+        reference_date: referenceDate ?? null,
+        ...(userId ? { user_id: userId } : {}),
+        ...(sourceOrigin ? { source_origin: sourceOrigin } : {}),
+        ...(sourceApp ? { source_app: sourceApp } : {}),
+      },
       DEFAULT_SUBMIT_TIMEOUT_MS,
       "jobs/ingest/conversation",
     );
@@ -363,6 +385,8 @@ export class CortexClient {
     timeoutMs = DEFAULT_REMEMBER_TIMEOUT_MS,
     referenceDate?: string,
     userId?: string,
+    sourceOrigin?: string,
+    sourceApp?: string,
   ): Promise<RememberResponse> {
     return this.fetchJsonWithTimeout<RememberResponse>(
       `${this.baseUrl}/v1/remember`,
@@ -371,6 +395,8 @@ export class CortexClient {
         session_id: sessionId ?? null,
         reference_date: referenceDate ?? null,
         ...(userId ? { user_id: userId } : {}),
+        ...(sourceOrigin ? { source_origin: sourceOrigin } : {}),
+        ...(sourceApp ? { source_app: sourceApp } : {}),
       },
       timeoutMs,
       "remember",
@@ -383,6 +409,8 @@ export class CortexClient {
     timeoutMs = DEFAULT_REMEMBER_TIMEOUT_MS,
     referenceDate?: string,
     userId?: string,
+    sourceOrigin?: string,
+    sourceApp?: string,
   ): Promise<RememberResponse> {
     return this.fetchJsonWithTimeout<RememberResponse>(
       `${this.baseUrl}/v1/remember`,
@@ -391,6 +419,8 @@ export class CortexClient {
         session_id: sessionId ?? null,
         reference_date: referenceDate ?? null,
         ...(userId ? { user_id: userId } : {}),
+        ...(sourceOrigin ? { source_origin: sourceOrigin } : {}),
+        ...(sourceApp ? { source_app: sourceApp } : {}),
       },
       timeoutMs,
       "remember",

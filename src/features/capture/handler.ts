@@ -155,7 +155,7 @@ export function createCaptureHandler(
 
       logger.debug?.(`Cortex capture: sessionId=${sessionId}, userId=${getUserId?.()}`);
 
-      // Flatten messages into a role: content transcript for ingestion
+      // Flatten messages into a role:content transcript for concise logging/audit
       const transcript = trimmed
         .map((m) => `${m.role}: ${m.content}`)
         .join("\n\n");
@@ -174,7 +174,7 @@ export function createCaptureHandler(
         void auditLogger.log({
           feature: "auto-capture",
           method: "POST",
-          endpoint: "/v1/jobs/ingest",
+          endpoint: "/v1/jobs/ingest/conversation",
           payload: transcript,
           sessionId,
           userId: getUserId?.(),
@@ -185,10 +185,16 @@ export function createCaptureHandler(
       const doRemember = async () => {
         // Re-evaluate userId at call time so retries pick up the resolved value
         const userId = getUserId?.();
-        // Use async job endpoint — /v1/remember and /v1/ingest both 503 under
-        // the Lambda proxy timeout when the RESONATE pipeline is slow.
-        // /v1/jobs/ingest returns immediately and processes in the background.
-        const job = await client.submitIngest(transcript, sessionId, new Date().toISOString(), userId);
+        const referenceDate = new Date().toISOString();
+        // Use async conversation ingest so role attribution is preserved for RESONATE.
+        const job = await client.submitIngestConversation(
+          trimmed,
+          sessionId,
+          referenceDate,
+          userId,
+          "openclaw",
+          "OpenClaw",
+        );
         logger.info(`Cortex capture: submitted job ${job.job_id} (status=${job.status})`);
         if (knowledgeState) {
           knowledgeState.hasMemories = true;

@@ -111,6 +111,7 @@ describe("CortexConfigSchema", () => {
         expect(result.data.autoRecall).toBe(true);
         expect(result.data.autoCapture).toBe(true);
         expect(result.data.recallLimit).toBe(10);
+        expect(result.data.recallQueryType).toBe("combined");
         expect(result.data.recallTimeoutMs).toBe(10000);
         expect(result.data.fileSync).toBe(true);
         expect(result.data.transcriptSync).toBe(true);

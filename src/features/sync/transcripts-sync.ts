@@ -70,7 +70,15 @@ export class TranscriptsSync {
       const doRemember = () => {
         // Re-evaluate userId at call time so retries use the resolved value
         const userId = this.getUserId?.();
-        return this.client.rememberConversation(messages, sessionId, undefined, referenceDate, userId).then((res) => {
+        return this.client.rememberConversation(
+          messages,
+          sessionId,
+          undefined,
+          referenceDate,
+          userId,
+          "openclaw",
+          "OpenClaw",
+        ).then((res) => {
           this.logger.debug?.(`Transcript sync: remembered ${res.memories_created} memories for ${filename}`);
         });
       };

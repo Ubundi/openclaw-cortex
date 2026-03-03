@@ -340,7 +340,7 @@ const plugin = {
             }
 
             api.logger.debug?.(`Cortex search returned ${response.memories.length} memories`);
-            const formatted = formatMemories(response.memories);
+            const formatted = formatMemories(response.memories, config.recallTopK);
             return { content: [{ type: "text", text: formatted }] };
           } catch (err) {
             api.logger.warn(`Cortex search failed: ${String(err)}`);
@@ -384,7 +384,15 @@ const plugin = {
           try {
             const now = new Date();
             const referenceDate = now.toISOString().slice(0, 10);
-            const res = await client.remember(text, sessionId, config.toolTimeoutMs, referenceDate, userId);
+            const res = await client.remember(
+              text,
+              sessionId,
+              config.toolTimeoutMs,
+              referenceDate,
+              userId,
+              "openclaw",
+              "OpenClaw",
+            );
             if (knowledgeState && res.memories_created > 0) {
               knowledgeState.hasMemories = true;
             }
@@ -407,7 +415,14 @@ const plugin = {
 
             try {
               const referenceDate = new Date().toISOString();
-              const job = await client.submitIngest(text, sessionId, referenceDate, userId);
+              const job = await client.submitIngest(
+                text,
+                sessionId,
+                referenceDate,
+                userId,
+                "openclaw",
+                "OpenClaw",
+              );
               if (knowledgeState) {
                 knowledgeState.hasMemories = true;
               }

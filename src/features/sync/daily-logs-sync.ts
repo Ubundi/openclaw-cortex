@@ -65,7 +65,15 @@ export class DailyLogsSync {
       const doRemember = () => {
         // Re-evaluate userId at call time so retries use the resolved value
         const userId = this.getUserId?.();
-        return this.client.remember(newContent, sessionId, undefined, referenceDate, userId).then((res) => {
+        return this.client.remember(
+          newContent,
+          sessionId,
+          undefined,
+          referenceDate,
+          userId,
+          "openclaw",
+          "OpenClaw",
+        ).then((res) => {
           this.logger.debug?.(`Daily log sync: remembered ${res.memories_created} memories for ${filename}`);
         });
       };

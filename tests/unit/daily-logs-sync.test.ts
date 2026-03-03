@@ -61,6 +61,8 @@ describe("DailyLogsSync", () => {
       undefined,
       "2026-02-17",
       undefined,
+      "openclaw",
+      "OpenClaw",
     );
   });
 
@@ -236,6 +238,14 @@ describe("DailyLogsSync", () => {
     mockReadFile.mockResolvedValue("content");
     await sync.onFileChange("/workspace/memory/log.md", "log.md");
 
-    expect(client.remember).toHaveBeenCalledWith("content", expect.any(String), undefined, undefined, undefined);
+    expect(client.remember).toHaveBeenCalledWith(
+      "content",
+      expect.any(String),
+      undefined,
+      undefined,
+      undefined,
+      "openclaw",
+      "OpenClaw",
+    );
   });
 });

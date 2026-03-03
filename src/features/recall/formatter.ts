@@ -57,11 +57,20 @@ export function sanitizeMemoryContent(content: string): string {
   return content.replace(/<\//g, "&lt;/");
 }
 
-export function formatMemories(memories: RecallMemory[]): string {
+/** Maximum memories to inject into agent context after noise filtering. */
+const DEFAULT_TOP_K = 15;
+
+export function formatMemories(
+  memories: RecallMemory[],
+  topK: number = DEFAULT_TOP_K,
+): string {
   const cleaned = filterNoisyMemories(memories);
   if (!cleaned.length) return "";
 
-  const lines = cleaned.map(
+  // Memories arrive sorted by confidence from the API — take the top-K.
+  const capped = cleaned.slice(0, topK);
+
+  const lines = capped.map(
     (m) => `- [${m.confidence.toFixed(2)}] ${sanitizeMemoryContent(m.content)}`,
   );
 

@@ -67,6 +67,8 @@ describe("MemoryMdSync", () => {
       undefined,
       undefined,
       undefined,
+      "openclaw",
+      "OpenClaw",
     );
   });
 
@@ -123,6 +125,8 @@ describe("MemoryMdSync", () => {
       undefined,
       undefined,
       undefined,
+      "openclaw",
+      "OpenClaw",
     );
     expect(client.remember).toHaveBeenCalledWith(
       expect.stringContaining("User prefers TypeScript"),
@@ -130,6 +134,8 @@ describe("MemoryMdSync", () => {
       undefined,
       undefined,
       undefined,
+      "openclaw",
+      "OpenClaw",
     );
   });
 
@@ -163,6 +169,8 @@ describe("MemoryMdSync", () => {
       undefined,
       undefined,
       undefined,
+      "openclaw",
+      "OpenClaw",
     );
   });
 
@@ -284,7 +292,15 @@ describe("MemoryMdSync", () => {
 
     expect(mockSafePath).toHaveBeenCalledWith("/workspace/MEMORY.md", "/workspace");
     expect(mockReadFile).toHaveBeenCalledWith("/workspace/MEMORY.md", "utf-8");
-    expect(client.remember).toHaveBeenCalledWith("safe content", "s", undefined, undefined, undefined);
+    expect(client.remember).toHaveBeenCalledWith(
+      "safe content",
+      "s",
+      undefined,
+      undefined,
+      undefined,
+      "openclaw",
+      "OpenClaw",
+    );
   });
 
   it("skips safePath check when no allowedRoot is provided", async () => {
