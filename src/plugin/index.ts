@@ -13,6 +13,8 @@ import { BAKED_API_KEY } from "../internal/identity/api-key.js";
 import { formatMemories } from "../features/recall/formatter.js";
 import { AuditLogger } from "../internal/audit/audit-logger.js";
 import { injectAgentInstructions } from "../internal/agent-instructions.js";
+import { createCheckpointHandler } from "../features/checkpoint/handler.js";
+import { createHeartbeatHandler } from "../features/heartbeat/handler.js";
 
 export interface KnowledgeState {
   hasMemories: boolean;
@@ -258,6 +260,9 @@ const plugin = {
 
     // --- Hooks ---
 
+    // Track last messages for /checkpoint command (populated by agent_end wrapper)
+    let lastMessages: unknown[] = [];
+
     // Auto-Recall: inject relevant memories before every agent turn
     registerHookCompat(
       api,
@@ -270,13 +275,28 @@ const plugin = {
     );
 
     // Auto-Capture: extract facts after agent responses
+    const captureHandler = createCaptureHandler(client, config, api.logger, retryQueue, knowledgeState, () => userId, userIdReady, sessionId, auditLoggerProxy);
     registerHookCompat(
       api,
       "agent_end",
-      createCaptureHandler(client, config, api.logger, retryQueue, knowledgeState, () => userId, userIdReady, sessionId, auditLoggerProxy),
+      async (event: { messages?: unknown[]; [key: string]: unknown }) => {
+        if (event.messages?.length) lastMessages = event.messages;
+        return captureHandler(event as any);
+      },
       {
         name: "openclaw-cortex.capture",
         description: "Extract and store facts from conversation after agent turn",
+      },
+    );
+
+    // Heartbeat: periodic health + knowledge refresh
+    registerHookCompat(
+      api,
+      "gateway:heartbeat",
+      createHeartbeatHandler(client, api.logger, knowledgeState, retryQueue, () => userId),
+      {
+        name: "openclaw-cortex.heartbeat",
+        description: "Periodic health check and knowledge state refresh",
       },
     );
 
@@ -559,7 +579,23 @@ const plugin = {
         },
       });
 
-      api.logger.debug?.("Cortex commands registered: /memories, /audit");
+      api.registerCommand({
+        name: "checkpoint",
+        description: "Save a session checkpoint to Cortex before resetting",
+        acceptsArgs: true,
+        handler: createCheckpointHandler(
+          client,
+          config,
+          api.logger,
+          () => userId,
+          userIdReady,
+          () => lastMessages,
+          sessionId,
+          auditLoggerProxy,
+        ),
+      });
+
+      api.logger.debug?.("Cortex commands registered: /memories, /audit, /checkpoint");
     }
 
     // --- Gateway RPC ---

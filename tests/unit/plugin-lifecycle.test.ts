@@ -118,8 +118,13 @@ describe("plugin lifecycle contract", () => {
       "agent_end",
       expect.any(Function),
     );
+    expect(api.on).toHaveBeenCalledWith(
+      "gateway:heartbeat",
+      expect.any(Function),
+    );
     expect(hooks.before_agent_start).toHaveLength(1);
     expect(hooks.agent_end).toHaveLength(1);
+    expect(hooks["gateway:heartbeat"]).toHaveLength(1);
 
     expect(api.registerService).toHaveBeenCalledTimes(1);
     expect(services[0]?.id).toBe("cortex-services");
@@ -149,8 +154,14 @@ describe("plugin lifecycle contract", () => {
       expect.any(Function),
       { name: "openclaw-cortex.capture", description: expect.any(String) },
     );
+    expect(api.registerHook).toHaveBeenCalledWith(
+      "gateway:heartbeat",
+      expect.any(Function),
+      { name: "openclaw-cortex.heartbeat", description: expect.any(String) },
+    );
     expect(hooks.before_agent_start).toHaveLength(1);
     expect(hooks.agent_end).toHaveLength(1);
+    expect(hooks["gateway:heartbeat"]).toHaveLength(1);
   });
 
   it("registers agent tools", async () => {
@@ -214,9 +225,10 @@ describe("plugin lifecycle contract", () => {
     plugin.register(api as any);
     await flushMicrotasks();
 
-    expect(api.registerCommand).toHaveBeenCalledTimes(2);
+    expect(api.registerCommand).toHaveBeenCalledTimes(3);
     expect(commands[0]?.name).toBe("memories");
     expect(commands[1]?.name).toBe("audit");
+    expect(commands[2]?.name).toBe("checkpoint");
   });
 
   it("registers Gateway RPC method", async () => {
@@ -406,7 +418,7 @@ describe("plugin lifecycle contract", () => {
     await flushMicrotasks();
 
     // Should still register hooks and service without errors
-    expect(api.registerHook).toHaveBeenCalledTimes(2);
+    expect(api.registerHook).toHaveBeenCalledTimes(3);
     expect(api.registerService).toHaveBeenCalledTimes(1);
   });
 });
