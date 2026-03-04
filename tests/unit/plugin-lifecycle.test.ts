@@ -226,11 +226,12 @@ describe("plugin lifecycle contract", () => {
     plugin.register(api as any);
     await flushMicrotasks();
 
-    expect(api.registerCommand).toHaveBeenCalledTimes(4);
+    expect(api.registerCommand).toHaveBeenCalledTimes(5);
     expect(commands[0]?.name).toBe("memories");
     expect(commands[1]?.name).toBe("audit");
     expect(commands[2]?.name).toBe("checkpoint");
     expect(commands[3]?.name).toBe("sleep");
+    expect(commands[4]?.name).toBe("cortex");
   });
 
   it("sleep command clears dirty session state", async () => {
@@ -246,6 +247,53 @@ describe("plugin lifecycle contract", () => {
     const result = await sleep!.handler({});
     expect(clearSpy).toHaveBeenCalledOnce();
     expect(result.text).toContain("clean");
+  });
+
+  it("cortex id command generates and displays pairing code", async () => {
+    vi.spyOn(CortexClient.prototype, "generatePairingCode").mockResolvedValue({
+      user_code: "WOLF-3847",
+      expires_in: 900,
+      expires_at: "2026-03-04T12:00:00Z",
+    });
+    const { api, commands } = makeApi({ fileSync: false });
+
+    plugin.register(api as any);
+    await flushMicrotasks();
+
+    const cortex = commands.find((c) => c.name === "cortex");
+    expect(cortex).toBeDefined();
+
+    const result = await cortex!.handler({ args: "id" });
+    expect(result.text).toContain("WOLF-3847");
+    expect(result.text).toContain("15 minute");
+    expect(result.text).toContain("app.tootoo.io/settings/agents");
+    expect(result.text).toContain("Connect Agent");
+    expect(result.text).toContain("codex feed");
+  });
+
+  it("cortex command without args shows usage", async () => {
+    const { api, commands } = makeApi({ fileSync: false });
+
+    plugin.register(api as any);
+    await flushMicrotasks();
+
+    const cortex = commands.find((c) => c.name === "cortex");
+    const result = await cortex!.handler({});
+    expect(result.text).toContain("/cortex id");
+  });
+
+  it("cortex id command handles API failure gracefully", async () => {
+    vi.spyOn(CortexClient.prototype, "generatePairingCode").mockRejectedValue(
+      new Error("Cortex auth/code failed: 500"),
+    );
+    const { api, commands } = makeApi({ fileSync: false });
+
+    plugin.register(api as any);
+    await flushMicrotasks();
+
+    const cortex = commands.find((c) => c.name === "cortex");
+    const result = await cortex!.handler({ args: "id" });
+    expect(result.text).toContain("Failed to generate pairing code");
   });
 
   it("injects recovery context on first turn after unclean prior lifecycle", async () => {

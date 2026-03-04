@@ -576,12 +576,15 @@ const plugin = {
               const recallSummary = recallMetrics.summary();
               const lines = [
                 `**Cortex Memory Status**`,
-                `- Memories: ${knowledge.total_memories}`,
-                `- Sessions: ${knowledge.total_sessions}`,
-                `- Maturity: ${knowledge.maturity}`,
-                `- Tier: ${knowledgeState.pipelineTier}`,
+                ``,
+                `- Memories: **${knowledge.total_memories.toLocaleString()}** stored facts, entities, and insights`,
+                `- Sessions: **${knowledge.total_sessions}** conversation sessions ingested`,
+                `- Maturity: **${knowledge.maturity}** ${knowledge.maturity === "cold" ? "(not enough data yet for high-quality recall)" : knowledge.maturity === "warming" ? "(building up — recall quality improving)" : "(fully indexed — best recall quality)"}`,
+                `- Pipeline tier: **${knowledgeState.pipelineTier}** ${knowledgeState.pipelineTier === 1 ? "(basic)" : knowledgeState.pipelineTier === 2 ? "(enhanced)" : "(full extraction)"}`,
                 `- Recall latency: ${recallSummary.count > 0 ? `p50=${recallSummary.p50}ms, p95=${recallSummary.p95}ms (${recallSummary.count} samples)` : "no samples yet"}`,
                 `- Retry queue: ${retryQueue.pending} pending`,
+                ``,
+                `Search memories: \`/memories <query>\``,
               ];
               return { text: lines.join("\n") };
             } catch (err) {
@@ -628,36 +631,56 @@ const plugin = {
 
           if (arg === "on") {
             if (!workspaceDirResolved) {
-              return { text: "Cannot enable audit log — no workspace directory available." };
+              return { text: "Cannot enable audit log — no workspace directory available. The plugin must be started with a workspace first." };
             }
             if (auditLoggerInner) {
-              return { text: `Audit log is already on.\nLog path: ${workspaceDirResolved}/.cortex/audit/` };
+              return { text: `Audit log is already enabled.\nAll Cortex API calls are being recorded at:\n\`${workspaceDirResolved}/.cortex/audit/\`` };
             }
             auditLoggerInner = new AuditLogger(workspaceDirResolved, api.logger);
             api.logger.info(`Cortex audit log enabled via command: ${workspaceDirResolved}/.cortex/audit/`);
-            return { text: `Audit log enabled.\nLog path: ${workspaceDirResolved}/.cortex/audit/` };
+            return {
+              text: [
+                `**Audit log enabled.**`,
+                ``,
+                `All data sent to and received from Cortex will be recorded locally.`,
+                `Log path: \`${workspaceDirResolved}/.cortex/audit/\``,
+                ``,
+                `Turn off with \`/audit off\`. Log files are preserved when disabled.`,
+              ].join("\n"),
+            };
           }
 
           if (arg === "off") {
             if (!auditLoggerInner) {
-              return { text: "Audit log is already off." };
+              return { text: "Audit log is already off. No data is being recorded." };
             }
             auditLoggerInner = undefined;
             api.logger.info("Cortex audit log disabled via command");
-            return { text: "Audit log disabled. Existing log files are preserved." };
+            return {
+              text: [
+                `**Audit log disabled.**`,
+                ``,
+                `Cortex API calls are no longer being recorded.`,
+                `Existing log files are preserved and can be reviewed at:`,
+                `\`${workspaceDirResolved}/.cortex/audit/\``,
+              ].join("\n"),
+            };
           }
 
           // No args — show status
           const status = auditLoggerInner ? "on" : "off";
           const lines = [
             `**Cortex Audit Log**`,
-            `- Status: ${status}`,
+            ``,
+            `The audit log records all data sent to and received from the Cortex API, stored locally for inspection.`,
+            ``,
+            `- Status: **${status}**`,
             `- Config default: ${config.auditLog ? "on" : "off"}`,
           ];
           if (workspaceDirResolved) {
-            lines.push(`- Log path: ${workspaceDirResolved}/.cortex/audit/`);
+            lines.push(`- Log path: \`${workspaceDirResolved}/.cortex/audit/\``);
           }
-          lines.push("", "Usage: `/audit on` · `/audit off`");
+          lines.push("", "Toggle: `/audit on` · `/audit off`");
           return { text: lines.join("\n") };
         },
       });
@@ -676,14 +699,74 @@ const plugin = {
         handler: async () => {
           try {
             await sessionState.clear();
-            return { text: "Session marked as clean." };
+            return {
+              text: [
+                `**Session ended cleanly.**`,
+                ``,
+                `Cortex will not show a recovery warning when you start your next session.`,
+                `Use \`/checkpoint\` before \`/sleep\` if you want to save a summary of what you were working on.`,
+              ].join("\n"),
+            };
           } catch (err) {
             return { text: `Failed to mark session clean: ${String(err)}` };
           }
         },
       });
 
-      api.logger.debug?.("Cortex commands registered: /memories, /audit, /checkpoint, /sleep");
+      api.registerCommand({
+        name: "cortex",
+        description: "Display agent ID and generate TooToo pairing code",
+        acceptsArgs: true,
+        handler: async (ctx) => {
+          const sub = ctx.args?.trim().toLowerCase();
+
+          // Only "id" subcommand for now; bare /cortex shows help
+          if (sub && sub !== "id") {
+            return { text: `Unknown subcommand: ${sub}\nUsage: \`/cortex id\`` };
+          }
+
+          if (!sub) {
+            return {
+              text: [
+                `**Cortex Agent Commands**`,
+                ``,
+                `\`/cortex id\` — Show your agent ID and generate a one-time pairing code to link your TooToo account`,
+                ``,
+                `Linking lets codex suggestions extracted from your agent conversations appear in your TooToo feed.`,
+              ].join("\n"),
+            };
+          }
+
+          await userIdReady;
+          if (!userId) {
+            return { text: "Cannot generate pairing code: user ID not available." };
+          }
+
+          try {
+            const { user_code, expires_in } = await client.generatePairingCode(userId);
+            const mins = Math.floor(expires_in / 60);
+            return {
+              text: [
+                `**Agent ID:** \`${userId}\``,
+                ``,
+                `**Pairing code:** \`${user_code}\``,
+                `This code expires in ${mins} minute${mins !== 1 ? "s" : ""} and can only be used once.`,
+                ``,
+                `**To link your TooToo account:**`,
+                `1. Open app.tootoo.io/settings/agents`,
+                `2. Click "Connect Agent"`,
+                `3. Enter the code above`,
+                ``,
+                `Once linked, values, beliefs, and insights extracted from your agent conversations will appear in your TooToo codex feed.`,
+              ].join("\n"),
+            };
+          } catch (err) {
+            return { text: `Failed to generate pairing code: ${String(err)}` };
+          }
+        },
+      });
+
+      api.logger.debug?.("Cortex commands registered: /memories, /audit, /checkpoint, /sleep, /cortex");
     }
 
     // --- Gateway RPC ---

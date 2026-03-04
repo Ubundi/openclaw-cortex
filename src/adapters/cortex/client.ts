@@ -94,6 +94,12 @@ export interface BatchIngestResponse {
   errors: string[];
 }
 
+export interface GeneratePairingCodeResponse {
+  user_code: string;
+  expires_in: number;
+  expires_at: string;
+}
+
 export interface HealthCheckResponse {
   status: string;
 }
@@ -577,6 +583,18 @@ export class CortexClient {
       { method: "GET" },
       timeoutMs,
       "knowledge",
+    );
+  }
+
+  async generatePairingCode(
+    agentUserId: string,
+    timeoutMs = DEFAULT_RECALL_TIMEOUT_MS,
+  ): Promise<GeneratePairingCodeResponse> {
+    return this.fetchJsonWithTimeout<GeneratePairingCodeResponse>(
+      `${this.baseUrl}/v1/auth/code`,
+      { agent_user_id: agentUserId },
+      timeoutMs,
+      "auth/code",
     );
   }
 

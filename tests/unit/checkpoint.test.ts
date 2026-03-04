@@ -48,7 +48,7 @@ describe("createCheckpointHandler", () => {
 
     const result = await handler({ args: "working on auth refactor" });
 
-    expect(result.text).toBe("Checkpoint saved.");
+    expect(result.text).toContain("Checkpoint saved.");
     expect(rememberMock).toHaveBeenCalledWith(
       "[SESSION CHECKPOINT] working on auth refactor",
       "sess-1",
@@ -83,7 +83,7 @@ describe("createCheckpointHandler", () => {
 
     const result = await handler({ args: "" });
 
-    expect(result.text).toBe("Checkpoint saved.");
+    expect(result.text).toContain("Checkpoint saved.");
     expect(rememberMock).toHaveBeenCalledOnce();
 
     const savedText = rememberMock.mock.calls[0][0] as string;

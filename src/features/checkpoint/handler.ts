@@ -79,7 +79,14 @@ export function createCheckpointHandler(
         const messages = getLastMessages();
         const extracted = buildSummaryFromMessages(messages);
         if (!extracted) {
-          return { text: "No session context to checkpoint. Provide a summary: `/checkpoint working on auth refactor`" };
+          return {
+            text: [
+              `**No session context to checkpoint.**`,
+              ``,
+              `There are no recent messages to summarize. You can provide your own summary:`,
+              `\`/checkpoint working on auth refactor\``,
+            ].join("\n"),
+          };
         }
         summary = extracted;
       }
@@ -116,7 +123,16 @@ export function createCheckpointHandler(
       );
 
       logger.info("Cortex checkpoint: saved");
-      return { text: "Checkpoint saved." };
+      return {
+        text: [
+          `**Checkpoint saved.**`,
+          ``,
+          `A summary of your current session has been stored in Cortex.`,
+          `When you start a new session, this context will be available for recall.`,
+          ``,
+          `You can now safely run \`/sleep\` or reset with \`/new\`.`,
+        ].join("\n"),
+      };
     } catch (err) {
       logger.warn(`Cortex checkpoint failed: ${String(err)}`);
       return { text: `Checkpoint failed: ${String(err)}` };

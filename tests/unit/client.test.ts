@@ -399,6 +399,35 @@ describe("CortexClient", () => {
     });
   });
 
+  describe("generatePairingCode", () => {
+    it("sends correct request", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ user_code: "WOLF-3847", expires_in: 900, expires_at: "2026-03-04T12:00:00Z" }),
+      });
+
+      const result = await client.generatePairingCode("agent-uuid-123");
+
+      expect(mockFetch).toHaveBeenCalledWith(
+        "https://api.example.com/v1/auth/code",
+        expect.objectContaining({
+          method: "POST",
+          body: JSON.stringify({ agent_user_id: "agent-uuid-123" }),
+        }),
+      );
+      expect(result.user_code).toBe("WOLF-3847");
+      expect(result.expires_in).toBe(900);
+    });
+
+    it("throws on non-ok response", async () => {
+      mockFetch.mockResolvedValueOnce({ ok: false, status: 500 });
+
+      await expect(client.generatePairingCode("agent-uuid-123")).rejects.toThrow(
+        "Cortex auth/code failed: 500",
+      );
+    });
+  });
+
   describe("reflect", () => {
     it("sends empty body", async () => {
       mockFetch.mockResolvedValueOnce({
