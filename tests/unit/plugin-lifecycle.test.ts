@@ -3,6 +3,7 @@ import plugin from "../../src/plugin/index.js";
 import { CortexClient } from "../../src/adapters/cortex/client.js";
 import { FileSyncWatcher } from "../../src/features/sync/watcher.js";
 import { RetryQueue } from "../../src/internal/queue/retry-queue.js";
+import { SessionStateStore } from "../../src/internal/session/session-state.js";
 
 type HookHandler = (...args: any[]) => any;
 
@@ -225,10 +226,59 @@ describe("plugin lifecycle contract", () => {
     plugin.register(api as any);
     await flushMicrotasks();
 
-    expect(api.registerCommand).toHaveBeenCalledTimes(3);
+    expect(api.registerCommand).toHaveBeenCalledTimes(4);
     expect(commands[0]?.name).toBe("memories");
     expect(commands[1]?.name).toBe("audit");
     expect(commands[2]?.name).toBe("checkpoint");
+    expect(commands[3]?.name).toBe("sleep");
+  });
+
+  it("sleep command clears dirty session state", async () => {
+    const clearSpy = vi.spyOn(SessionStateStore.prototype, "clear").mockResolvedValue();
+    const { api, commands } = makeApi({ fileSync: false });
+
+    plugin.register(api as any);
+    await flushMicrotasks();
+
+    const sleep = commands.find((c) => c.name === "sleep");
+    expect(sleep).toBeDefined();
+
+    const result = await sleep!.handler({});
+    expect(clearSpy).toHaveBeenCalledOnce();
+    expect(result.text).toContain("clean");
+  });
+
+  it("injects recovery context on first turn after unclean prior lifecycle", async () => {
+    vi.spyOn(SessionStateStore.prototype, "readDirtyFromPriorLifecycle")
+      .mockResolvedValueOnce({
+        dirty: true,
+        pluginSessionId: "old-plugin-session",
+        sessionKey: "old-runtime-session",
+        updatedAt: "2026-03-04T07:30:00.000Z",
+        summary: "Finish auth migration rollout and verify token refresh behavior",
+      })
+      .mockResolvedValue(null);
+    const clearSpy = vi.spyOn(SessionStateStore.prototype, "clear").mockResolvedValue();
+
+    const { api, hooks } = makeApi({ fileSync: false });
+    plugin.register(api as any);
+    await flushMicrotasks();
+
+    const first = await hooks.before_agent_start[0](
+      { prompt: "continue from where we left off yesterday" },
+      { sessionKey: "new-runtime-session" },
+    );
+
+    expect(first?.prependContext).toContain("CONTEXT DEATH DETECTED");
+    expect(first?.prependContext).toContain("old-runtime-session");
+    expect(first?.prependContext).toContain("Finish auth migration rollout");
+    expect(clearSpy).toHaveBeenCalledOnce();
+
+    await hooks.before_agent_start[0](
+      { prompt: "continue from where we left off yesterday" },
+      { sessionKey: "new-runtime-session" },
+    );
+    expect(SessionStateStore.prototype.readDirtyFromPriorLifecycle).toHaveBeenCalledTimes(1);
   });
 
   it("registers Gateway RPC method", async () => {

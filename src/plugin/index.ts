@@ -15,6 +15,11 @@ import { AuditLogger } from "../internal/audit/audit-logger.js";
 import { injectAgentInstructions } from "../internal/agent-instructions.js";
 import { createCheckpointHandler } from "../features/checkpoint/handler.js";
 import { createHeartbeatHandler } from "../features/heartbeat/handler.js";
+import {
+  buildSessionSummaryFromMessages,
+  formatRecoveryContext,
+  SessionStateStore,
+} from "../internal/session/session-state.js";
 
 export interface KnowledgeState {
   hasMemories: boolean;
@@ -33,6 +38,20 @@ function deriveNamespace(workspaceDir: string): string {
   const name = basename(workspaceDir).replace(/[^a-zA-Z0-9_-]/g, "_");
   const hash = createHash("sha256").update(workspaceDir).digest("hex").slice(0, 8);
   return `${name}-${hash}`;
+}
+
+function resolveSessionKey(
+  value: Record<string, unknown> | undefined,
+  fallbackSessionId: string,
+): string {
+  if (typeof value?.sessionKey === "string" && value.sessionKey.length > 0) return value.sessionKey;
+  if (typeof value?.sessionId === "string" && value.sessionId.length > 0) return value.sessionId;
+  return fallbackSessionId;
+}
+
+function mergePrependContext(recoveryContext: string | undefined, recallContext: string | undefined): string | undefined {
+  if (recoveryContext && recallContext) return `${recoveryContext}\n\n${recallContext}`;
+  return recoveryContext ?? recallContext;
 }
 
 // --- OpenClaw Plugin API types (per docs.openclaw.ai/tools/plugin) ---
@@ -204,6 +223,7 @@ const plugin = {
     const client = new CortexClient(config.baseUrl, BAKED_API_KEY);
     const retryQueue = new RetryQueue(api.logger);
     const recallMetrics = new LatencyMetrics();
+    const sessionState = new SessionStateStore();
     const knowledgeState: KnowledgeState = {
       hasMemories: false,
       totalSessions: 0,
@@ -262,12 +282,47 @@ const plugin = {
 
     // Track last messages for /checkpoint command (populated by agent_end wrapper)
     let lastMessages: unknown[] = [];
+    const recoveryCheckedSessions = new Set<string>();
+    const recallHandler = createRecallHandler(
+      client,
+      config,
+      api.logger,
+      recallMetrics,
+      knowledgeState,
+      () => userId,
+      auditLoggerProxy,
+    );
 
     // Auto-Recall: inject relevant memories before every agent turn
     registerHookCompat(
       api,
       "before_agent_start",
-      createRecallHandler(client, config, api.logger, recallMetrics, knowledgeState, () => userId, auditLoggerProxy),
+      async (
+        event: { prompt: string; messages?: unknown[] },
+        ctx: { sessionKey?: string; sessionId?: string },
+      ) => {
+        const activeSessionKey = resolveSessionKey(ctx, sessionId);
+        let recoveryContext: string | undefined;
+
+        if (!recoveryCheckedSessions.has(activeSessionKey)) {
+          recoveryCheckedSessions.add(activeSessionKey);
+          try {
+            const dirty = await sessionState.readDirtyFromPriorLifecycle(sessionId);
+            if (dirty) {
+              recoveryContext = formatRecoveryContext(dirty);
+              await sessionState.clear();
+              api.logger.warn(`Cortex recovery: detected unclean previous session (${dirty.sessionKey})`);
+            }
+          } catch (err) {
+            api.logger.debug?.(`Cortex recovery check failed: ${String(err)}`);
+          }
+        }
+
+        const recallResult = await recallHandler(event, ctx);
+        const combined = mergePrependContext(recoveryContext, recallResult?.prependContext);
+        if (!combined) return recallResult;
+        return { prependContext: combined };
+      },
       {
         name: "openclaw-cortex.recall",
         description: "Inject relevant Cortex memories before agent turn",
@@ -280,7 +335,20 @@ const plugin = {
       api,
       "agent_end",
       async (event: { messages?: unknown[]; [key: string]: unknown }) => {
-        if (event.messages?.length) lastMessages = event.messages;
+        if (event.messages?.length) {
+          lastMessages = event.messages;
+          const activeSessionKey = resolveSessionKey(event, sessionId);
+          const summary = buildSessionSummaryFromMessages(event.messages);
+          try {
+            await sessionState.markDirty({
+              pluginSessionId: sessionId,
+              sessionKey: activeSessionKey,
+              summary,
+            });
+          } catch (err) {
+            api.logger.debug?.(`Cortex session state update failed: ${String(err)}`);
+          }
+        }
         return captureHandler(event as any);
       },
       {
@@ -460,6 +528,17 @@ const plugin = {
     // --- Auto-Reply Commands ---
 
     if (api.registerCommand) {
+      const checkpointHandler = createCheckpointHandler(
+        client,
+        config,
+        api.logger,
+        () => userId,
+        userIdReady,
+        () => lastMessages,
+        sessionId,
+        auditLoggerProxy,
+      );
+
       api.registerCommand({
         name: "memories",
         description: "Show Cortex memory status or search memories",
@@ -583,19 +662,24 @@ const plugin = {
         name: "checkpoint",
         description: "Save a session checkpoint to Cortex before resetting",
         acceptsArgs: true,
-        handler: createCheckpointHandler(
-          client,
-          config,
-          api.logger,
-          () => userId,
-          userIdReady,
-          () => lastMessages,
-          sessionId,
-          auditLoggerProxy,
-        ),
+        handler: checkpointHandler,
       });
 
-      api.logger.debug?.("Cortex commands registered: /memories, /audit, /checkpoint");
+      api.registerCommand({
+        name: "sleep",
+        description: "Mark the current session as cleanly ended (clears recovery warning state)",
+        acceptsArgs: false,
+        handler: async () => {
+          try {
+            await sessionState.clear();
+            return { text: "Session marked as clean." };
+          } catch (err) {
+            return { text: `Failed to mark session clean: ${String(err)}` };
+          }
+        },
+      });
+
+      api.logger.debug?.("Cortex commands registered: /memories, /audit, /checkpoint, /sleep");
     }
 
     // --- Gateway RPC ---
