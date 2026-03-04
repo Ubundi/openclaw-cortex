@@ -29,6 +29,49 @@ const logger = {
 };
 
 describe("createRecallHandler", () => {
+  it("uses latest user message as recall query instead of full prompt", async () => {
+    const client = {
+      recall: vi.fn().mockResolvedValue({ memories: [] }),
+    } as unknown as CortexClient;
+
+    const handler = createRecallHandler(client, makeConfig(), logger);
+    await handler(
+      {
+        prompt: "<cortex_memories>\n- [1.00] noisy prior memory\n</cortex_memories>\nSystem startup boilerplate...",
+        messages: [
+          { role: "user", content: [{ type: "text", text: "What is the default Redis cache TTL we use?" }] },
+        ],
+      },
+      {},
+    );
+
+    expect(client.recall).toHaveBeenCalledWith(
+      "What is the default Redis cache TTL we use?",
+      500,
+      { limit: 10, queryType: "factual", userId: undefined, context: undefined, minConfidence: 0.5 },
+    );
+  });
+
+  it("falls back to sanitized prompt when no user message is available", async () => {
+    const client = {
+      recall: vi.fn().mockResolvedValue({ memories: [] }),
+    } as unknown as CortexClient;
+
+    const handler = createRecallHandler(client, makeConfig(), logger);
+    await handler(
+      {
+        prompt: "<cortex_memories>\n- [1.00] noisy prior memory\n</cortex_memories>\nWhat package manager does this project use?",
+      },
+      {},
+    );
+
+    expect(client.recall).toHaveBeenCalledWith(
+      "What package manager does this project use?",
+      500,
+      { limit: 10, queryType: "combined", userId: undefined, context: undefined, minConfidence: undefined },
+    );
+  });
+
   it("returns prependContext with formatted memories", async () => {
     const client = {
       recall: vi.fn().mockResolvedValue({

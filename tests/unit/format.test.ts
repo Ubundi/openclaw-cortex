@@ -1,5 +1,12 @@
 import { describe, it, expect } from "vitest";
-import { formatMemories, sanitizeMemoryContent, isRecalledNoise, filterNoisyMemories } from "../../src/features/recall/formatter.js";
+import {
+  formatMemories,
+  sanitizeMemoryContent,
+  isRecalledNoise,
+  filterNoisyMemories,
+  MAX_MEMORY_LINE_CHARS,
+  MAX_MEMORY_BLOCK_CHARS,
+} from "../../src/features/recall/formatter.js";
 import type { RecallMemory } from "../../src/adapters/cortex/client.js";
 
 describe("sanitizeMemoryContent", () => {
@@ -83,6 +90,75 @@ describe("formatMemories", () => {
 
     expect(result).toBe("");
   });
+
+  it("deduplicates exact duplicate memories", () => {
+    const result = formatMemories([
+      { content: "Project uses PostgreSQL with Neon", confidence: 0.94, when: null, session_id: null, entities: [] },
+      { content: "Project uses PostgreSQL with Neon", confidence: 0.92, when: null, session_id: null, entities: [] },
+      { content: "API uses Fastify", confidence: 0.90, when: null, session_id: null, entities: [] },
+    ], 10);
+
+    const projectMentions = (result.match(/Project uses PostgreSQL with Neon/g) || []).length;
+    expect(projectMentions).toBe(1);
+    expect(result).toContain("API uses Fastify");
+  });
+
+  it("deduplicates near-duplicates with volatile metadata differences", () => {
+    const result = formatMemories([
+      {
+        content: "API server runs on port 4000 (checked at 07:59).",
+        confidence: 0.99,
+        when: null,
+        session_id: null,
+        entities: [],
+      },
+      {
+        content: "API server runs on port 4000 (checked at 08:10).",
+        confidence: 0.98,
+        when: null,
+        session_id: null,
+        entities: [],
+      },
+      {
+        content: "User asked about Redis TTL defaults.",
+        confidence: 0.80,
+        when: null,
+        session_id: null,
+        entities: [],
+      },
+    ], 10);
+
+    const portMentions = (result.match(/API server runs on port 4000/g) || []).length;
+    expect(portMentions).toBe(1);
+    expect(result).toContain("User asked about Redis TTL defaults.");
+  });
+
+  it("truncates overly long memory lines", () => {
+    const longContent = `Decision: ${"x".repeat(MAX_MEMORY_LINE_CHARS + 120)}`;
+    const result = formatMemories([
+      { content: longContent, confidence: 0.91, when: null, session_id: null, entities: [] },
+    ]);
+
+    const line = result.split("\n").find((l) => l.startsWith("- [0.91] "));
+    expect(line).toBeDefined();
+    expect(line!.endsWith("…")).toBe(true);
+    expect(line!.length).toBeLessThanOrEqual(MAX_MEMORY_LINE_CHARS + 16);
+  });
+
+  it("caps total injected memory block size", () => {
+    const memories = Array.from({ length: 60 }).map((_, i) => ({
+      content: `Memory ${i}: ${"y".repeat(MAX_MEMORY_LINE_CHARS + 80)}`,
+      confidence: 0.99 - i * 0.01,
+      when: null,
+      session_id: null,
+      entities: [],
+    }));
+
+    const result = formatMemories(memories, 60);
+    expect(result.length).toBeLessThanOrEqual(MAX_MEMORY_BLOCK_CHARS);
+    expect(result).toContain("<cortex_memories>");
+    expect(result).toContain("</cortex_memories>");
+  });
 });
 
 describe("isRecalledNoise", () => {
@@ -105,6 +181,9 @@ describe("isRecalledNoise", () => {
     "User's last update was on 2026-02-27 at 08:14.",
     "User received a HEARTBEAT_OK response indicating nothing needs attention",
     "User instructed to read HEARTBEAT.md if it exists and to follow it strictly",
+    "User has a file named index.ts with permissions -rw-rw-r--, owned by user 'ubuntu', and group 'ubuntu', with a size of 1223 bytes, last modified on March 4 at 07:59.",
+    "The directory 'feature-flags' has permissions drwxrwxr-x and was last modified on March 2 at 12:28.",
+    "User has a directory named feature-flags with a size of 4096 bytes, last modified on March 2 at 12:28.",
   ];
 
   for (const content of noisy) {

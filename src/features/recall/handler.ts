@@ -48,6 +48,57 @@ const MAX_QUERY_LENGTH = 2000;
  */
 const KNOWLEDGE_RECHECK_INTERVAL_MS = 5 * 60_000; // 5 minutes
 
+/** Strip injected recall block so prior recalls don't pollute future recall queries. */
+const RECALL_BLOCK_RE = /\s*<cortex_memories>[\s\S]*?<\/cortex_memories>\s*/g;
+
+function stripRecallBlock(text: string): string {
+  return text.replace(RECALL_BLOCK_RE, "\n").trim();
+}
+
+function extractText(content: unknown): string {
+  if (typeof content === "string") return content;
+  if (Array.isArray(content)) {
+    return content
+      .map((block): string => {
+        if (typeof block === "string") return block;
+        if (typeof block !== "object" || block === null) return "";
+        const b = block as Record<string, unknown>;
+        if (typeof b.text === "string") return b.text;
+        if ("content" in b) return extractText(b.content);
+        return "";
+      })
+      .filter(Boolean)
+      .join("\n");
+  }
+  if (typeof content === "object" && content !== null) {
+    const c = content as Record<string, unknown>;
+    if (typeof c.text === "string") return c.text;
+    if ("content" in c) return extractText(c.content);
+  }
+  return "";
+}
+
+function getLatestUserQuery(messages: unknown[] | undefined): string | undefined {
+  if (!Array.isArray(messages) || messages.length === 0) return undefined;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const msg = messages[i];
+    if (typeof msg !== "object" || msg === null) continue;
+    const m = msg as Record<string, unknown>;
+    if (String(m.role) !== "user") continue;
+    const text = stripRecallBlock(extractText(m.content));
+    if (text) return text;
+  }
+  return undefined;
+}
+
+function selectRecallQuery(event: BeforeAgentStartEvent): { source: "messages" | "prompt"; query: string } {
+  const fromMessages = getLatestUserQuery(event.messages);
+  if (fromMessages) return { source: "messages", query: fromMessages };
+
+  const fromPrompt = stripRecallBlock(event.prompt ?? "");
+  return { source: "prompt", query: fromPrompt };
+}
+
 /**
  * Derives an effective recall timeout that respects the server's adaptive pipeline tiers.
  * Higher tiers run heavier pipelines (reranking, graph traversal) that need more time.
@@ -119,7 +170,8 @@ export function createRecallHandler(
       }
     }
 
-    const rawPrompt = event.prompt?.trim();
+    const { source: querySource, query: selectedQuery } = selectRecallQuery(event);
+    const rawPrompt = selectedQuery.trim();
     if (!rawPrompt || rawPrompt.length < 5) return;
 
     // Cortex API rejects queries longer than 2 000 chars (422).
@@ -127,6 +179,7 @@ export function createRecallHandler(
     const prompt = rawPrompt.length > MAX_QUERY_LENGTH
       ? rawPrompt.slice(0, MAX_QUERY_LENGTH)
       : rawPrompt;
+    logger.debug?.(`Cortex recall: query_source=${querySource}, query_len=${prompt.length}`);
 
     // Cold-start gate: skip recall while service is warming
     if (coldStartUntil > Date.now()) {

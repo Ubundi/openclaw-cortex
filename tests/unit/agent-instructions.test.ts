@@ -35,6 +35,8 @@ describe("injectAgentInstructions", () => {
     const result = await readFile(agentsMd, "utf-8");
     expect(result).toContain("## Cortex Memory");
     expect(result).toContain("cortex_search_memory");
+    expect(result).toContain("For volatile current-state facts, verify against live workspace/runtime first.");
+    expect(result).toContain("If memory and live state conflict, report both with timing context.");
     expect(result).toContain("# AGENTS.md"); // original content preserved
     expect(logger.logs.some((l) => l.level === "info" && l.msg.includes("appended"))).toBe(true);
   });

@@ -383,6 +383,42 @@ describe("createCaptureHandler", () => {
     expect(transcript).toContain("ok");
   });
 
+  it("skips probe-style lookup turns", async () => {
+    const submitMock = vi.fn().mockResolvedValue({ job_id: "job-probe", status: "pending" });
+    const client = { submitIngestConversation: submitMock } as unknown as CortexClient;
+    const handler = createCaptureHandler(client, makeConfig(), logger);
+
+    await handler({
+      messages: [
+        { role: "user", content: "What is the default Redis cache TTL we use across API endpoints in this project?" },
+        { role: "assistant", content: "600 seconds (10 minutes) is the default cache TTL configured for Redis in this project." },
+      ],
+      aborted: false,
+      sessionKey: "probe-1",
+    });
+
+    expect(submitMock).not.toHaveBeenCalled();
+  });
+
+  it("deduplicates repeated turns by fingerprint", async () => {
+    const submitMock = vi.fn().mockResolvedValue({ job_id: "job-dedupe", status: "pending" });
+    const client = { submitIngestConversation: submitMock } as unknown as CortexClient;
+    const handler = createCaptureHandler(client, makeConfig(), logger);
+
+    const repeatedTurn = [
+      { role: "user", content: "What deployment strategy do we use for backend services in production and staging?" },
+      { role: "assistant", content: "We use blue-green deployment on ECS with ALB target group switching and health checks." },
+    ];
+
+    await handler({ messages: repeatedTurn, aborted: false, sessionKey: "dedupe-sess-1" });
+    await vi.waitFor(() => expect(submitMock).toHaveBeenCalledTimes(1));
+
+    await handler({ messages: repeatedTurn, aborted: false, sessionKey: "dedupe-sess-2" });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(submitMock).toHaveBeenCalledTimes(1);
+  });
+
   it("falls back to sessionId when sessionKey is absent", async () => {
     const submitPromise = Promise.resolve({ job_id: "job-5", status: "pending" });
     const submitMock = vi.fn().mockReturnValue(submitPromise);

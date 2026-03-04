@@ -22,6 +22,16 @@ const LOW_SIGNAL_PATTERNS: RegExp[] = [
   /\bdo not mention internal steps,? files,? tools/i,
   /\bexecute your session startup\b/i,
   /\bruntime model differs? from default.model\b/i,
+
+  // Filesystem metadata chatter (highly repetitive, low semantic value)
+  /^User has a (file|directory) named /i,
+  /^The (file|directory) ['"].+['"] has permissions /i,
+  /\bwith permissions\s+[d-][rwx-]{9}\b/i,
+  /\bowned by user ['"][^'"]+['"]\b/i,
+  /\band group ['"][^'"]+['"]\b/i,
+  /\bsize of \d+ bytes\b/i,
+  /\blast modified on\b/i,
+  /\bcreated on\b/i,
 ];
 
 /** Returns true if the content matches a known low-signal pattern. */

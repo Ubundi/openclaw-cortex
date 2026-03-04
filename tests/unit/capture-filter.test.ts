@@ -31,6 +31,9 @@ describe("isLowSignal", () => {
     "connected | idle",
     "tokens 45k/100k (45%)",
     "tokens 1200/4096 (29%)",
+    "User has a file named index.ts with permissions -rw-rw-r--, owned by user 'ubuntu', and group 'ubuntu', with a size of 1223 bytes, last modified on March 4 at 07:59.",
+    "The directory 'feature-flags' has permissions drwxrwxr-x and was last modified on March 2 at 12:28.",
+    "User has a directory named feature-flags with a size of 4096 bytes, last modified on March 2 at 12:28.",
     "",
     "   ",
   ])("returns true for low-signal content: %s", (content) => {

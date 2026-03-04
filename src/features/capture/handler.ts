@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type { CortexClient, ConversationMessage } from "../../adapters/cortex/client.js";
 import type { CortexConfig } from "../../plugin/config/schema.js";
 import type { KnowledgeState } from "../../plugin/index.js";
@@ -29,6 +30,10 @@ type Logger = {
 };
 
 const MIN_CONTENT_LENGTH = 50;
+const LOOKUP_MAX_QUESTION_CHARS = 220;
+const LOOKUP_MAX_ANSWER_CHARS = 220;
+const TURN_DEDUP_TTL_MS = 24 * 60 * 60 * 1000; // 24h
+const TURN_DEDUP_MAX_FINGERPRINTS = 1000;
 
 /** Strip injected recall block so we don't re-ingest recalled memories as new content */
 const RECALL_BLOCK_RE = /\s*<cortex_memories>[\s\S]*?<\/cortex_memories>\s*/g;
@@ -62,6 +67,57 @@ function isWorthCapturing(messages: ConversationMessage[]): boolean {
   return hasUser && hasSubstantiveResponse;
 }
 
+function latestByRole(messages: ConversationMessage[], role: string): string | undefined {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i].role === role) return messages[i].content.trim();
+  }
+  return undefined;
+}
+
+const LOOKUP_QUESTION_PREFIX_RE = /^(what|which|where|who|when|how (long|many|much)|is|are|does|do)\b/i;
+const LOOKUP_KEYWORD_RE = /\b(default|ttl|timeout|port|version|config(?:uration)?|setting|package manager|test runner|log level|pool size|url prefix|naming convention|key naming|cache|endpoint|api prefix)\b/i;
+const NON_PROBE_QUESTION_RE = /\b(why|trade-?off|strategy|approach|plan|design|architecture|migrate|migration|debug|root cause|fix)\b/i;
+const REASONING_ANSWER_RE = /\b(because|therefore|trade-?off|recommend|should|step|first|second|third|plan|strategy|migrate|debug|root cause)\b/i;
+
+function isProbeLookupTurn(messages: ConversationMessage[]): boolean {
+  const user = latestByRole(messages, "user");
+  const assistant = latestByRole(messages, "assistant") ?? latestByRole(messages, "tool");
+  if (!user || !assistant) return false;
+
+  const question = user.replace(/\s+/g, " ").trim();
+  const answer = assistant.replace(/\s+/g, " ").trim();
+  if (!question.endsWith("?")) return false;
+  if (question.length > LOOKUP_MAX_QUESTION_CHARS || answer.length > LOOKUP_MAX_ANSWER_CHARS) return false;
+  if (!LOOKUP_QUESTION_PREFIX_RE.test(question)) return false;
+  if (!LOOKUP_KEYWORD_RE.test(question)) return false;
+  if (NON_PROBE_QUESTION_RE.test(question)) return false;
+  if (answer.split("\n").length > 3) return false;
+  if (REASONING_ANSWER_RE.test(answer)) return false;
+  return true;
+}
+
+function normalizeFingerprintText(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b/gi, "<uuid>")
+    .replace(/\b\d{4}-\d{2}-\d{2}t\d{2}:\d{2}(?::\d{2}(?:\.\d{1,3})?)?z\b/gi, "<iso-ts>")
+    .replace(/\b\d{4}-\d{2}-\d{2}\b/g, "<date>")
+    .replace(/\b\d{1,2}:\d{2}(?::\d{2})?\b/g, "<time>")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function buildTurnFingerprint(messages: ConversationMessage[]): string | undefined {
+  const user = latestByRole(messages, "user");
+  const assistant = latestByRole(messages, "assistant") ?? latestByRole(messages, "tool");
+  if (!user || !assistant) return undefined;
+
+  const normalizedUser = normalizeFingerprintText(user);
+  const normalizedAssistant = normalizeFingerprintText(assistant);
+  if (!normalizedUser || !normalizedAssistant) return undefined;
+  return createHash("sha1").update(`${normalizedUser}||${normalizedAssistant}`).digest("hex");
+}
+
 /** How often (in captures) to re-probe /v1/knowledge for tier changes */
 const KNOWLEDGE_REFRESH_EVERY_N = 5;
 /** Minimum interval between knowledge refreshes */
@@ -80,6 +136,7 @@ export function createCaptureHandler(
 ) {
   let captureCounter = 0;
   const lastCapturedAtBySession = new Map<string, number>();
+  const seenTurnFingerprints = new Map<string, number>();
   let capturesSinceRefresh = 0;
 
   return async (event: AgentEndEvent): Promise<void> => {
@@ -95,6 +152,10 @@ export function createCaptureHandler(
       const previousWatermark = lastCapturedAtBySession.get(watermarkKey) ?? 0;
       const watermark = previousWatermark > event.messages.length ? 0 : previousWatermark;
       const delta = event.messages.slice(watermark);
+      const markCapturedWatermark = () => {
+        // Advance watermark so we don't repeatedly re-process the same turn.
+        lastCapturedAtBySession.set(watermarkKey, event.messages.length);
+      };
 
       const normalized: ConversationMessage[] = delta
         .filter(
@@ -116,6 +177,7 @@ export function createCaptureHandler(
         : normalized;
 
       if (!isWorthCapturing(filtered)) {
+        markCapturedWatermark();
         logger.info("Cortex capture: skipping — not enough substantive content");
         return;
       }
@@ -143,11 +205,39 @@ export function createCaptureHandler(
         trimmed.shift();
       }
 
+      if (isProbeLookupTurn(trimmed)) {
+        markCapturedWatermark();
+        logger.info("Cortex capture: skipping — probe lookup turn");
+        return;
+      }
+
+      // In-memory duplicate suppression to avoid repeated benchmark/probe churn.
+      const now = Date.now();
+      for (const [fingerprint, seenAt] of seenTurnFingerprints) {
+        if (now - seenAt > TURN_DEDUP_TTL_MS) seenTurnFingerprints.delete(fingerprint);
+      }
+      const fingerprint = buildTurnFingerprint(trimmed);
+      if (fingerprint) {
+        const seenAt = seenTurnFingerprints.get(fingerprint);
+        if (seenAt && now - seenAt <= TURN_DEDUP_TTL_MS) {
+          markCapturedWatermark();
+          logger.info("Cortex capture: skipping — duplicate turn fingerprint");
+          return;
+        }
+        seenTurnFingerprints.set(fingerprint, now);
+        if (seenTurnFingerprints.size > TURN_DEDUP_MAX_FINGERPRINTS) {
+          const oldest = [...seenTurnFingerprints.entries()]
+            .sort((a, b) => a[1] - b[1])
+            .slice(0, seenTurnFingerprints.size - TURN_DEDUP_MAX_FINGERPRINTS);
+          for (const [stale] of oldest) seenTurnFingerprints.delete(stale);
+        }
+      }
+
       const totalChars = trimmed.reduce((sum, m) => sum + m.content.length, 0);
       logger.info(`Cortex capture: ${trimmed.length} messages, ${totalChars} chars`);
 
       // Advance watermark before async work so a second turn doesn't re-send this delta
-      lastCapturedAtBySession.set(watermarkKey, event.messages.length);
+      markCapturedWatermark();
 
       // Ensure userId is resolved before sending — in practice this resolves in <100ms
       // at startup, well before agent_end fires, but we await explicitly to be correct.
