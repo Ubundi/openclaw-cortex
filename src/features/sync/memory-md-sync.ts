@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import type { CortexClient } from "../../adapters/cortex/client.js";
 import type { RetryQueue } from "../../internal/queue/retry-queue.js";
 import type { AuditLogger } from "../../internal/audit/audit-logger.js";
-import { safePath } from "../../internal/fs/safe-path.js";
+import { safePathCheck } from "../../internal/fs/safe-path.js";
 import { filterLowSignalLines } from "../capture/filter.js";
 
 type Logger = {
@@ -45,12 +45,18 @@ export class MemoryMdSync {
     let resolvedPath = this.filePath;
 
     if (this.allowedRoot) {
-      const safe = await safePath(this.filePath, this.allowedRoot);
-      if (!safe) {
-        this.logger.warn(`MEMORY.md sync: rejected unsafe path ${this.filePath}`);
+      const safe = await safePathCheck(this.filePath, this.allowedRoot);
+      if (!safe.ok) {
+        if (safe.reason === "unsafe") {
+          this.logger.warn(`MEMORY.md sync: rejected unsafe path ${this.filePath}`);
+        } else if (safe.reason === "io_error") {
+          this.logger.warn(`MEMORY.md sync: path check failed for ${this.filePath} (${safe.errorCode ?? "unknown"})`);
+        } else {
+          this.logger.debug?.(`MEMORY.md sync: file not found during path check ${this.filePath}`);
+        }
         return;
       }
-      resolvedPath = safe;
+      resolvedPath = safe.path;
     }
 
     let current: string;
@@ -85,6 +91,10 @@ export class MemoryMdSync {
     const doRemember = () => {
       // Re-evaluate userId at call time so retries use the resolved value
       const userId = this.getUserId?.();
+      if (this.getUserId && !userId) {
+        this.logger.warn("MEMORY.md sync: missing user_id, retrying later");
+        throw new Error("Cortex ingest requires user_id");
+      }
       return this.client.remember(
         added,
         this.sessionId,

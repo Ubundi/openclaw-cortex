@@ -86,13 +86,21 @@ describe("CortexClient", () => {
         json: async () => MOCK_REMEMBER_ACCEPTED,
       });
 
-      const result = await client.remember("some fact", "session-1");
+      const result = await client.remember("some fact", "session-1", undefined, undefined, "user-123");
 
       expect(mockFetch).toHaveBeenCalledWith(
         "https://api.example.com/v1/remember",
         expect.objectContaining({
           method: "POST",
-          body: JSON.stringify({ text: "some fact", session_id: "session-1", reference_date: null }),
+          body: JSON.stringify({
+            text: "some fact",
+            session_id: "session-1",
+            reference_date: null,
+            user_id: "user-123",
+            source_origin: "openclaw",
+            derivation_mode: "inferred",
+            source_app: "OpenClaw",
+          }),
         }),
       );
       expect(result.session_id).toBe("session-1");
@@ -108,7 +116,7 @@ describe("CortexClient", () => {
           }),
       );
 
-      await expect(client.remember("text", "s1", 10)).rejects.toMatchObject({
+      await expect(client.remember("text", "s1", 10, undefined, "user-1")).rejects.toMatchObject({
         name: "AbortError",
       });
     });
@@ -125,12 +133,20 @@ describe("CortexClient", () => {
         { role: "user", content: "Hello" },
         { role: "assistant", content: "Hi there" },
       ];
-      const result = await client.rememberConversation(messages, "sess-1");
+      const result = await client.rememberConversation(messages, "sess-1", undefined, undefined, "user-123");
 
       expect(mockFetch).toHaveBeenCalledWith(
         "https://api.example.com/v1/remember",
         expect.objectContaining({
-          body: JSON.stringify({ messages, session_id: "sess-1", reference_date: null }),
+          body: JSON.stringify({
+            messages,
+            session_id: "sess-1",
+            reference_date: null,
+            user_id: "user-123",
+            source_origin: "openclaw",
+            derivation_mode: "inferred",
+            source_app: "OpenClaw",
+          }),
         }),
       );
       expect(result.session_id).toBe("session-1");
@@ -147,7 +163,7 @@ describe("CortexClient", () => {
       );
 
       await expect(
-        client.rememberConversation([{ role: "user", content: "hi" }], "s1", 10),
+        client.rememberConversation([{ role: "user", content: "hi" }], "s1", 10, undefined, "user-1"),
       ).rejects.toThrow();
     });
   });
@@ -212,12 +228,12 @@ describe("CortexClient", () => {
 
     it("throws with status code for 403 Forbidden", async () => {
       mockFetch.mockResolvedValueOnce({ ok: false, status: 403 });
-      await expect(client.remember("text", "s1")).rejects.toThrow("Cortex remember failed: 403");
+      await expect(client.remember("text", "s1", undefined, undefined, "user-1")).rejects.toThrow("Cortex remember failed: 403");
     });
 
     it("throws with status code for 429 Too Many Requests", async () => {
       mockFetch.mockResolvedValueOnce({ ok: false, status: 429 });
-      await expect(client.rememberConversation([{ role: "user", content: "hi" }], "s1")).rejects.toThrow("Cortex remember failed: 429");
+      await expect(client.rememberConversation([{ role: "user", content: "hi" }], "s1", undefined, undefined, "user-1")).rejects.toThrow("Cortex remember failed: 429");
     });
   });
 
@@ -228,15 +244,23 @@ describe("CortexClient", () => {
         json: async () => MOCK_REMEMBER_ACCEPTED,
       });
 
-      await client.remember("some text");
+      await client.remember("some text", undefined, undefined, undefined, "user-abc");
 
       const body = JSON.parse(mockFetch.mock.calls[0][1].body);
-      expect(body).toEqual({ text: "some text", session_id: null, reference_date: null });
+      expect(body).toEqual({
+        text: "some text",
+        session_id: null,
+        reference_date: null,
+        user_id: "user-abc",
+        source_origin: "openclaw",
+        derivation_mode: "inferred",
+        source_app: "OpenClaw",
+      });
     });
   });
 
-  describe("user_id handling", () => {
-    it("includes user_id in remember body when provided", async () => {
+  describe("ingest provenance", () => {
+    it("includes required provenance fields in remember body", async () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,
         json: async () => MOCK_REMEMBER_ACCEPTED,
@@ -246,18 +270,85 @@ describe("CortexClient", () => {
 
       const body = JSON.parse(mockFetch.mock.calls[0][1].body);
       expect(body.user_id).toBe("user-abc");
+      expect(body.source_origin).toBe("openclaw");
+      expect(body.derivation_mode).toBe("inferred");
+      expect(body.source_app).toBe("OpenClaw");
     });
 
-    it("omits user_id from remember body when not provided", async () => {
+    it("throws before request when remember user_id is missing", async () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,
         json: async () => MOCK_REMEMBER_ACCEPTED,
       });
 
-      await client.remember("some fact", "sess-1");
+      await expect(client.remember("some fact", "sess-1")).rejects.toThrow("Cortex ingest requires user_id");
+      expect(mockFetch).not.toHaveBeenCalled();
+    });
+
+    it("throws before request when rememberConversation user_id is missing", async () => {
+      await expect(
+        client.rememberConversation([{ role: "user", content: "hello there" }], "sess-1"),
+      ).rejects.toThrow("Cortex ingest requires user_id");
+      expect(mockFetch).not.toHaveBeenCalled();
+    });
+
+    it("includes required provenance fields in ingest variants", async () => {
+      mockFetch
+        .mockResolvedValueOnce({ ok: true, json: async () => ({ nodes_created: 1, edges_created: 0, facts: [], entities: [] }) })
+        .mockResolvedValueOnce({ ok: true, json: async () => ({ nodes_created: 1, edges_created: 0, facts: [], entities: [] }) })
+        .mockResolvedValueOnce({ ok: true, json: async () => ({ job_id: "job-1", status: "pending" }) })
+        .mockResolvedValueOnce({ ok: true, json: async () => ({ job_id: "job-2", status: "pending" }) });
+
+      await client.ingest("plain text", "s1", undefined, undefined, "user-1");
+      await client.ingestConversation([{ role: "user", content: "hello world" }], "s1", undefined, undefined, "user-1");
+      await client.submitIngest("plain text", "s1", undefined, "user-1");
+      await client.submitIngestConversation([{ role: "user", content: "hello world" }], "s1", undefined, "user-1");
+
+      for (let i = 0; i < 4; i++) {
+        const body = JSON.parse(mockFetch.mock.calls[i][1].body);
+        expect(body.user_id).toBe("user-1");
+        expect(body.source_origin).toBe("openclaw");
+        expect(body.derivation_mode).toBe("inferred");
+        expect(body.source_app).toBe("OpenClaw");
+      }
+    });
+
+    it("includes required provenance fields in batch ingest items", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          results: [],
+          total_nodes_created: 0,
+          total_edges_created: 0,
+          failed_count: 0,
+          errors: [],
+        }),
+      });
+
+      await client.batchIngest([{ text: "line one" }, { text: "line two", user_id: "per-item-user" }], undefined, "fallback-user");
 
       const body = JSON.parse(mockFetch.mock.calls[0][1].body);
-      expect(body).not.toHaveProperty("user_id");
+      expect(body.items[0].user_id).toBe("fallback-user");
+      expect(body.items[0].source_origin).toBe("openclaw");
+      expect(body.items[0].derivation_mode).toBe("inferred");
+      expect(body.items[0].source_app).toBe("OpenClaw");
+      expect(body.items[1].user_id).toBe("per-item-user");
+      expect(body.items[1].source_origin).toBe("openclaw");
+      expect(body.items[1].derivation_mode).toBe("inferred");
+      expect(body.items[1].source_app).toBe("OpenClaw");
+    });
+
+    it("throws before request when ingest user_id is missing", async () => {
+      await expect(client.ingest("plain text")).rejects.toThrow("Cortex ingest requires user_id");
+      await expect(client.ingestConversation([{ role: "user", content: "hello world" }])).rejects.toThrow("Cortex ingest requires user_id");
+      await expect(client.submitIngest("plain text")).rejects.toThrow("Cortex ingest requires user_id");
+      await expect(client.submitIngestConversation([{ role: "user", content: "hello world" }])).rejects.toThrow("Cortex ingest requires user_id");
+      expect(mockFetch).not.toHaveBeenCalled();
+    });
+
+    it("throws before request when batch ingest item user_id is missing", async () => {
+      await expect(client.batchIngest([{ text: "line one" }])).rejects.toThrow("Cortex ingest/batch item 0 missing user_id");
+      expect(mockFetch).not.toHaveBeenCalled();
     });
 
     it("includes user_id in recall options when provided", async () => {

@@ -275,6 +275,10 @@ export function createCaptureHandler(
       const doRemember = async () => {
         // Re-evaluate userId at call time so retries pick up the resolved value
         const userId = getUserId?.();
+        if (getUserId && !userId) {
+          logger.warn("Cortex capture: missing user_id, deferring ingest retry until identity resolves");
+          throw new Error("Cortex ingest requires user_id");
+        }
         const referenceDate = new Date().toISOString();
         // Use async conversation ingest so role attribution is preserved for RESONATE.
         const job = await client.submitIngestConversation(

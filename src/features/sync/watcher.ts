@@ -1,5 +1,5 @@
 import { watch, type FSWatcher } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import type { CortexClient } from "../../adapters/cortex/client.js";
 import type { RetryQueue } from "../../internal/queue/retry-queue.js";
 import type { AuditLogger } from "../../internal/audit/audit-logger.js";
@@ -49,6 +49,7 @@ export class FileSyncWatcher {
     const memoryMdPath = join(this.workspaceDir, "MEMORY.md");
     const memoryDir = join(this.workspaceDir, "memory");
     const sessionsDir = join(this.workspaceDir, "sessions");
+    const fallbackSessionsDir = join(dirname(this.workspaceDir), "agents", "main", "sessions");
 
     this.memoryMdSync = new MemoryMdSync(
       memoryMdPath,
@@ -107,32 +108,54 @@ export class FileSyncWatcher {
 
     // Watch sessions/*.jsonl (transcripts)
     if (this.options.transcripts !== false) {
-      this.transcriptsSync = new TranscriptsSync(
-        this.client,
-        this.sessionPrefix,
-        this.logger,
-        this.retryQueue,
+      const watchTranscriptsAt = (
+        rootDir: string,
+        watchedLabel: string,
+        skipMessage: string,
+      ): boolean => {
+        const sync = new TranscriptsSync(
+          this.client,
+          this.sessionPrefix,
+          this.logger,
+          this.retryQueue,
+          rootDir,
+          this.getUserId,
+          this.auditLogger,
+        );
+        const started = this.watchPath(
+          rootDir,
+          (_event, filename) => {
+            if (typeof filename !== "string" || !filename.endsWith(".jsonl")) return;
+            const fullPath = join(rootDir, filename);
+            sync.onFileChange(fullPath, filename);
+          },
+          `File sync: watching ${watchedLabel}`,
+          skipMessage,
+          { recursive: true },
+        );
+        if (started) {
+          this.transcriptsSync = sync;
+          watched.push(watchedLabel);
+        }
+        return started;
+      };
+
+      if (watchTranscriptsAt(
         sessionsDir,
-        this.getUserId,
-        this.auditLogger,
-      );
-      if (this.watchPath(
-        sessionsDir,
-        (_event, filename) => {
-          if (typeof filename !== "string" || !filename.endsWith(".jsonl")) return;
-          const fullPath = join(sessionsDir, filename);
-          this.transcriptsSync?.onFileChange(fullPath, filename);
-        },
-        "File sync: watching sessions/*.jsonl",
+        "sessions/*.jsonl",
         "File sync: sessions/ directory not found, skipping",
-        { recursive: true },
       )) {
-        watched.push("sessions/*.jsonl");
+        // primary path active
+      } else if (watchTranscriptsAt(
+        fallbackSessionsDir,
+        "agents/main/sessions/*.jsonl",
+        "File sync: fallback agent sessions directory not found, skipping",
+      )) {
+        this.logger.info(`File sync: transcript fallback active (${fallbackSessionsDir})`);
       } else {
         failed.push("sessions/*.jsonl");
       }
     }
-
     const parts = [`File sync: watching ${watched.length} paths`];
     if (watched.length > 0) parts.push(`(${watched.join(", ")})`);
     if (failed.length > 0) parts.push(`— failed: ${failed.join(", ")}`);

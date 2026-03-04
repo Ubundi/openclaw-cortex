@@ -19,6 +19,7 @@ if (!CORTEX_API_KEY) {
 
 const BASE_URL = "https://q5p64iw9c9.execute-api.us-east-1.amazonaws.com/prod";
 const client = new CortexClient(BASE_URL, CORTEX_API_KEY);
+const TEST_USER_ID = "manual-test-user";
 
 const MARKER = `persistence-proof-${Date.now()}`;
 const WAIT_SECONDS = 15;
@@ -34,6 +35,9 @@ async function main() {
       { role: "assistant", content: `Got it! I've noted that the project codename is ${MARKER} and the backend is written in Rust.` },
     ],
     `persistence-test-${Date.now()}`,
+    undefined,
+    undefined,
+    TEST_USER_ID,
   );
   console.log(`   Remembered: ${rememberResult.memories_created} memories, entities: ${rememberResult.entities_found.join(", ")}`);
   console.log(`   Facts: ${JSON.stringify(rememberResult.facts)}`);

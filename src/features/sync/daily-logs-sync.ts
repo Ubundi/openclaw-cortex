@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import type { CortexClient } from "../../adapters/cortex/client.js";
 import type { RetryQueue } from "../../internal/queue/retry-queue.js";
 import type { AuditLogger } from "../../internal/audit/audit-logger.js";
-import { safePath } from "../../internal/fs/safe-path.js";
+import { safePathCheck } from "../../internal/fs/safe-path.js";
 import { filterLowSignalLines } from "../capture/filter.js";
 
 type Logger = {
@@ -29,12 +29,18 @@ export class DailyLogsSync {
   async onFileChange(filePath: string, filename: string): Promise<void> {
     try {
       if (this.allowedRoot) {
-        const safe = await safePath(filePath, this.allowedRoot);
-        if (!safe) {
-          this.logger.warn(`Daily log sync: rejected unsafe path ${filePath}`);
+        const safe = await safePathCheck(filePath, this.allowedRoot);
+        if (!safe.ok) {
+          if (safe.reason === "unsafe") {
+            this.logger.warn(`Daily log sync: rejected unsafe path ${filePath}`);
+          } else if (safe.reason === "io_error") {
+            this.logger.warn(`Daily log sync: path check failed for ${filePath} (${safe.errorCode ?? "unknown"})`);
+          } else {
+            this.logger.debug?.(`Daily log sync: file not found during path check ${filePath}`);
+          }
           return;
         }
-        filePath = safe;
+        filePath = safe.path;
       }
 
       const content = await readFile(filePath, "utf-8");
@@ -65,6 +71,10 @@ export class DailyLogsSync {
       const doRemember = () => {
         // Re-evaluate userId at call time so retries use the resolved value
         const userId = this.getUserId?.();
+        if (this.getUserId && !userId) {
+          this.logger.warn(`Daily log sync: missing user_id for ${filename}, retrying later`);
+          throw new Error("Cortex ingest requires user_id");
+        }
         return this.client.remember(
           newContent,
           sessionId,

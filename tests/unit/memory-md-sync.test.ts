@@ -9,13 +9,14 @@ vi.mock("node:fs/promises", () => ({
 
 vi.mock("../../src/internal/fs/safe-path.js", () => ({
   safePath: vi.fn(),
+  safePathCheck: vi.fn(),
 }));
 
 import { readFile } from "node:fs/promises";
-import { safePath } from "../../src/internal/fs/safe-path.js";
+import { safePathCheck } from "../../src/internal/fs/safe-path.js";
 
 const mockReadFile = readFile as ReturnType<typeof vi.fn>;
-const mockSafePath = safePath as ReturnType<typeof vi.fn>;
+const mockSafePathCheck = safePathCheck as ReturnType<typeof vi.fn>;
 
 function makeLogger() {
   return {
@@ -248,6 +249,29 @@ describe("MemoryMdSync", () => {
     expect((retryQueue.enqueue as ReturnType<typeof vi.fn>).mock.calls[1][1]).toBe("memory-md-2");
   });
 
+  it("warns and retries when user_id callback is present but unresolved", async () => {
+    const client = makeClient();
+    const logger = makeLogger();
+    const retryQueue = makeRetryQueue();
+    const sync = new MemoryMdSync(
+      "/workspace/MEMORY.md",
+      client,
+      "s",
+      logger,
+      retryQueue,
+      undefined,
+      () => undefined,
+    );
+
+    mockReadFile.mockResolvedValue("new line");
+    sync.onFileChange();
+    await vi.advanceTimersByTimeAsync(2000);
+
+    expect(client.remember).not.toHaveBeenCalled();
+    expect(retryQueue.enqueue).toHaveBeenCalledWith(expect.any(Function), "memory-md-1");
+    expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining("missing user_id"));
+  });
+
   it("stop() cancels pending debounce", async () => {
     const client = makeClient();
     const logger = makeLogger();
@@ -269,12 +293,12 @@ describe("MemoryMdSync", () => {
     const logger = makeLogger();
     const sync = new MemoryMdSync("/workspace/MEMORY.md", client, "s", logger, undefined, "/workspace");
 
-    mockSafePath.mockResolvedValue(null);
+    mockSafePathCheck.mockResolvedValue({ ok: false, reason: "unsafe" });
 
     sync.onFileChange();
     await vi.advanceTimersByTimeAsync(2000);
 
-    expect(mockSafePath).toHaveBeenCalledWith("/workspace/MEMORY.md", "/workspace");
+    expect(mockSafePathCheck).toHaveBeenCalledWith("/workspace/MEMORY.md", "/workspace");
     expect(client.remember).not.toHaveBeenCalled();
     expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining("rejected unsafe path"));
   });
@@ -284,13 +308,13 @@ describe("MemoryMdSync", () => {
     const logger = makeLogger();
     const sync = new MemoryMdSync("/workspace/MEMORY.md", client, "s", logger, undefined, "/workspace");
 
-    mockSafePath.mockResolvedValue("/workspace/MEMORY.md");
+    mockSafePathCheck.mockResolvedValue({ ok: true, path: "/workspace/MEMORY.md" });
     mockReadFile.mockResolvedValue("safe content");
 
     sync.onFileChange();
     await vi.advanceTimersByTimeAsync(2000);
 
-    expect(mockSafePath).toHaveBeenCalledWith("/workspace/MEMORY.md", "/workspace");
+    expect(mockSafePathCheck).toHaveBeenCalledWith("/workspace/MEMORY.md", "/workspace");
     expect(mockReadFile).toHaveBeenCalledWith("/workspace/MEMORY.md", "utf-8");
     expect(client.remember).toHaveBeenCalledWith(
       "safe content",
@@ -313,7 +337,7 @@ describe("MemoryMdSync", () => {
     sync.onFileChange();
     await vi.advanceTimersByTimeAsync(2000);
 
-    expect(mockSafePath).not.toHaveBeenCalled();
+    expect(mockSafePathCheck).not.toHaveBeenCalled();
     expect(client.remember).toHaveBeenCalled();
   });
 });

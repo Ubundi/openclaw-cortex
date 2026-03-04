@@ -86,6 +86,10 @@ export function createCheckpointHandler(
 
       const text = `[SESSION CHECKPOINT] ${summary}`;
       const userId = getUserId();
+      if (!userId) {
+        logger.warn("Cortex checkpoint: missing user_id");
+        return { text: "Checkpoint failed: Cortex ingest requires user_id." };
+      }
       const referenceDate = new Date().toISOString().slice(0, 10);
 
       logger.info(`Cortex checkpoint: saving (${text.length} chars)`);

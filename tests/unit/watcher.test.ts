@@ -113,6 +113,34 @@ describe("FileSyncWatcher", () => {
     expect(TranscriptsSync).not.toHaveBeenCalled();
   });
 
+  it("falls back to agents/main/sessions when workspace sessions is missing", () => {
+    const logger = makeLogger();
+    mockWatch.mockImplementation((path: string) => {
+      if (path === "/workspace/sessions") {
+        throw new Error("ENOENT");
+      }
+      return { close: vi.fn() };
+    });
+
+    const watcher = new FileSyncWatcher(
+      "/workspace",
+      makeClient(),
+      "ns",
+      logger,
+    );
+
+    watcher.start();
+
+    expect(mockWatch).toHaveBeenCalledWith(
+      "/agents/main/sessions",
+      { recursive: true },
+      expect.any(Function),
+    );
+    expect(logger.info).toHaveBeenCalledWith(
+      expect.stringContaining("transcript fallback active"),
+    );
+  });
+
   it("start() handles missing directories gracefully with warn logging", () => {
     const logger = makeLogger();
 

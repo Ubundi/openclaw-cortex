@@ -445,4 +445,33 @@ describe("createCaptureHandler", () => {
       "OpenClaw",
     );
   });
+
+  it("warns and queues retry when identity callback is present but user_id is missing", async () => {
+    const submitMock = vi.fn();
+    const enqueueMock = vi.fn();
+    const client = { submitIngestConversation: submitMock } as unknown as CortexClient;
+
+    const handler = createCaptureHandler(
+      client,
+      makeConfig(),
+      logger,
+      { enqueue: enqueueMock } as any,
+      undefined,
+      () => undefined,
+      Promise.resolve(),
+    );
+
+    await handler({
+      messages: [
+        { role: "user", content: "What is the deployment strategy for our backend services?" },
+        { role: "assistant", content: "The backend uses blue-green deployment on ECS Fargate with ALB routing." },
+      ],
+      aborted: false,
+      sessionKey: "sess-missing-user",
+    });
+
+    expect(submitMock).not.toHaveBeenCalled();
+    await vi.waitFor(() => expect(enqueueMock).toHaveBeenCalledTimes(1));
+    expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining("missing user_id"));
+  });
 });

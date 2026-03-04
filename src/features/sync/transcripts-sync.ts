@@ -3,7 +3,7 @@ import type { CortexClient } from "../../adapters/cortex/client.js";
 import type { RetryQueue } from "../../internal/queue/retry-queue.js";
 import type { AuditLogger } from "../../internal/audit/audit-logger.js";
 import { cleanTranscriptChunk } from "../../internal/transcript/cleaner.js";
-import { safePath } from "../../internal/fs/safe-path.js";
+import { safePathCheck } from "../../internal/fs/safe-path.js";
 
 type Logger = {
   debug?(...args: unknown[]): void;
@@ -28,12 +28,18 @@ export class TranscriptsSync {
   async onFileChange(filePath: string, filename: string): Promise<void> {
     try {
       if (this.allowedRoot) {
-        const safe = await safePath(filePath, this.allowedRoot);
-        if (!safe) {
-          this.logger.warn(`Transcript sync: rejected unsafe path ${filePath}`);
+        const safe = await safePathCheck(filePath, this.allowedRoot);
+        if (!safe.ok) {
+          if (safe.reason === "unsafe") {
+            this.logger.warn(`Transcript sync: rejected unsafe path ${filePath}`);
+          } else if (safe.reason === "io_error") {
+            this.logger.warn(`Transcript sync: path check failed for ${filePath} (${safe.errorCode ?? "unknown"})`);
+          } else {
+            this.logger.debug?.(`Transcript sync: file not found during path check ${filePath}`);
+          }
           return;
         }
-        filePath = safe;
+        filePath = safe.path;
       }
 
       const content = await readFile(filePath, "utf-8");
@@ -70,6 +76,10 @@ export class TranscriptsSync {
       const doRemember = () => {
         // Re-evaluate userId at call time so retries use the resolved value
         const userId = this.getUserId?.();
+        if (this.getUserId && !userId) {
+          this.logger.warn(`Transcript sync: missing user_id for ${filename}, retrying later`);
+          throw new Error("Cortex ingest requires user_id");
+        }
         return this.client.rememberConversation(
           messages,
           sessionId,

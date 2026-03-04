@@ -458,6 +458,10 @@ const plugin = {
           }
 
           await userIdReady;
+          if (!userId) {
+            api.logger.warn("Cortex save: missing user_id");
+            return { content: [{ type: "text", text: "Failed to save memory: Cortex ingest requires user_id." }] };
+          }
 
           api.logger.debug?.(`Cortex save: "${text.slice(0, 80)}"`);
 

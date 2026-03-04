@@ -171,6 +171,9 @@ const DEFAULT_WARMUP_TIMEOUT_MS = 60_000;
 // --- Agent API Defaults ---
 const DEFAULT_REMEMBER_TIMEOUT_MS = 45_000;
 const DEFAULT_RECALL_TIMEOUT_MS = 10_000;
+const DEFAULT_SOURCE_ORIGIN = "openclaw";
+const DEFAULT_DERIVATION_MODE = "inferred";
+const DEFAULT_SOURCE_APP = "OpenClaw";
 
 export class CortexClient {
   constructor(
@@ -220,6 +223,32 @@ export class CortexClient {
     } finally {
       clearTimeout(timeout);
     }
+  }
+
+  private requireIngestUserId(userId?: string): string {
+    if (typeof userId !== "string" || userId.trim().length === 0) {
+      throw new Error("Cortex ingest requires user_id");
+    }
+    return userId;
+  }
+
+  private buildIngestProvenance(
+    userId?: string,
+    sourceOrigin = DEFAULT_SOURCE_ORIGIN,
+    derivationMode = DEFAULT_DERIVATION_MODE,
+    sourceApp = DEFAULT_SOURCE_APP,
+  ): {
+    user_id: string;
+    source_origin: string;
+    derivation_mode: string;
+    source_app: string;
+  } {
+    return {
+      user_id: this.requireIngestUserId(userId),
+      source_origin: sourceOrigin,
+      derivation_mode: derivationMode,
+      source_app: sourceApp,
+    };
   }
 
   async healthCheck(timeoutMs = DEFAULT_HEALTH_TIMEOUT_MS): Promise<boolean> {
@@ -281,8 +310,9 @@ export class CortexClient {
     timeoutMs = DEFAULT_INGEST_TIMEOUT_MS,
     referenceDate?: string,
     userId?: string,
-    sourceOrigin?: string,
-    sourceApp?: string,
+    sourceOrigin = DEFAULT_SOURCE_ORIGIN,
+    sourceApp = DEFAULT_SOURCE_APP,
+    derivationMode = DEFAULT_DERIVATION_MODE,
   ): Promise<IngestResponse> {
     return this.fetchJsonWithTimeout<IngestResponse>(
       `${this.baseUrl}/v1/ingest`,
@@ -290,9 +320,7 @@ export class CortexClient {
         text,
         session_id: sessionId,
         reference_date: referenceDate ?? null,
-        ...(userId ? { user_id: userId } : {}),
-        ...(sourceOrigin ? { source_origin: sourceOrigin } : {}),
-        ...(sourceApp ? { source_app: sourceApp } : {}),
+        ...this.buildIngestProvenance(userId, sourceOrigin, derivationMode, sourceApp),
       },
       timeoutMs,
       "ingest",
@@ -305,8 +333,9 @@ export class CortexClient {
     timeoutMs = DEFAULT_INGEST_TIMEOUT_MS,
     referenceDate?: string,
     userId?: string,
-    sourceOrigin?: string,
-    sourceApp?: string,
+    sourceOrigin = DEFAULT_SOURCE_ORIGIN,
+    sourceApp = DEFAULT_SOURCE_APP,
+    derivationMode = DEFAULT_DERIVATION_MODE,
   ): Promise<IngestResponse> {
     return this.fetchJsonWithTimeout<IngestResponse>(
       `${this.baseUrl}/v1/ingest/conversation`,
@@ -314,9 +343,7 @@ export class CortexClient {
         messages,
         session_id: sessionId,
         reference_date: referenceDate ?? null,
-        ...(userId ? { user_id: userId } : {}),
-        ...(sourceOrigin ? { source_origin: sourceOrigin } : {}),
-        ...(sourceApp ? { source_app: sourceApp } : {}),
+        ...this.buildIngestProvenance(userId, sourceOrigin, derivationMode, sourceApp),
       },
       timeoutMs,
       "ingest/conversation",
@@ -349,8 +376,9 @@ export class CortexClient {
     sessionId?: string,
     referenceDate?: string,
     userId?: string,
-    sourceOrigin?: string,
-    sourceApp?: string,
+    sourceOrigin = DEFAULT_SOURCE_ORIGIN,
+    sourceApp = DEFAULT_SOURCE_APP,
+    derivationMode = DEFAULT_DERIVATION_MODE,
   ): Promise<JobSubmitResponse> {
     return this.fetchJsonWithTimeout<JobSubmitResponse>(
       `${this.baseUrl}/v1/jobs/ingest`,
@@ -358,9 +386,7 @@ export class CortexClient {
         text,
         session_id: sessionId,
         reference_date: referenceDate ?? null,
-        ...(userId ? { user_id: userId } : {}),
-        ...(sourceOrigin ? { source_origin: sourceOrigin } : {}),
-        ...(sourceApp ? { source_app: sourceApp } : {}),
+        ...this.buildIngestProvenance(userId, sourceOrigin, derivationMode, sourceApp),
       },
       DEFAULT_SUBMIT_TIMEOUT_MS,
       "jobs/ingest",
@@ -372,8 +398,9 @@ export class CortexClient {
     sessionId?: string,
     referenceDate?: string,
     userId?: string,
-    sourceOrigin?: string,
-    sourceApp?: string,
+    sourceOrigin = DEFAULT_SOURCE_ORIGIN,
+    sourceApp = DEFAULT_SOURCE_APP,
+    derivationMode = DEFAULT_DERIVATION_MODE,
   ): Promise<JobSubmitResponse> {
     return this.fetchJsonWithTimeout<JobSubmitResponse>(
       `${this.baseUrl}/v1/jobs/ingest/conversation`,
@@ -381,9 +408,7 @@ export class CortexClient {
         messages,
         session_id: sessionId,
         reference_date: referenceDate ?? null,
-        ...(userId ? { user_id: userId } : {}),
-        ...(sourceOrigin ? { source_origin: sourceOrigin } : {}),
-        ...(sourceApp ? { source_app: sourceApp } : {}),
+        ...this.buildIngestProvenance(userId, sourceOrigin, derivationMode, sourceApp),
       },
       DEFAULT_SUBMIT_TIMEOUT_MS,
       "jobs/ingest/conversation",
@@ -394,10 +419,25 @@ export class CortexClient {
     items: BatchIngestItem[],
     timeoutMs = DEFAULT_INGEST_TIMEOUT_MS,
     userId?: string,
+    sourceOrigin = DEFAULT_SOURCE_ORIGIN,
+    sourceApp = DEFAULT_SOURCE_APP,
+    derivationMode = DEFAULT_DERIVATION_MODE,
   ): Promise<BatchIngestResponse> {
-    const enrichedItems = userId
-      ? items.map((item) => (item.user_id ? item : { ...item, user_id: userId }))
-      : items;
+    const fallbackUserId = userId ? this.requireIngestUserId(userId) : undefined;
+    const enrichedItems = items.map((item, index) => {
+      const effectiveUserId = item.user_id ?? fallbackUserId;
+      if (!effectiveUserId || effectiveUserId.trim().length === 0) {
+        throw new Error(`Cortex ingest/batch item ${index} missing user_id`);
+      }
+
+      return {
+        ...item,
+        user_id: effectiveUserId,
+        source_origin: item.source_origin ?? sourceOrigin,
+        derivation_mode: item.derivation_mode ?? derivationMode,
+        source_app: item.source_app ?? sourceApp,
+      };
+    });
     return this.fetchJsonWithTimeout<BatchIngestResponse>(
       `${this.baseUrl}/v1/ingest/batch`,
       { items: enrichedItems },
@@ -425,8 +465,9 @@ export class CortexClient {
     timeoutMs = DEFAULT_REMEMBER_TIMEOUT_MS,
     referenceDate?: string,
     userId?: string,
-    sourceOrigin?: string,
-    sourceApp?: string,
+    sourceOrigin = DEFAULT_SOURCE_ORIGIN,
+    sourceApp = DEFAULT_SOURCE_APP,
+    derivationMode = DEFAULT_DERIVATION_MODE,
   ): Promise<RememberAcceptedResponse> {
     return this.fetchJsonWithTimeout<RememberAcceptedResponse>(
       `${this.baseUrl}/v1/remember`,
@@ -434,9 +475,7 @@ export class CortexClient {
         text,
         session_id: sessionId ?? null,
         reference_date: referenceDate ?? null,
-        ...(userId ? { user_id: userId } : {}),
-        ...(sourceOrigin ? { source_origin: sourceOrigin } : {}),
-        ...(sourceApp ? { source_app: sourceApp } : {}),
+        ...this.buildIngestProvenance(userId, sourceOrigin, derivationMode, sourceApp),
       },
       timeoutMs,
       "remember",
@@ -449,8 +488,9 @@ export class CortexClient {
     timeoutMs = DEFAULT_REMEMBER_TIMEOUT_MS,
     referenceDate?: string,
     userId?: string,
-    sourceOrigin?: string,
-    sourceApp?: string,
+    sourceOrigin = DEFAULT_SOURCE_ORIGIN,
+    sourceApp = DEFAULT_SOURCE_APP,
+    derivationMode = DEFAULT_DERIVATION_MODE,
   ): Promise<RememberAcceptedResponse> {
     return this.fetchJsonWithTimeout<RememberAcceptedResponse>(
       `${this.baseUrl}/v1/remember`,
@@ -458,9 +498,7 @@ export class CortexClient {
         messages,
         session_id: sessionId ?? null,
         reference_date: referenceDate ?? null,
-        ...(userId ? { user_id: userId } : {}),
-        ...(sourceOrigin ? { source_origin: sourceOrigin } : {}),
-        ...(sourceApp ? { source_app: sourceApp } : {}),
+        ...this.buildIngestProvenance(userId, sourceOrigin, derivationMode, sourceApp),
       },
       timeoutMs,
       "remember",

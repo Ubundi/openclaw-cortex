@@ -18,6 +18,7 @@ const BASE_URL =
 const describeIf = (condition: boolean) => (condition ? describe : describe.skip);
 
 const TEST_SESSION = `integration-test-recall-${Date.now()}`;
+const TEST_USER_ID = "integration-test-user";
 
 describeIf(!!API_KEY)("Recall pipeline integration", () => {
   let client: CortexClient;
@@ -50,6 +51,9 @@ describeIf(!!API_KEY)("Recall pipeline integration", () => {
       await client.remember(
         "The user's name is Alice and she works at Ubundi as a software engineer.",
         TEST_SESSION,
+        undefined,
+        undefined,
+        TEST_USER_ID,
       );
       console.log("  Seed: remembered text fact");
     } catch (err) {
@@ -63,6 +67,9 @@ describeIf(!!API_KEY)("Recall pipeline integration", () => {
           { role: "assistant", content: "Good choice. TypeScript gives us compile-time safety for the OpenClaw plugin API." },
         ],
         TEST_SESSION,
+        undefined,
+        undefined,
+        TEST_USER_ID,
       );
       console.log("  Seed: remembered conversation");
     } catch (err) {

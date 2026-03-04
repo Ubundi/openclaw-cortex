@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { mkdtemp, writeFile, symlink, rm, mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { safePath } from "../../src/internal/fs/safe-path.js";
+import { safePath, safePathCheck } from "../../src/internal/fs/safe-path.js";
 
 describe("safePath", () => {
   let root: string;
@@ -65,5 +65,22 @@ describe("safePath", () => {
   it("rejects a symlink directory inside the root", async () => {
     const result = await safePath(join(root, "escape-dir"), root);
     expect(result).toBeNull();
+  });
+
+  it("reports not_found for missing files via safePathCheck", async () => {
+    const result = await safePathCheck(join(root, "missing.md"), root);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.reason).toBe("not_found");
+    }
+  });
+
+  it("reports unsafe for path traversal via safePathCheck", async () => {
+    const escaped = join(root, "..", "safepath-outside-" + outsideDir.split("safepath-outside-")[1], "secret.md");
+    const result = await safePathCheck(escaped, root);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.reason).toBe("unsafe");
+    }
   });
 });

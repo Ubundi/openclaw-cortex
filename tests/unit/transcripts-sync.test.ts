@@ -9,13 +9,14 @@ vi.mock("node:fs/promises", () => ({
 
 vi.mock("../../src/internal/fs/safe-path.js", () => ({
   safePath: vi.fn(),
+  safePathCheck: vi.fn(),
 }));
 
 import { readFile } from "node:fs/promises";
-import { safePath } from "../../src/internal/fs/safe-path.js";
+import { safePathCheck } from "../../src/internal/fs/safe-path.js";
 
 const mockReadFile = readFile as ReturnType<typeof vi.fn>;
-const mockSafePath = safePath as ReturnType<typeof vi.fn>;
+const mockSafePathCheck = safePathCheck as ReturnType<typeof vi.fn>;
 
 function makeLogger() {
   return {
@@ -141,7 +142,7 @@ describe("TranscriptsSync", () => {
     const logger = makeLogger();
     const sync = new TranscriptsSync(client, "ns", logger, undefined, "/workspace/sessions");
 
-    mockSafePath.mockResolvedValue(null);
+    mockSafePathCheck.mockResolvedValue({ ok: false, reason: "unsafe" });
 
     await sync.onFileChange("/etc/shadow", "shadow");
 
@@ -169,6 +170,19 @@ describe("TranscriptsSync", () => {
     );
   });
 
+  it("does not warn unsafe when path check reports not_found", async () => {
+    const client = makeClient();
+    const logger = makeLogger();
+    const sync = new TranscriptsSync(client, "ns", logger, undefined, "/workspace/sessions");
+
+    mockSafePathCheck.mockResolvedValue({ ok: false, reason: "not_found", errorCode: "ENOENT" });
+
+    await sync.onFileChange("/workspace/sessions/transient.jsonl", "transient.jsonl");
+
+    expect(client.rememberConversation).not.toHaveBeenCalled();
+    expect(logger.warn).not.toHaveBeenCalledWith(expect.stringContaining("rejected unsafe path"));
+  });
+
   it("queues retry on repeated failures for the same transcript", async () => {
     const client = makeClient({
       rememberConversation: vi.fn().mockRejectedValue(new Error("still failing")),
@@ -186,6 +200,20 @@ describe("TranscriptsSync", () => {
     expect(retryQueue.enqueue).toHaveBeenCalledTimes(2);
     expect((retryQueue.enqueue as ReturnType<typeof vi.fn>).mock.calls[0][1]).toBe("transcript-s.jsonl");
     expect((retryQueue.enqueue as ReturnType<typeof vi.fn>).mock.calls[1][1]).toBe("transcript-s.jsonl");
+  });
+
+  it("warns and retries when user_id callback is present but unresolved", async () => {
+    const client = makeClient();
+    const logger = makeLogger();
+    const retryQueue = makeRetryQueue();
+    const sync = new TranscriptsSync(client, "ns", logger, retryQueue, undefined, () => undefined);
+
+    mockReadFile.mockResolvedValue(VALID_JSONL);
+    await sync.onFileChange("/workspace/sessions/s.jsonl", "s.jsonl");
+
+    expect(client.rememberConversation).not.toHaveBeenCalled();
+    expect(retryQueue.enqueue).toHaveBeenCalledWith(expect.any(Function), "transcript-s.jsonl");
+    expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining("missing user_id"));
   });
 
   it("logs warning when readFile throws", async () => {

@@ -167,6 +167,27 @@ describe("createCheckpointHandler", () => {
     expect(rememberMock).toHaveBeenCalledOnce();
   });
 
+  it("fails fast when user_id is missing after userIdReady", async () => {
+    const rememberMock = vi.fn();
+    const client = { remember: rememberMock } as unknown as CortexClient;
+
+    const handler = createCheckpointHandler(
+      client,
+      makeConfig(),
+      logger,
+      () => undefined,
+      Promise.resolve(),
+      () => [],
+      "sess-1",
+    );
+
+    const result = await handler({ args: "checkpoint text" });
+
+    expect(result.text).toContain("requires user_id");
+    expect(rememberMock).not.toHaveBeenCalled();
+    expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining("missing user_id"));
+  });
+
   it("takes only last 5 user messages for auto-summary", async () => {
     const rememberMock = vi.fn().mockResolvedValue({ session_id: "sess-1" });
     const client = { remember: rememberMock } as unknown as CortexClient;

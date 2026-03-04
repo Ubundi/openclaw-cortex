@@ -17,6 +17,7 @@ const BASE_URL =
 const describeIf = (condition: boolean) => (condition ? describe : describe.skip);
 
 const TEST_SESSION = `integration-test-${Date.now()}`;
+const TEST_USER_ID = "integration-test-user";
 
 describeIf(!!API_KEY)("CortexClient integration", () => {
   let client: CortexClient;
@@ -29,6 +30,9 @@ describeIf(!!API_KEY)("CortexClient integration", () => {
     const result = await client.remember(
       "Integration test: the project uses PostgreSQL with pgvector for embeddings.",
       TEST_SESSION,
+      undefined,
+      undefined,
+      TEST_USER_ID,
     );
 
     expect(result).toBeDefined();
@@ -45,6 +49,9 @@ describeIf(!!API_KEY)("CortexClient integration", () => {
         { role: "assistant", content: "The project uses PostgreSQL with pgvector for vector storage and retrieval." },
       ],
       TEST_SESSION,
+      undefined,
+      undefined,
+      TEST_USER_ID,
     );
 
     expect(result).toBeDefined();
