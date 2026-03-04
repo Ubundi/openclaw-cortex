@@ -12,6 +12,7 @@ import { loadOrCreateUserId } from "../internal/identity/user-id.js";
 import { BAKED_API_KEY } from "../internal/identity/api-key.js";
 import { formatMemories } from "../features/recall/formatter.js";
 import { AuditLogger } from "../internal/audit/audit-logger.js";
+import { injectAgentInstructions } from "../internal/agent-instructions.js";
 
 export interface KnowledgeState {
   hasMemories: boolean;
@@ -617,6 +618,11 @@ const plugin = {
         if (!userSetNamespace && ctx.workspaceDir) {
           namespace = deriveNamespace(ctx.workspaceDir);
           api.logger.debug?.(`Cortex namespace: ${namespace}`);
+        }
+
+        // Inject Cortex instructions into AGENTS.md (idempotent)
+        if (ctx.workspaceDir) {
+          void injectAgentInstructions(ctx.workspaceDir, api.logger);
         }
 
         // File sync (MEMORY.md, daily logs, transcripts)

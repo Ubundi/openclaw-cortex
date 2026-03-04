@@ -14,6 +14,14 @@ const LOW_SIGNAL_PATTERNS: RegExp[] = [
   /^[─━═]{10,}$/,                                       // decorative rules
   /^connected \| idle$/i,
   /tokens \d+k?\/\d+k? \(\d+%\)/i,                     // token counter
+
+  // OpenClaw session management boilerplate
+  /\bsession startup sequence\b/i,
+  /\bnew session was started via \/new\b/i,
+  /\bgreet the user in your configured persona\b/i,
+  /\bdo not mention internal steps,? files,? tools/i,
+  /\bexecute your session startup\b/i,
+  /\bruntime model differs? from default.model\b/i,
 ];
 
 /** Returns true if the content matches a known low-signal pattern. */

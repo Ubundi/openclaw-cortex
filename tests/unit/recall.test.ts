@@ -12,6 +12,7 @@ function makeConfig(overrides: Partial<CortexConfig> = {}): CortexConfig {
     autoCapture: true,
     recallLimit: 10,
     recallQueryType: "combined",
+    recallProfile: "auto",
     recallTimeoutMs: 500,
     fileSync: true,
     transcriptSync: true,
@@ -139,7 +140,7 @@ describe("createRecallHandler", () => {
     expect(client.recall).toHaveBeenCalledWith(
       "some query here",
       500,
-      { limit: 15, queryType: "combined", userId: undefined },
+      { limit: 15, queryType: "combined", userId: undefined, context: undefined, minConfidence: undefined },
     );
   });
 
@@ -251,7 +252,7 @@ describe("createRecallHandler", () => {
     await handler({ prompt: "some longer query" }, {});
 
     // Tier 2: max(500 * 1.5, 12000) = 12000ms
-    expect(client.recall).toHaveBeenCalledWith("some longer query", 12000, { limit: 10, queryType: "combined", userId: undefined });
+    expect(client.recall).toHaveBeenCalledWith("some longer query", 12000, { limit: 10, queryType: "combined", userId: undefined, context: undefined, minConfidence: undefined });
   });
 
   it("uses tier-aware timeout for Tier 3", async () => {
@@ -264,7 +265,7 @@ describe("createRecallHandler", () => {
     await handler({ prompt: "some longer query" }, {});
 
     // Tier 3: max(500 * 2, 20000) = 20000ms
-    expect(client.recall).toHaveBeenCalledWith("some longer query", 20000, { limit: 10, queryType: "combined", userId: undefined });
+    expect(client.recall).toHaveBeenCalledWith("some longer query", 20000, { limit: 10, queryType: "combined", userId: undefined, context: undefined, minConfidence: undefined });
   });
 
   it("respects user-configured timeout when higher than tier floor", async () => {
@@ -277,7 +278,7 @@ describe("createRecallHandler", () => {
     await handler({ prompt: "some longer query" }, {});
 
     // Tier 3: max(15000 * 2, 20000) = 30000ms
-    expect(client.recall).toHaveBeenCalledWith("some longer query", 30000, { limit: 10, queryType: "combined", userId: undefined });
+    expect(client.recall).toHaveBeenCalledWith("some longer query", 30000, { limit: 10, queryType: "combined", userId: undefined, context: undefined, minConfidence: undefined });
   });
 });
 

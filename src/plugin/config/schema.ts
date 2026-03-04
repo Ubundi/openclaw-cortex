@@ -32,6 +32,7 @@ export const CortexConfigSchema = z.object({
   recallLimit: z.number().int().min(1).max(50).default(10),
   recallTopK: z.number().int().min(1).max(50).default(15),
   recallQueryType: z.enum(["factual", "emotional", "combined", "codex"]).default("combined"),
+  recallProfile: z.enum(["auto", "default", "factual", "planning", "incident", "handoff"]).default("auto"),
   recallTimeoutMs: z.number().int().min(100).max(120000).default(60000),
   toolTimeoutMs: z.number().int().min(1000).max(120000).default(60000),
   fileSync: z.boolean().default(true),

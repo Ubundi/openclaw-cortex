@@ -3,6 +3,8 @@ import type { CortexConfig } from "../../plugin/config/schema.js";
 import type { KnowledgeState } from "../../plugin/index.js";
 import type { AuditLogger } from "../../internal/audit/audit-logger.js";
 import { formatMemories } from "./formatter.js";
+import { inferRecallProfile, getProfileParams } from "./context-profile.js";
+import type { RecallProfile } from "./context-profile.js";
 import { LatencyMetrics } from "../../internal/metrics/latency-metrics.js";
 
 interface BeforeAgentStartEvent {
@@ -141,6 +143,21 @@ export function createRecallHandler(
     try {
       const currentUserId = getUserId?.();
 
+      // Infer recall profile from prompt (or use static config override)
+      const profile: RecallProfile = config.recallProfile === "auto"
+        ? inferRecallProfile(prompt)
+        : config.recallProfile as RecallProfile;
+      const profileParams = getProfileParams(profile, config);
+      logger.debug?.(`Cortex recall: profile=${profile}`);
+
+      const recallOptions = {
+        limit: profileParams.limit,
+        userId: currentUserId,
+        queryType: profileParams.queryType,
+        context: profileParams.context,
+        minConfidence: profileParams.minConfidence,
+      };
+
       if (auditLogger) {
         void auditLogger.log({
           feature: "auto-recall",
@@ -153,20 +170,12 @@ export function createRecallHandler(
 
       let response;
       try {
-        response = await client.recall(
-          prompt,
-          effectiveTimeout,
-          { limit: config.recallLimit, userId: currentUserId, queryType: config.recallQueryType },
-        );
+        response = await client.recall(prompt, effectiveTimeout, recallOptions);
       } catch (retryErr) {
         // Single retry on transient 502/503 gateway errors
         if (/50[23]/.test(String(retryErr))) {
           await new Promise((r) => setTimeout(r, 1000));
-          response = await client.recall(
-            prompt,
-            effectiveTimeout,
-            { limit: config.recallLimit, userId: currentUserId, queryType: config.recallQueryType },
-          );
+          response = await client.recall(prompt, effectiveTimeout, recallOptions);
         } else {
           throw retryErr;
         }
