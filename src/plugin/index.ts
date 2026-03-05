@@ -1,6 +1,6 @@
 import { basename } from "node:path";
 import { createHash, randomUUID } from "node:crypto";
-import { version } from "../../package.json" with { type: "json" };
+import packageJson from "../../package.json" with { type: "json" };
 import { CortexConfigSchema, configSchema, type CortexConfig } from "./config/schema.js";
 import { CortexClient } from "../adapters/cortex/client.js";
 import { createRecallHandler } from "../features/recall/handler.js";
@@ -20,6 +20,8 @@ import {
   formatRecoveryContext,
   SessionStateStore,
 } from "../internal/session/session-state.js";
+
+const version = packageJson.version;
 
 export interface KnowledgeState {
   hasMemories: boolean;
