@@ -40,7 +40,7 @@ describe("cold-start detection", () => {
   it("disables recall after 3 consecutive hard failures (not timeouts)", async () => {
     // Use connection errors, not AbortError — timeouts don't count toward cold-start
     const recallMock = vi.fn().mockRejectedValue(new Error("ECONNREFUSED"));
-    const client = { recall: recallMock } as unknown as CortexClient;
+    const client = { retrieve: recallMock } as unknown as CortexClient;
 
     const handler = createRecallHandler(client, makeConfig(), logger);
 
@@ -61,7 +61,7 @@ describe("cold-start detection", () => {
 
   it("does not trigger cold-start from timeouts alone", async () => {
     const recallMock = vi.fn().mockRejectedValue(new DOMException("aborted", "AbortError"));
-    const client = { recall: recallMock } as unknown as CortexClient;
+    const client = { retrieve: recallMock } as unknown as CortexClient;
 
     const handler = createRecallHandler(client, makeConfig(), logger);
 
@@ -74,16 +74,16 @@ describe("cold-start detection", () => {
       expect.stringContaining("consecutive failures"),
     );
 
-    // Next call should still attempt recall (not in cooldown)
+    // Next call should still attempt retrieve (not in cooldown)
     recallMock.mockClear();
-    recallMock.mockResolvedValueOnce({ memories: [] });
+    recallMock.mockResolvedValueOnce({ results: [] });
     await handler({ prompt: "query four here" }, {});
     expect(recallMock).toHaveBeenCalled();
   });
 
   it("re-enables recall after cooldown period", async () => {
     const recallMock = vi.fn().mockRejectedValue(new Error("ECONNREFUSED"));
-    const client = { recall: recallMock } as unknown as CortexClient;
+    const client = { retrieve: recallMock } as unknown as CortexClient;
 
     const handler = createRecallHandler(client, makeConfig(), logger);
 
@@ -97,7 +97,7 @@ describe("cold-start detection", () => {
 
     // Now resolve successfully
     recallMock.mockResolvedValueOnce({
-      memories: [{ content: "test memory", confidence: 0.9, when: null, session_id: null, entities: [] }],
+      results: [{ node_id: "1", type: "FACT", content: "test memory", score: 0.9, confidence: 0.9 }],
     });
 
     const result = await handler({ prompt: "query after cooldown" }, {});
@@ -110,9 +110,9 @@ describe("cold-start detection", () => {
     const recallMock = vi.fn().mockImplementation(async () => {
       callCount++;
       if (callCount <= 2) throw new Error("ECONNREFUSED");
-      return { memories: [{ content: "mem", confidence: 0.9, when: null, session_id: null, entities: [] }] };
+      return { results: [{ node_id: "1", type: "FACT", content: "mem", score: 0.9, confidence: 0.9 }] };
     });
-    const client = { recall: recallMock } as unknown as CortexClient;
+    const client = { retrieve: recallMock } as unknown as CortexClient;
 
     const handler = createRecallHandler(client, makeConfig(), logger);
 
@@ -130,14 +130,14 @@ describe("cold-start detection", () => {
 
     // Should still be callable (not in cooldown)
     recallMock.mockClear();
-    recallMock.mockResolvedValueOnce({ memories: [] });
+    recallMock.mockResolvedValueOnce({ results: [] });
     await handler({ prompt: "query six here" }, {});
     expect(recallMock).toHaveBeenCalled();
   });
 
   it("exposes metrics on the handler", async () => {
     const client = {
-      recall: vi.fn().mockResolvedValue({ memories: [] }),
+      retrieve: vi.fn().mockResolvedValue({ results: [] }),
     } as unknown as CortexClient;
 
     const handler = createRecallHandler(client, makeConfig(), logger);

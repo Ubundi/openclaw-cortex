@@ -136,12 +136,20 @@ describe("getProfileParams", () => {
     expect(params.limit).toBe(50);
   });
 
-  it("returns factual params with high confidence floor", () => {
+  it("returns factual params with relaxed confidence floor", () => {
     const params = getProfileParams("factual", config);
     expect(params.queryType).toBe("factual");
     expect(params.limit).toBe(10);
-    expect(params.minConfidence).toBe(0.5);
+    expect(params.minConfidence).toBe(0.3);
     expect(params.context).toBeUndefined();
+  });
+
+  it("passes factual conversation context when provided", () => {
+    const params = getProfileParams("factual", config, "user: what port are we using?");
+    expect(params.queryType).toBe("factual");
+    expect(params.limit).toBe(10);
+    expect(params.minConfidence).toBe(0.3);
+    expect(params.context).toBe("user: what port are we using?");
   });
 
   it("returns default params from config", () => {

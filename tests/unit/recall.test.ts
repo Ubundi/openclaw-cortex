@@ -31,7 +31,7 @@ const logger = {
 describe("createRecallHandler", () => {
   it("uses latest user message as recall query instead of full prompt", async () => {
     const client = {
-      recall: vi.fn().mockResolvedValue({ memories: [] }),
+      retrieve: vi.fn().mockResolvedValue({ results: [] }),
     } as unknown as CortexClient;
 
     const handler = createRecallHandler(client, makeConfig(), logger);
@@ -45,16 +45,19 @@ describe("createRecallHandler", () => {
       {},
     );
 
-    expect(client.recall).toHaveBeenCalledWith(
+    expect(client.retrieve).toHaveBeenCalledWith(
       "What is the default Redis cache TTL we use?",
+      10,
+      "full",
       500,
-      { limit: 10, queryType: "factual", userId: undefined, context: undefined, minConfidence: 0.5 },
+      "factual",
+      { referenceDate: expect.any(String), userId: undefined },
     );
   });
 
   it("falls back to sanitized prompt when no user message is available", async () => {
     const client = {
-      recall: vi.fn().mockResolvedValue({ memories: [] }),
+      retrieve: vi.fn().mockResolvedValue({ results: [] }),
     } as unknown as CortexClient;
 
     const handler = createRecallHandler(client, makeConfig(), logger);
@@ -65,19 +68,46 @@ describe("createRecallHandler", () => {
       {},
     );
 
-    expect(client.recall).toHaveBeenCalledWith(
+    expect(client.retrieve).toHaveBeenCalledWith(
       "What package manager does this project use?",
+      10,
+      "full",
       500,
-      { limit: 10, queryType: "combined", userId: undefined, context: undefined, minConfidence: undefined },
+      "combined",
+      { referenceDate: expect.any(String), userId: undefined },
     );
+  });
+
+  it("augments factual queries with recent conversation context when available", async () => {
+    const client = {
+      retrieve: vi.fn().mockResolvedValue({ results: [] }),
+    } as unknown as CortexClient;
+
+    const handler = createRecallHandler(client, makeConfig(), logger);
+    await handler(
+      {
+        prompt: "System prompt wrapper",
+        messages: [
+          { role: "assistant", content: "We switched auth to OAuth 2.1 with PKCE and removed legacy tokens." },
+          { role: "user", content: "What is the auth flow we settled on?" },
+        ],
+      },
+      {},
+    );
+
+    const calledQuery = (client.retrieve as ReturnType<typeof vi.fn>).mock.calls[0][0] as string;
+    expect(calledQuery).toContain("What is the auth flow we settled on?");
+    expect(calledQuery).toContain("Context:");
+    expect(calledQuery).toContain("assistant: We switched auth to OAuth 2.1 with PKCE and removed legacy tokens.");
+    expect(calledQuery).toContain("user: What is the auth flow we settled on?");
   });
 
   it("returns prependContext with formatted memories", async () => {
     const client = {
-      recall: vi.fn().mockResolvedValue({
-        memories: [
-          { content: "User likes TypeScript", confidence: 0.92, when: null, session_id: null, entities: [] },
-          { content: "Project uses Postgres", confidence: 0.85, when: null, session_id: null, entities: [] },
+      retrieve: vi.fn().mockResolvedValue({
+        results: [
+          { node_id: "1", type: "FACT", content: "User likes TypeScript", score: 0.92, confidence: 0.92 },
+          { node_id: "2", type: "FACT", content: "Project uses Postgres", score: 0.85, confidence: 0.85 },
         ],
       }),
     } as unknown as CortexClient;
@@ -92,28 +122,28 @@ describe("createRecallHandler", () => {
   });
 
   it("returns undefined when autoRecall is disabled", async () => {
-    const client = { recall: vi.fn() } as unknown as CortexClient;
+    const client = { retrieve: vi.fn() } as unknown as CortexClient;
     const handler = createRecallHandler(client, makeConfig({ autoRecall: false }), logger);
 
     const result = await handler({ prompt: "test prompt" }, {});
 
     expect(result).toBeUndefined();
-    expect(client.recall).not.toHaveBeenCalled();
+    expect(client.retrieve).not.toHaveBeenCalled();
   });
 
   it("returns undefined for short prompts", async () => {
-    const client = { recall: vi.fn() } as unknown as CortexClient;
+    const client = { retrieve: vi.fn() } as unknown as CortexClient;
     const handler = createRecallHandler(client, makeConfig(), logger);
 
     const result = await handler({ prompt: "hi" }, {});
 
     expect(result).toBeUndefined();
-    expect(client.recall).not.toHaveBeenCalled();
+    expect(client.retrieve).not.toHaveBeenCalled();
   });
 
   it("returns undefined when no memories", async () => {
     const client = {
-      recall: vi.fn().mockResolvedValue({ memories: [] }),
+      retrieve: vi.fn().mockResolvedValue({ results: [] }),
     } as unknown as CortexClient;
 
     const handler = createRecallHandler(client, makeConfig(), logger);
@@ -125,7 +155,7 @@ describe("createRecallHandler", () => {
   it("handles timeout gracefully", async () => {
     const abortError = new DOMException("aborted", "AbortError");
     const client = {
-      recall: vi.fn().mockRejectedValue(abortError),
+      retrieve: vi.fn().mockRejectedValue(abortError),
     } as unknown as CortexClient;
 
     const handler = createRecallHandler(client, makeConfig(), logger);
@@ -136,7 +166,7 @@ describe("createRecallHandler", () => {
 
   it("handles network errors gracefully", async () => {
     const client = {
-      recall: vi.fn().mockRejectedValue(new Error("Network error")),
+      retrieve: vi.fn().mockRejectedValue(new Error("Network error")),
     } as unknown as CortexClient;
 
     const handler = createRecallHandler(client, makeConfig(), logger);
@@ -148,61 +178,64 @@ describe("createRecallHandler", () => {
 
   it("truncates prompts longer than 2000 chars", async () => {
     const client = {
-      recall: vi.fn().mockResolvedValue({ memories: [] }),
+      retrieve: vi.fn().mockResolvedValue({ results: [] }),
     } as unknown as CortexClient;
 
     const longPrompt = "x".repeat(3000);
     const handler = createRecallHandler(client, makeConfig(), logger);
     await handler({ prompt: longPrompt }, {});
 
-    const calledQuery = (client.recall as ReturnType<typeof vi.fn>).mock.calls[0][0] as string;
+    const calledQuery = (client.retrieve as ReturnType<typeof vi.fn>).mock.calls[0][0] as string;
     expect(calledQuery.length).toBe(2000);
   });
 
   it("does not truncate prompts at or under 2000 chars", async () => {
     const client = {
-      recall: vi.fn().mockResolvedValue({ memories: [] }),
+      retrieve: vi.fn().mockResolvedValue({ results: [] }),
     } as unknown as CortexClient;
 
     const exactPrompt = "y".repeat(2000);
     const handler = createRecallHandler(client, makeConfig(), logger);
     await handler({ prompt: exactPrompt }, {});
 
-    const calledQuery = (client.recall as ReturnType<typeof vi.fn>).mock.calls[0][0] as string;
+    const calledQuery = (client.retrieve as ReturnType<typeof vi.fn>).mock.calls[0][0] as string;
     expect(calledQuery.length).toBe(2000);
   });
 
-  it("passes recallLimit to client.recall", async () => {
+  it("passes recallLimit to client.retrieve", async () => {
     const client = {
-      recall: vi.fn().mockResolvedValue({ memories: [] }),
+      retrieve: vi.fn().mockResolvedValue({ results: [] }),
     } as unknown as CortexClient;
 
     const handler = createRecallHandler(client, makeConfig({ recallLimit: 15 }), logger);
     await handler({ prompt: "some query here" }, {});
 
-    expect(client.recall).toHaveBeenCalledWith(
+    expect(client.retrieve).toHaveBeenCalledWith(
       "some query here",
+      15,
+      "full",
       500,
-      { limit: 15, queryType: "combined", userId: undefined, context: undefined, minConfidence: undefined },
+      "combined",
+      { referenceDate: expect.any(String), userId: undefined },
     );
   });
 
   it("skips recall when knowledgeState.hasMemories is false and recently checked", async () => {
-    const client = { recall: vi.fn(), knowledge: vi.fn() } as unknown as CortexClient;
+    const client = { retrieve: vi.fn(), knowledge: vi.fn() } as unknown as CortexClient;
     const ks: KnowledgeState = { hasMemories: false, totalSessions: 0, pipelineTier: 1, maturity: "cold", lastChecked: Date.now() };
 
     const handler = createRecallHandler(client, makeConfig(), logger, undefined, ks);
     const result = await handler({ prompt: "some longer query" }, {});
 
     expect(result).toBeUndefined();
-    expect(client.recall).not.toHaveBeenCalled();
+    expect(client.retrieve).not.toHaveBeenCalled();
     expect(client.knowledge).not.toHaveBeenCalled();
   });
 
   it("re-checks knowledge when hasMemories is false and lastChecked is stale", async () => {
     const client = {
-      recall: vi.fn().mockResolvedValue({
-        memories: [{ content: "remembered", confidence: 0.9, when: null, session_id: null, entities: [] }],
+      retrieve: vi.fn().mockResolvedValue({
+        results: [{ node_id: "1", type: "FACT", content: "remembered", score: 0.9, confidence: 0.9 }],
       }),
       knowledge: vi.fn().mockResolvedValue({ total_memories: 5, total_sessions: 2, maturity: "warming" }),
       stats: vi.fn().mockResolvedValue({ pipeline_tier: 2, pipeline_maturity: "warming" }),
@@ -227,7 +260,7 @@ describe("createRecallHandler", () => {
 
   it("stays skipped after knowledge re-check still shows zero memories", async () => {
     const client = {
-      recall: vi.fn(),
+      retrieve: vi.fn(),
       knowledge: vi.fn().mockResolvedValue({ total_memories: 0, total_sessions: 0, maturity: "cold" }),
       stats: vi.fn().mockResolvedValue({ pipeline_tier: 1, pipeline_maturity: "cold" }),
     } as unknown as CortexClient;
@@ -245,12 +278,12 @@ describe("createRecallHandler", () => {
     expect(client.knowledge).toHaveBeenCalled();
     expect(ks.hasMemories).toBe(false);
     expect(result).toBeUndefined();
-    expect(client.recall).not.toHaveBeenCalled();
+    expect(client.retrieve).not.toHaveBeenCalled();
   });
 
   it("handles knowledge re-check failure gracefully", async () => {
     const client = {
-      recall: vi.fn(),
+      retrieve: vi.fn(),
       knowledge: vi.fn().mockRejectedValue(new Error("timeout")),
     } as unknown as CortexClient;
     const ks: KnowledgeState = {
@@ -272,8 +305,8 @@ describe("createRecallHandler", () => {
 
   it("allows recall when knowledgeState.hasMemories is true", async () => {
     const client = {
-      recall: vi.fn().mockResolvedValue({
-        memories: [{ content: "test", confidence: 0.9, when: null, session_id: null, entities: [] }],
+      retrieve: vi.fn().mockResolvedValue({
+        results: [{ node_id: "1", type: "FACT", content: "test", score: 0.9, confidence: 0.9 }],
       }),
     } as unknown as CortexClient;
     const ks: KnowledgeState = { hasMemories: true, totalSessions: 5, pipelineTier: 1, maturity: "warming", lastChecked: Date.now() };
@@ -282,12 +315,12 @@ describe("createRecallHandler", () => {
     const result = await handler({ prompt: "some longer query" }, {});
 
     expect(result).toBeDefined();
-    expect(client.recall).toHaveBeenCalled();
+    expect(client.retrieve).toHaveBeenCalled();
   });
 
   it("uses tier-aware timeout for Tier 2", async () => {
     const client = {
-      recall: vi.fn().mockResolvedValue({ memories: [] }),
+      retrieve: vi.fn().mockResolvedValue({ results: [] }),
     } as unknown as CortexClient;
     const ks: KnowledgeState = { hasMemories: true, totalSessions: 20, pipelineTier: 2, maturity: "warming", lastChecked: Date.now() };
 
@@ -295,12 +328,19 @@ describe("createRecallHandler", () => {
     await handler({ prompt: "some longer query" }, {});
 
     // Tier 2: max(500 * 1.5, 12000) = 12000ms
-    expect(client.recall).toHaveBeenCalledWith("some longer query", 12000, { limit: 10, queryType: "combined", userId: undefined, context: undefined, minConfidence: undefined });
+    expect(client.retrieve).toHaveBeenCalledWith(
+      "some longer query",
+      10,
+      "full",
+      12000,
+      "combined",
+      { referenceDate: expect.any(String), userId: undefined },
+    );
   });
 
   it("uses tier-aware timeout for Tier 3", async () => {
     const client = {
-      recall: vi.fn().mockResolvedValue({ memories: [] }),
+      retrieve: vi.fn().mockResolvedValue({ results: [] }),
     } as unknown as CortexClient;
     const ks: KnowledgeState = { hasMemories: true, totalSessions: 35, pipelineTier: 3, maturity: "mature", lastChecked: Date.now() };
 
@@ -308,12 +348,19 @@ describe("createRecallHandler", () => {
     await handler({ prompt: "some longer query" }, {});
 
     // Tier 3: max(500 * 2, 20000) = 20000ms
-    expect(client.recall).toHaveBeenCalledWith("some longer query", 20000, { limit: 10, queryType: "combined", userId: undefined, context: undefined, minConfidence: undefined });
+    expect(client.retrieve).toHaveBeenCalledWith(
+      "some longer query",
+      10,
+      "full",
+      20000,
+      "combined",
+      { referenceDate: expect.any(String), userId: undefined },
+    );
   });
 
   it("respects user-configured timeout when higher than tier floor", async () => {
     const client = {
-      recall: vi.fn().mockResolvedValue({ memories: [] }),
+      retrieve: vi.fn().mockResolvedValue({ results: [] }),
     } as unknown as CortexClient;
     const ks: KnowledgeState = { hasMemories: true, totalSessions: 35, pipelineTier: 3, maturity: "mature", lastChecked: Date.now() };
 
@@ -321,9 +368,60 @@ describe("createRecallHandler", () => {
     await handler({ prompt: "some longer query" }, {});
 
     // Tier 3: max(15000 * 2, 20000) = 30000ms
-    expect(client.recall).toHaveBeenCalledWith("some longer query", 30000, { limit: 10, queryType: "combined", userId: undefined, context: undefined, minConfidence: undefined });
+    expect(client.retrieve).toHaveBeenCalledWith(
+      "some longer query",
+      10,
+      "full",
+      30000,
+      "combined",
+      { referenceDate: expect.any(String), userId: undefined },
+    );
   });
 });
+
+it("strips [cortex-date] marker from query and uses it as referenceDate", async () => {
+    const client = {
+      retrieve: vi.fn().mockResolvedValue({ results: [] }),
+    } as unknown as CortexClient;
+
+    const handler = createRecallHandler(client, makeConfig(), logger);
+    await handler(
+      {
+        prompt: "[cortex-date: 2024-11-18]\n\nWhat is the default Redis cache TTL we use?",
+      },
+      {},
+    );
+
+    expect(client.retrieve).toHaveBeenCalledWith(
+      "What is the default Redis cache TTL we use?",
+      10,
+      "full",
+      500,
+      "factual",
+      { referenceDate: "2024-11-18", userId: undefined },
+    );
+  });
+
+  it("strips [cortex-date] from latest user message and uses it as referenceDate", async () => {
+    const client = {
+      retrieve: vi.fn().mockResolvedValue({ results: [] }),
+    } as unknown as CortexClient;
+
+    const handler = createRecallHandler(client, makeConfig(), logger);
+    await handler(
+      {
+        prompt: "system preamble",
+        messages: [
+          { role: "user", content: "[cortex-date: 2024-11-18]\n\nWhat auth flow did we settle on?" },
+        ],
+      },
+      {},
+    );
+
+    const [calledQuery, , , , , calledOptions] = (client.retrieve as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(calledQuery).toBe("What auth flow did we settle on?");
+    expect(calledOptions.referenceDate).toBe("2024-11-18");
+  });
 
 describe("deriveEffectiveTimeout", () => {
   it("returns config value for Tier 1", () => {

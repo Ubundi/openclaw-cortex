@@ -419,9 +419,9 @@ describe("plugin lifecycle contract", () => {
     mockClientHealth();
     mockClientKnowledge({ total_memories: 10, total_sessions: 5, maturity: "warming" });
     vi.spyOn(RetryQueue.prototype, "stop").mockImplementation(() => {});
-    vi.spyOn(CortexClient.prototype, "recall").mockResolvedValue({
-      memories: [
-        { content: "User prefers TypeScript", confidence: 0.9, when: null, session_id: null, entities: [] },
+    vi.spyOn(CortexClient.prototype, "retrieve").mockResolvedValue({
+      results: [
+        { node_id: "1", type: "FACT", content: "User prefers TypeScript", score: 0.9, confidence: 0.9 },
       ],
     });
 

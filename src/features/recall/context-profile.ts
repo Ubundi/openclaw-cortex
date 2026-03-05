@@ -22,7 +22,11 @@ export function inferRecallProfile(prompt: string): RecallProfile {
   return "default";
 }
 
-export function getProfileParams(profile: RecallProfile, config: CortexConfig): RecallProfileParams {
+export function getProfileParams(
+  profile: RecallProfile,
+  config: CortexConfig,
+  factualContext?: string,
+): RecallProfileParams {
   switch (profile) {
     case "incident":
       return {
@@ -46,7 +50,8 @@ export function getProfileParams(profile: RecallProfile, config: CortexConfig): 
       return {
         queryType: "factual",
         limit: config.recallLimit,
-        minConfidence: 0.5,
+        minConfidence: 0.3,
+        context: factualContext,
       };
     case "default":
       return {

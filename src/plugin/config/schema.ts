@@ -29,8 +29,8 @@ export const CortexConfigSchema = z.object({
   userId: z.string().min(1).optional(),
   autoRecall: z.boolean().default(true),
   autoCapture: z.boolean().default(true),
-  recallLimit: z.number().int().min(1).max(50).default(10),
-  recallTopK: z.number().int().min(1).max(50).default(15),
+  recallLimit: z.number().int().min(1).max(50).default(20),
+  recallTopK: z.number().int().min(1).max(50).default(20),
   recallQueryType: z.enum(["factual", "emotional", "combined", "codex"]).default("combined"),
   recallProfile: z.enum(["auto", "default", "factual", "planning", "incident", "handoff"]).default("auto"),
   recallTimeoutMs: z.number().int().min(100).max(120000).default(60000),
@@ -41,6 +41,17 @@ export const CortexConfigSchema = z.object({
   captureFilter: z.boolean().default(true),
   auditLog: z.boolean().default(false),
   namespace: z.string().min(1).default("openclaw"),
+  /**
+   * Optional fixed reference date (ISO 8601) to use as the temporal anchor for
+   * all recall queries instead of `new Date()`. Useful when replaying historical
+   * data in benchmarks — set this to the day *after* the last session in the
+   * dataset so the temporal channel sees the correct recency ordering.
+   *
+   * Example: "2024-11-18" for the Arclight V2 benchmark dataset.
+   *
+   * Leave unset in production; the plugin will use the real current time.
+   */
+  recallReferenceDate: z.string().min(1).optional(),
 });
 
 export type CortexConfig = z.infer<typeof CortexConfigSchema>;

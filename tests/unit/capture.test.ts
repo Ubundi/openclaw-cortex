@@ -61,6 +61,7 @@ describe("createCaptureHandler", () => {
       undefined,
       "openclaw",
       "OpenClaw",
+      "explicit",
     );
   });
 
@@ -400,6 +401,23 @@ describe("createCaptureHandler", () => {
     expect(submitMock).not.toHaveBeenCalled();
   });
 
+  it("does not skip probe-style lookup turns for benchmark seed sessions", async () => {
+    const submitMock = vi.fn().mockResolvedValue({ job_id: "job-benchmark-seed", status: "pending" });
+    const client = { submitIngestConversation: submitMock } as unknown as CortexClient;
+    const handler = createCaptureHandler(client, makeConfig(), logger);
+
+    await handler({
+      messages: [
+        { role: "user", content: "What is the default Redis cache TTL we use across API endpoints in this project?" },
+        { role: "assistant", content: "600 seconds (10 minutes) is the default cache TTL configured for Redis in this project." },
+      ],
+      aborted: false,
+      sessionKey: "benchmark-seed-s01-12345",
+    });
+
+    await vi.waitFor(() => expect(submitMock).toHaveBeenCalledTimes(1));
+  });
+
   it("deduplicates repeated turns by fingerprint", async () => {
     const submitMock = vi.fn().mockResolvedValue({ job_id: "job-dedupe", status: "pending" });
     const client = { submitIngestConversation: submitMock } as unknown as CortexClient;
@@ -443,6 +461,7 @@ describe("createCaptureHandler", () => {
       undefined,
       "openclaw",
       "OpenClaw",
+      "explicit",
     );
   });
 

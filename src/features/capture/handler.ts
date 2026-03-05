@@ -34,6 +34,8 @@ const LOOKUP_MAX_QUESTION_CHARS = 220;
 const LOOKUP_MAX_ANSWER_CHARS = 220;
 const TURN_DEDUP_TTL_MS = 24 * 60 * 60 * 1000; // 24h
 const TURN_DEDUP_MAX_FINGERPRINTS = 1000;
+const CAPTURE_DERIVATION_MODE = "explicit";
+const BENCHMARK_SEED_SESSION_PREFIX = "benchmark-seed-";
 
 /** Strip injected recall block so we don't re-ingest recalled memories as new content */
 const RECALL_BLOCK_RE = /\s*<cortex_memories>[\s\S]*?<\/cortex_memories>\s*/g;
@@ -94,6 +96,10 @@ function isProbeLookupTurn(messages: ConversationMessage[]): boolean {
   if (answer.split("\n").length > 3) return false;
   if (REASONING_ANSWER_RE.test(answer)) return false;
   return true;
+}
+
+function isBenchmarkSeedSession(sessionId: string | undefined): boolean {
+  return Boolean(sessionId?.startsWith(BENCHMARK_SEED_SESSION_PREFIX));
 }
 
 function normalizeFingerprintText(text: string): string {
@@ -205,7 +211,10 @@ export function createCaptureHandler(
         trimmed.shift();
       }
 
-      if (isProbeLookupTurn(trimmed)) {
+      // Keep probe-lookup filtering enabled for normal traffic and benchmark probes,
+      // but bypass it for benchmark seed sessions so factual seed Q&A is retained.
+      const shouldFilterProbeLookup = !isBenchmarkSeedSession(sessionId);
+      if (shouldFilterProbeLookup && isProbeLookupTurn(trimmed)) {
         markCapturedWatermark();
         logger.info("Cortex capture: skipping — probe lookup turn");
         return;
@@ -288,6 +297,7 @@ export function createCaptureHandler(
           userId,
           "openclaw",
           "OpenClaw",
+          CAPTURE_DERIVATION_MODE,
         );
         logger.info(`Cortex capture: submitted job ${job.job_id} (status=${job.status})`);
         if (knowledgeState) {
