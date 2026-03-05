@@ -83,5 +83,5 @@ See `benchmark/RUN_GUIDE.md` for full instructions, `benchmark/FINDINGS.md` for 
 
 Read the relevant files before starting work:
 
-- `agent_docs/testing.md` — Test layers, how to run each, what needs API keys, manual test scripts
-- `agent_docs/plugin_hooks.md` — OpenClaw plugin API, hook contracts, data flow between recall/capture and the runtime
+- `docs/agent/testing.md` — Test layers, how to run each, what needs API keys, manual test scripts
+- `docs/agent/plugin_hooks.md` — OpenClaw plugin API, hook contracts, data flow between recall/capture and the runtime

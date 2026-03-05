@@ -22,7 +22,7 @@ npm test
 - `tests/unit/` unit tests
 - `tests/integration/` live API integration tests
 - `tests/manual/` manual harness/proof scripts
-- `agent_docs/` internal architecture and testing docs
+- `docs/` internal architecture, planning, testing, and agent docs
 
 ## Pull Requests
 
