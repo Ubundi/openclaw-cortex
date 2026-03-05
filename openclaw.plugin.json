@@ -2,7 +2,7 @@
   "id": "openclaw-cortex",
   "name": "Cortex Memory",
   "description": "Long-term memory powered by Cortex — Auto-Recall, Auto-Capture, agent tools, /memories command, transcript ingestion, and background file sync",
-  "version": "1.6.0",
+  "version": "1.6.1",
   "kind": "memory",
   "configSchema": {
     "type": "object",
