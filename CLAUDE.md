@@ -55,7 +55,7 @@ npm run verify-release    # checks version consistency across package.json and p
 - `npm run build` requires `BUILD_API_KEY` env var to bake the API key into the bundle. Without it, the baked key is empty and the plugin authenticates with whatever the runtime provides.
 - `npm run version` auto-syncs the version from package.json into openclaw.plugin.json before git add.
 - Integration and manual tests hit the live Cortex API and need `CORTEX_API_KEY` set.
-- The plugin registers as `kind: "memory"` which is mutually exclusive in OpenClaw — only one memory plugin can be active.
+- The plugin does NOT declare `kind: "memory"` — it coexists with the built-in memory system rather than replacing it. Cortex supplements the default memory plugin (USER.md, daily logs) with long-term cross-session recall/capture via the Cortex API.
 - CI runs on Node 20 and 22. Tests must pass on both.
 
 ## Skills

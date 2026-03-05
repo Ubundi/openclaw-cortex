@@ -210,7 +210,7 @@ const plugin = {
   description:
     "Long-term memory powered by Cortex — Auto-Recall, Auto-Capture, and background file sync",
   version,
-  kind: "memory" as const,
+  // No `kind` — cortex supplements the built-in memory system rather than replacing it
   configSchema,
 
   register(api: PluginApi) {
