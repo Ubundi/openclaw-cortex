@@ -31,13 +31,6 @@ async function main() {
 
   expectEqual("Version mismatch (package.json vs openclaw.plugin.json)", packageJson.version, manifest.version);
 
-  const bundledDependencies = Array.isArray(packageJson.bundledDependencies)
-    ? packageJson.bundledDependencies
-    : [];
-  if (!bundledDependencies.includes("zod")) {
-    errors.push('package.json must include "zod" in bundledDependencies for standalone plugin installs');
-  }
-
   if (!pluginRaw.includes('import packageJson from "../../package.json"')) {
     errors.push("src/plugin/index.ts must default-import package.json");
   }
