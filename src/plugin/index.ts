@@ -119,6 +119,23 @@ interface PluginApi {
     name: string,
     handler: (ctx: { respond: (ok: boolean, data: unknown) => void }) => void,
   ): void;
+  // CLI commands (terminal-level, uses Commander.js)
+  registerCli?(
+    registrar: (ctx: { program: CliProgram; config: Record<string, unknown>; workspaceDir?: string; logger: Logger }) => void,
+    opts?: { commands?: string[] },
+  ): void;
+}
+
+interface CliProgram {
+  command(name: string): CliCommand;
+}
+
+interface CliCommand {
+  description(desc: string): CliCommand;
+  command(name: string): CliCommand;
+  argument(name: string, desc: string): CliCommand;
+  option(flags: string, desc: string, defaultValue?: string): CliCommand;
+  action(fn: (...args: any[]) => void | Promise<void>): CliCommand;
 }
 
 interface Logger {
@@ -546,85 +563,6 @@ const plugin = {
       );
 
       api.registerCommand({
-        name: "memories",
-        description: "Show Cortex memory status or search memories",
-        acceptsArgs: true,
-        handler: async (ctx) => {
-          await userIdReady;
-
-          const query = ctx.args?.trim();
-
-          // No args — show status (retry once on transient 502/503)
-          if (!query) {
-            const fetchKnowledge = async (attempt = 0): ReturnType<typeof client.knowledge> => {
-              try {
-                return await client.knowledge(undefined, userId);
-              } catch (err) {
-                if (attempt < 1 && /50[23]/.test(String(err))) {
-                  await new Promise((r) => setTimeout(r, 2000));
-                  return fetchKnowledge(attempt + 1);
-                }
-                throw err;
-              }
-            };
-
-            try {
-              const knowledge = await fetchKnowledge();
-              // Refresh cached tier from /v1/stats alongside the knowledge check
-              try {
-                const stats = await client.stats(undefined, userId);
-                knowledgeState.pipelineTier = stats.pipeline_tier;
-              } catch {}
-              const recallSummary = recallMetrics.summary();
-              const lines = [
-                `**Cortex Memory Status**`,
-                ``,
-                `- Memories: **${knowledge.total_memories.toLocaleString()}** stored facts, entities, and insights`,
-                `- Sessions: **${knowledge.total_sessions}** conversation sessions ingested`,
-                `- Maturity: **${knowledge.maturity}** ${knowledge.maturity === "cold" ? "(not enough data yet for high-quality recall)" : knowledge.maturity === "warming" ? "(building up — recall quality improving)" : "(fully indexed — best recall quality)"}`,
-                `- Pipeline tier: **${knowledgeState.pipelineTier}** ${knowledgeState.pipelineTier === 1 ? "(basic)" : knowledgeState.pipelineTier === 2 ? "(enhanced)" : "(full extraction)"}`,
-                `- Recall latency: ${recallSummary.count > 0 ? `p50=${recallSummary.p50}ms, p95=${recallSummary.p95}ms (${recallSummary.count} samples)` : "no samples yet"}`,
-                `- Retry queue: ${retryQueue.pending} pending`,
-                ``,
-                `Search memories: \`/memories <query>\``,
-              ];
-              return { text: lines.join("\n") };
-            } catch (err) {
-              return { text: `Cortex status check failed: ${String(err)}` };
-            }
-          }
-
-          // With args — search memories
-          void auditLoggerProxy.log({
-            feature: "command-memories",
-            method: "POST",
-            endpoint: "/v1/recall",
-            payload: query,
-            userId,
-          });
-
-          try {
-            const response = await client.recall(query, config.toolTimeoutMs, {
-              limit: config.recallLimit,
-              userId,
-              queryType: "combined",
-            });
-
-            if (!response.memories?.length) {
-              return { text: `No memories found for: "${query}"` };
-            }
-
-            const lines = response.memories.map(
-              (m) => `- [${m.confidence.toFixed(2)}] ${m.content}`,
-            );
-            return { text: `**Memories matching "${query}":**\n${lines.join("\n")}` };
-          } catch (err) {
-            return { text: `Memory search failed: ${String(err)}` };
-          }
-        },
-      });
-
-      api.registerCommand({
         name: "audit",
         description: "Toggle or check Cortex audit log (records all data sent to Cortex)",
         acceptsArgs: true,
@@ -715,60 +653,7 @@ const plugin = {
         },
       });
 
-      api.registerCommand({
-        name: "cortex",
-        description: "Display agent ID and generate TooToo pairing code",
-        acceptsArgs: true,
-        handler: async (ctx) => {
-          const sub = ctx.args?.trim().toLowerCase();
-
-          // Only "id" subcommand for now; bare /cortex shows help
-          if (sub && sub !== "id") {
-            return { text: `Unknown subcommand: ${sub}\nUsage: \`/cortex id\`` };
-          }
-
-          if (!sub) {
-            return {
-              text: [
-                `**Cortex Agent Commands**`,
-                ``,
-                `\`/cortex id\` — Show your agent ID and generate a one-time pairing code to link your TooToo account`,
-                ``,
-                `Linking lets codex suggestions extracted from your agent conversations appear in your TooToo feed.`,
-              ].join("\n"),
-            };
-          }
-
-          await userIdReady;
-          if (!userId) {
-            return { text: "Cannot generate pairing code: user ID not available." };
-          }
-
-          try {
-            const { user_code, expires_in } = await client.generatePairingCode(userId);
-            const mins = Math.floor(expires_in / 60);
-            return {
-              text: [
-                `**Agent ID:** \`${userId}\``,
-                ``,
-                `**Pairing code:** \`${user_code}\``,
-                `This code expires in ${mins} minute${mins !== 1 ? "s" : ""} and can only be used once.`,
-                ``,
-                `**To link your TooToo account:**`,
-                `1. Open app.tootoo.io/settings/agents`,
-                `2. Click "Connect Agent"`,
-                `3. Enter the code above`,
-                ``,
-                `Once linked, values, beliefs, and insights extracted from your agent conversations will appear in your TooToo codex feed.`,
-              ].join("\n"),
-            };
-          } catch (err) {
-            return { text: `Failed to generate pairing code: ${String(err)}` };
-          }
-        },
-      });
-
-      api.logger.debug?.("Cortex commands registered: /memories, /audit, /checkpoint, /sleep, /cortex");
+      api.logger.debug?.("Cortex commands registered: /audit, /checkpoint, /sleep");
     }
 
     // --- Gateway RPC ---
@@ -799,6 +684,202 @@ const plugin = {
       });
 
       api.logger.debug?.("Cortex RPC registered: cortex.status");
+    }
+
+    // --- CLI Commands (terminal-level) ---
+
+    if (api.registerCli) {
+      api.registerCli(
+        ({ program }) => {
+          const cortex = program.command("cortex").description("Cortex memory CLI commands");
+
+          cortex
+            .command("status")
+            .description("Check Cortex API health and show memory status")
+            .action(async () => {
+              await userIdReady;
+
+              console.log("Cortex Status Check");
+              console.log("=".repeat(50));
+
+              // Health check
+              const startHealth = Date.now();
+              let healthy = false;
+              try {
+                healthy = await client.healthCheck();
+                const ms = Date.now() - startHealth;
+                console.log(`  API Health:     ${healthy ? "OK" : "UNREACHABLE"} (${ms}ms)`);
+              } catch {
+                console.log(`  API Health:     UNREACHABLE`);
+              }
+
+              if (!healthy) {
+                console.log("\nAPI is unreachable. Check baseUrl and network connectivity.");
+                return;
+              }
+
+              // Knowledge
+              try {
+                const startKnowledge = Date.now();
+                const knowledge = await client.knowledge(undefined, userId);
+                const ms = Date.now() - startKnowledge;
+                console.log(`  Knowledge:      OK (${ms}ms)`);
+                console.log(`    Memories:     ${knowledge.total_memories.toLocaleString()}`);
+                console.log(`    Sessions:     ${knowledge.total_sessions}`);
+                console.log(`    Maturity:     ${knowledge.maturity}`);
+              } catch (err) {
+                console.log(`  Knowledge:      FAILED — ${String(err)}`);
+              }
+
+              // Stats
+              try {
+                const startStats = Date.now();
+                const stats = await client.stats(undefined, userId);
+                const ms = Date.now() - startStats;
+                console.log(`  Stats:          OK (${ms}ms)`);
+                console.log(`    Pipeline:     tier ${stats.pipeline_tier}`);
+              } catch (err) {
+                console.log(`  Stats:          FAILED — ${String(err)}`);
+              }
+
+              // Recall
+              try {
+                const startRecall = Date.now();
+                await client.recall("test", 5000, { limit: 1, userId });
+                const ms = Date.now() - startRecall;
+                console.log(`  Recall:         OK (${ms}ms)`);
+              } catch (err) {
+                console.log(`  Recall:         FAILED — ${String(err)}`);
+              }
+
+              // Retrieve
+              try {
+                const startRetrieve = Date.now();
+                await client.retrieve("test", 1, "fast", 5000, undefined, { userId });
+                const ms = Date.now() - startRetrieve;
+                console.log(`  Retrieve:       OK (${ms}ms)`);
+              } catch (err) {
+                console.log(`  Retrieve:       FAILED — ${String(err)}`);
+              }
+
+              console.log("");
+              console.log(`  Version:        ${version}`);
+              console.log(`  User ID:        ${userId ?? "unknown"}`);
+              console.log(`  Base URL:       ${config.baseUrl}`);
+              console.log(`  Auto-Recall:    ${config.autoRecall ? "on" : "off"}`);
+              console.log(`  Auto-Capture:   ${config.autoCapture ? "on" : "off"}`);
+              console.log(`  File Sync:      ${config.fileSync ? "on" : "off"}`);
+            });
+
+          cortex
+            .command("memories")
+            .description("Show memory count and maturity")
+            .action(async () => {
+              await userIdReady;
+
+              try {
+                const knowledge = await client.knowledge(undefined, userId);
+                console.log(`Memories:  ${knowledge.total_memories.toLocaleString()}`);
+                console.log(`Sessions:  ${knowledge.total_sessions}`);
+                console.log(`Maturity:  ${knowledge.maturity}`);
+
+                if (knowledge.entities.length > 0) {
+                  console.log(`\nTop Entities:`);
+                  knowledge.entities.slice(0, 10).forEach((e) => {
+                    console.log(`  ${e.name} (${e.memory_count} memories, last seen ${e.last_seen})`);
+                  });
+                }
+              } catch (err) {
+                console.error(`Failed: ${String(err)}`);
+                process.exitCode = 1;
+              }
+            });
+
+          cortex
+            .command("search")
+            .description("Search memories from the terminal")
+            .argument("<query>", "Search query")
+            .option("--limit <n>", "Max results", "10")
+            .action(async (query: string, opts: { limit: string }) => {
+              await userIdReady;
+
+              try {
+                const response = await client.recall(query, config.toolTimeoutMs, {
+                  limit: parseInt(opts.limit),
+                  userId,
+                  queryType: "combined",
+                });
+
+                if (!response.memories?.length) {
+                  console.log(`No memories found for: "${query}"`);
+                  return;
+                }
+
+                console.log(`Found ${response.memories.length} memories:\n`);
+                response.memories.forEach((m, i) => {
+                  console.log(`${i + 1}. [${m.confidence.toFixed(2)}] ${m.content}`);
+                  if (m.entities.length > 0) {
+                    console.log(`   entities: ${m.entities.join(", ")}`);
+                  }
+                  console.log("");
+                });
+              } catch (err) {
+                console.error(`Search failed: ${String(err)}`);
+                process.exitCode = 1;
+              }
+            });
+
+          cortex
+            .command("config")
+            .description("Show current Cortex plugin configuration")
+            .action(async () => {
+              await userIdReady;
+              console.log(`Version:          ${version}`);
+              console.log(`Base URL:         ${config.baseUrl}`);
+              console.log(`User ID:          ${userId ?? "unknown"}`);
+              console.log(`Namespace:        ${namespace}`);
+              console.log(`Auto-Recall:      ${config.autoRecall ? "on" : "off"}`);
+              console.log(`Auto-Capture:     ${config.autoCapture ? "on" : "off"}`);
+              console.log(`File Sync:        ${config.fileSync ? "on" : "off"}`);
+              console.log(`Transcript Sync:  ${config.transcriptSync ? "on" : "off"}`);
+              console.log(`Recall Limit:     ${config.recallLimit}`);
+              console.log(`Recall Timeout:   ${config.recallTimeoutMs}ms`);
+              console.log(`Tool Timeout:     ${config.toolTimeoutMs}ms`);
+              console.log(`Audit Log:        ${config.auditLog ? "on" : "off"}`);
+            });
+
+          cortex
+            .command("pair")
+            .description("Generate a TooToo pairing code to link your agent")
+            .action(async () => {
+              await userIdReady;
+              if (!userId) {
+                console.error("Cannot generate pairing code: user ID not available.");
+                process.exitCode = 1;
+                return;
+              }
+
+              try {
+                const { user_code, expires_in } = await client.generatePairingCode(userId);
+                const mins = Math.floor(expires_in / 60);
+                console.log(`Agent ID:      ${userId}`);
+                console.log(`Pairing code:  ${user_code}`);
+                console.log(`Expires in:    ${mins} minute${mins !== 1 ? "s" : ""}`);
+                console.log("");
+                console.log("To link your TooToo account:");
+                console.log("  1. Open app.tootoo.io/settings/agents");
+                console.log('  2. Click "Connect Agent"');
+                console.log("  3. Enter the code above");
+              } catch (err) {
+                console.error(`Failed to generate pairing code: ${String(err)}`);
+                process.exitCode = 1;
+              }
+            });
+        },
+        { commands: ["cortex"] },
+      );
+
+      api.logger.debug?.("Cortex CLI registered: openclaw cortex {status,memories,search,config,pair}");
     }
 
     // --- Services: retry queue, file sync ---
