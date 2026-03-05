@@ -19,8 +19,10 @@ before each turn and capture new facts after each turn. Also syncs local files
 - `src/adapters/cortex/` — HTTP client for all Cortex API endpoints
 - `src/features/recall/` — Before-turn memory injection (recall handler + formatter)
 - `src/features/capture/` — After-turn fact extraction (capture handler)
+- `src/features/checkpoint/` — `/checkpoint` command handler (saves session summary to Cortex)
+- `src/features/heartbeat/` — `gateway:heartbeat` hook for periodic health/knowledge refresh
 - `src/features/sync/` — File watchers for MEMORY.md, daily logs, transcripts
-- `src/internal/` — Shared utilities (retry queue, latency metrics, transcript cleaner, fs safety, identity)
+- `src/internal/` — Shared utilities (retry queue, latency metrics, transcript cleaner, fs safety, identity, session state)
 - `openclaw.plugin.json` — Plugin manifest (id, config schema, UI hints)
 - `tests/unit/` — Unit tests (all mocked, no API key needed)
 - `tests/integration/` — Live API tests (requires CORTEX_API_KEY)
@@ -34,7 +36,7 @@ before each turn and capture new facts after each turn. Also syncs local files
 npm ci                    # install deps
 npm run build             # tsc + inject-api-key (needs BUILD_API_KEY env var for prod builds)
 npx tsc --noEmit          # type check only
-npm test                  # unit tests (262 tests, no API key needed)
+npm test                  # unit tests (375 tests, no API key needed)
 npm run test:integration  # live API tests (needs CORTEX_API_KEY)
 npm run verify-release    # checks version consistency across package.json and plugin manifest
 ```
@@ -47,7 +49,7 @@ npm run verify-release    # checks version consistency across package.json and p
 - **Capture watermark**: Only new messages since last capture are sent to Cortex, not the full history — see src/features/capture/handler.ts
 - **API key baking**: Production builds embed the API key at build time via scripts/inject-api-key.mjs into src/internal/identity/api-key.ts
 - **Namespace derivation**: Workspace directory is hashed to auto-scope memories per project — see src/plugin/index.ts:33
-- **userId lifecycle**: Resolved eagerly in `register()` (not `start()`). This is critical because the OpenClaw runtime runs two plugin instances (`[gateway]` and `[plugins]`) — only `[gateway]` gets `start()` called. Commands like `/memories` and hooks like recall/capture must work on both instances. The capture handler awaits `userIdReady` before firing — see src/plugin/index.ts
+- **userId lifecycle**: Resolved eagerly in `register()` (not `start()`). This is critical because the OpenClaw runtime runs two plugin instances (`[gateway]` and `[plugins]`) — only `[gateway]` gets `start()` called. Commands and hooks (recall/capture/checkpoint/sleep) must work on both instances. The capture handler awaits `userIdReady` before firing — see src/plugin/index.ts
 
 ## Non-Obvious Things
 

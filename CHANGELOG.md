@@ -2,18 +2,39 @@
 
 All notable changes to this project will be documented in this file.
 
-## [Unreleased]
+## [1.7.5] - 2026-03-05
+
+### Added
+
+- **`/checkpoint` command**: Saves a session summary to Cortex before resetting. Auto-extracts from recent messages or accepts a manual summary as args (`/checkpoint working on auth refactor`). Tells you to `/sleep` or `/new` after saving.
+- **`/sleep` command**: Marks the current session as cleanly ended, clearing the recovery warning state so the next session starts clean.
+- **Recovery detection**: `before_agent_start` now checks for unclean prior sessions (plugin crashed or reset without `/sleep`). If detected, a `<cortex_recovery>` block is prepended to the first turn of the new session so the agent knows what was in progress.
+- **Heartbeat hook**: `gateway:heartbeat` fires periodically to refresh health status and knowledge state (total memories, maturity, tier) without waiting for a full recall cycle.
+- **CLI commands** (`openclaw cortex ...`): Terminal-level commands registered via `api.registerCli()`:
+  - `openclaw cortex status` — API health check with latency and memory counts
+  - `openclaw cortex memories` — Memory count, session count, maturity, and top entities
+  - `openclaw cortex search <query>` — Search memories from the terminal
+  - `openclaw cortex config` — Show the current plugin configuration
+  - `openclaw cortex pair` — Generate a TooToo pairing code to link your agent
+  - `openclaw cortex reset` — Permanently delete all memories for this agent (with confirmation prompt)
+- **`recallProfile` config** (`auto` | `default` | `factual` | `planning` | `incident` | `handoff`, default `auto`): Recall profile selection. `auto` picks the best profile based on context.
+- **`recallTopK` config** (default `20`): Max memories returned after scoring, separate from `recallLimit`.
+- **`recallReferenceDate` config**: Optional fixed ISO 8601 date as the temporal anchor for recall queries. For benchmarks only — leave unset in production.
+- **`recallQueryType` codex option**: `recallQueryType` now accepts `"codex"` in addition to `factual`, `emotional`, and `combined`.
+
+### Changed
+
+- **`/memories` command removed**: Replaced by the terminal-level `openclaw cortex memories` and `openclaw cortex search` CLI commands.
+- **`recallLimit` default raised**: From `10` to `20`.
+- **`captureFilter` is now a boolean**: Previously a regex-based pattern list; now a simple `true`/`false` toggle (default `true`) to enable the built-in low-signal content filter.
+- **Clean logging**: Consolidated plugin output to two info-level lines max (`Cortex v{version} ready` + connection status). All registration internals, tool call details, and latency stats moved to debug level.
+- **Eager bootstrap**: userId resolution, health check, and knowledge probe now run in `register()` instead of `start()`. This is necessary because the OpenClaw runtime runs two plugin instances (`[gateway]` and `[plugins]`) and only `[gateway]` gets `start()` called. Commands and hooks must work on both instances.
 
 ### Fixed
 
 - **`/memories` command hang**: The `/memories` command hung indefinitely when dispatched to the `[plugins]` runtime instance, which never calls `start()`. The `userIdReady` promise was initialized as a never-resolving placeholder and only replaced in `start()` — but the command handler awaited it before any logging, causing a silent infinite hang. Moved userId resolution back to `register()` so it resolves eagerly in all runtime instances.
 - **Recall skipping on `[plugins]` instance**: The `[plugins]` runtime instance always skipped recall with "no memories yet" because `bootstrapClient()` (which probes `/knowledge` and sets `hasMemories`) was only called in `start()`. Moved the knowledge probe to `register()` so both `[gateway]` and `[plugins]` instances know about existing memories.
 - **Capture silently dropping data**: The capture handler received `userIdReady` by value at registration time, capturing the initial never-resolving promise. When `start()` reassigned the variable, the capture handler still held the stale reference. Any turn with real content to capture would hang at the await and silently fail to ingest. Fixed by making `userIdReady` a `const` resolved eagerly in `register()`.
-
-### Changed
-
-- **Clean logging**: Consolidated plugin output to two info-level lines max (`Cortex v{version} ready` + connection status). All registration internals, tool call details, and latency stats moved to debug level.
-- **Eager bootstrap**: userId resolution, health check, and knowledge probe now run in `register()` instead of `start()`. This is necessary because the OpenClaw runtime runs two plugin instances (`[gateway]` and `[plugins]`) and only `[gateway]` gets `start()` called. Commands and hooks must work on both instances.
 
 ## [1.1.2] - 2026-03-01
 

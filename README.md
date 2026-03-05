@@ -13,8 +13,11 @@
 - **Auto-Recall** — injects relevant memories before every agent turn via `before_agent_start` hook
 - **Auto-Capture** — extracts facts from conversations via `agent_end` hook
 - **Agent Tools** — `cortex_search_memory` and `cortex_save_memory` tools the LLM can invoke directly
-- **Commands** — `/memories` for status and search, `/audit` to toggle local audit logging
+- **Commands** — `/checkpoint` to save session context, `/sleep` to mark a clean end, `/audit` to toggle local logging
+- **CLI Commands** — `openclaw cortex {status,memories,search,config,pair,reset}` for terminal access
+- **Recovery Detection** — detects unclean prior sessions and prepends recovery context at session start
 - **File Sync** — watches `MEMORY.md`, daily logs, and session transcripts for background ingestion
+- **Heartbeat** — periodic health and knowledge state refresh via `gateway:heartbeat`
 - **Gateway RPC** — `cortex.status` method for programmatic health and metrics access
 - **Resilience** — retry queue with exponential backoff, cold-start detection, latency metrics
 
@@ -79,7 +82,7 @@ Add to your `openclaw.json`:
           // All fields are optional — the plugin works with no config at all.
           autoRecall: true,
           autoCapture: true,
-          recallLimit: 10,
+          recallLimit: 20,
           recallTimeoutMs: 60000,
           toolTimeoutMs: 60000,
           fileSync: true,
@@ -97,19 +100,24 @@ Add to your `openclaw.json`:
 
 ### Config Options
 
-| Option            | Type    | Default | Description                                                                                      |
-| ----------------- | ------- | ------- | ------------------------------------------------------------------------------------------------ |
-| `userId`          | string  | _auto_  | Memory scope ID. Auto-generated per install and persisted at `~/.openclaw/cortex-user-id`. Override to share memory across machines or team members. |
-| `autoRecall`      | boolean | `true`  | Inject relevant memories before each agent turn                                                  |
-| `autoCapture`     | boolean | `true`  | Extract and store facts after each agent turn                                                    |
-| `recallLimit`     | number  | `10`    | Max number of memories returned per recall                                                       |
-| `recallTimeoutMs` | number  | `60000` | Auto-recall timeout in ms. Scales with knowledge tier via `deriveEffectiveTimeout`.              |
-| `toolTimeoutMs`   | number  | `60000` | Timeout for explicit tool calls (`cortex_search_memory`, `/memories`). Longer than auto-recall since the user is actively waiting. |
-| `fileSync`        | boolean | `true`  | Watch and ingest `MEMORY.md` and daily log files                                                 |
-| `transcriptSync`  | boolean | `true`  | Watch and ingest session transcript files                                                        |
-| `captureMaxPayloadBytes` | number | `262144` | Max byte size of capture payloads (256KB default). Oversized transcripts are trimmed from the oldest messages. |
-| `auditLog`        | boolean | `false` | Enable local audit log. Records every payload sent to Cortex at `.cortex/audit/` in the workspace. Also toggleable at runtime via `/audit on`. |
-| `namespace`       | string  | `"openclaw"` | Memory namespace. Auto-derived from workspace directory when not set explicitly.            |
+| Option                   | Type    | Default      | Description                                                                                      |
+| ------------------------ | ------- | ------------ | ------------------------------------------------------------------------------------------------ |
+| `userId`                 | string  | _auto_       | Memory scope ID. Auto-generated per install and persisted at `~/.openclaw/cortex-user-id`. Override to share memory across machines or team members. |
+| `autoRecall`             | boolean | `true`       | Inject relevant memories before each agent turn                                                  |
+| `autoCapture`            | boolean | `true`       | Extract and store facts after each agent turn                                                    |
+| `recallLimit`            | number  | `20`         | Max number of memories returned per recall                                                       |
+| `recallTopK`             | number  | `20`         | Max memories returned after scoring (applied after `recallLimit`)                                |
+| `recallQueryType`        | string  | `"combined"` | Recall query mode: `"factual"`, `"emotional"`, `"combined"`, or `"codex"`                        |
+| `recallProfile`          | string  | `"auto"`     | Recall profile: `"auto"`, `"default"`, `"factual"`, `"planning"`, `"incident"`, `"handoff"`. `auto` picks the best profile based on context. |
+| `recallTimeoutMs`        | number  | `60000`      | Auto-recall timeout in ms. Scales with knowledge tier via `deriveEffectiveTimeout`.              |
+| `recallReferenceDate`    | string  | _now_        | Optional fixed ISO 8601 date as temporal anchor for recall. For benchmarks only — leave unset in production. |
+| `toolTimeoutMs`          | number  | `60000`      | Timeout for explicit tool calls (`cortex_search_memory`, `/checkpoint`). Longer than auto-recall since the user is actively waiting. |
+| `fileSync`               | boolean | `true`       | Watch and ingest `MEMORY.md` and daily log files                                                 |
+| `transcriptSync`         | boolean | `true`       | Watch and ingest session transcript files                                                        |
+| `captureMaxPayloadBytes` | number  | `262144`     | Max byte size of capture payloads (256KB default). Oversized transcripts are trimmed from the oldest messages. |
+| `captureFilter`          | boolean | `true`       | Enable built-in filter to drop low-signal content (heartbeat messages, TUI artifacts, token counters) before ingestion. |
+| `auditLog`               | boolean | `false`      | Enable local audit log. Records every payload sent to Cortex at `.cortex/audit/` in the workspace. Also toggleable at runtime via `/audit on`. |
+| `namespace`              | string  | `"openclaw"` | Memory namespace. Auto-derived from workspace directory when not set explicitly.                 |
 
 ## How It Works
 
@@ -129,6 +137,8 @@ src/
       client.ts
   features/                 # Feature modules
     capture/
+    checkpoint/
+    heartbeat/
     recall/
     sync/
   internal/                 # Internal helpers (not stable public API)
@@ -137,6 +147,7 @@ src/
     identity/
     metrics/
     queue/
+    session/
     transcript/
 ```
 
@@ -156,6 +167,18 @@ Before every agent turn, the plugin queries Cortex's `/v1/recall` endpoint and p
 If the request exceeds `recallTimeoutMs`, the agent proceeds without memories (silent degradation). After 3 consecutive hard failures (connection errors, not timeouts), recall is disabled for 30 seconds (cold-start detection) to avoid hammering a dead service. Timeouts from a slow-but-running backend do not trigger the cold-start gate.
 
 ![Recall Strategy Tiers](assets/readme_assets/Recall.png)
+
+### Recovery Detection
+
+If the previous session ended uncleanly (e.g. the process crashed or you reset without `/sleep`), the plugin detects this on the next `before_agent_start` and prepends a recovery block before the first turn:
+
+```xml
+<cortex_recovery>
+Unclean session detected. Last known context: ...
+</cortex_recovery>
+```
+
+This lets the agent pick up where it left off without you having to re-explain. Use `/checkpoint` before `/sleep` or `/new` to make this context more useful.
 
 ### Auto-Capture
 
@@ -189,14 +212,33 @@ These work alongside Auto-Recall/Auto-Capture — the automatic hooks handle bac
 The plugin registers auto-reply commands that execute without invoking the AI agent:
 
 ```
-/memories              # Show memory status (count, maturity, tier, latency)
-/memories dark mode    # Search memories for "dark mode"
-/audit                 # Show audit log status
-/audit on              # Start recording all data sent to Cortex
-/audit off             # Stop recording (existing logs preserved)
+/checkpoint                  # Auto-summarize recent messages and save to Cortex
+/checkpoint <summary>        # Save a custom summary to Cortex
+/sleep                       # Mark the session as cleanly ended (clears recovery state)
+/audit                       # Show audit log status
+/audit on                    # Start recording all data sent to Cortex
+/audit off                   # Stop recording (existing logs preserved)
 ```
 
+`/checkpoint` is designed to be run before `/new` or resetting the agent. It saves what you were working on so the next session can recover context without manual re-explanation.
+
+`/sleep` marks the session as cleanly ended. Without it, the next session will see a recovery warning. Use `/checkpoint` first if you want the context saved.
+
 The audit log writes to `.cortex/audit/` in your workspace — an `index.jsonl` with metadata and a `payloads/` directory with full content of every transmission. Useful for compliance, debugging, or verifying exactly what data leaves your machine.
+
+### CLI Commands
+
+The plugin registers terminal-level commands under `openclaw cortex`:
+
+```bash
+openclaw cortex status             # API health check with latency and memory counts
+openclaw cortex memories           # Memory count, session count, maturity, top entities
+openclaw cortex search <query>     # Search memories from the terminal
+openclaw cortex config             # Show current plugin configuration
+openclaw cortex pair               # Generate a TooToo pairing code to link your agent
+openclaw cortex reset              # Permanently delete all memories (prompts for confirmation)
+openclaw cortex reset --yes        # Skip confirmation
+```
 
 ### Gateway RPC
 
@@ -204,7 +246,7 @@ The `cortex.status` RPC method exposes plugin health and metrics programmaticall
 
 ```json
 {
-  "version": "1.0.0",
+  "version": "1.7.5",
   "healthy": true,
   "knowledgeState": { "hasMemories": true, "totalSessions": 42, "maturity": "mature", "tier": 3 },
   "recallMetrics": { "count": 120, "p50": 95, "p95": 280, "p99": 450 },
@@ -218,11 +260,11 @@ The `cortex.status` RPC method exposes plugin health and metrics programmaticall
 On session start, the plugin logs a single status line:
 
 ```
-Cortex v1.1.2 ready
-Cortex connected — 1,173 memories, 4 sessions (cold)
+Cortex v1.7.5 ready
+Cortex connected — 1,173 memories, 4 sessions (cold), tier 1
 ```
 
-Recall latency percentiles are logged at debug level on shutdown. Enable verbose logging to see them, or use the `/memories` command for live metrics.
+Recall latency percentiles are logged at debug level on shutdown. Enable verbose logging to see them, or run `openclaw cortex status` for live metrics.
 
 ![Observability](assets/readme_assets/Observability.png)
 
@@ -266,12 +308,22 @@ If both this plugin and the Cortex SKILL.md are active, the `<cortex_memories>` 
 ```bash
 npm install
 npm run build      # TypeScript → dist/
-npm test           # Run vitest (230 tests)
+npm test           # Run vitest (375 tests)
 npm run test:watch # Watch mode
 npm run test:integration # Live Cortex API tests (uses the baked-in API key)
 ```
 
 Manual proof scripts live under `tests/manual/`.
+
+## Built by Ubundi
+
+<a href="https://ubundi.com"><img src="assets/ubundi_logo.jpeg" alt="Ubundi" width="60" /></a>
+
+openclaw-cortex is an open-source project by [Ubundi](https://ubundi.com) — a South African venture studio shaping human-centred AI. Based in Cape Town, Ubundi builds at the intersection of AI capability and African context, developing tools that ensure the benefits of AI reach their continent first.
+
+openclaw-cortex was built as part of the infrastructure behind Cortex, Ubundi's long-term memory layer for AI agents — where robust cross-session recall is foundational to delivering contextually relevant, grounded responses.
+
+→ [ubundi.com](https://ubundi.com)
 
 ## License
 
