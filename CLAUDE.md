@@ -25,7 +25,7 @@ before each turn and capture new facts after each turn. Also syncs local files
 - `tests/unit/` — Unit tests (all mocked, no API key needed)
 - `tests/integration/` — Live API tests (requires CORTEX_API_KEY)
 - `tests/manual/` — End-to-end lifecycle simulations
-- `benchmark/` — Recall quality benchmarks (V1: simulated 3-way, V1.1: simulated full-fidelity, V2: real runtime)
+- `benchmark/` — Recall quality benchmarks (real OpenClaw runtime via `openclaw agent` CLI)
 - `scripts/` — Build helpers (API key injection, version sync, release verification)
 
 ## Build & Verify
@@ -57,6 +57,7 @@ npm run verify-release    # checks version consistency across package.json and p
 - Integration and manual tests hit the live Cortex API and need `CORTEX_API_KEY` set.
 - The plugin does NOT declare `kind: "memory"` — it coexists with the built-in memory system rather than replacing it. Cortex supplements the default memory plugin (USER.md, daily logs) with long-term cross-session recall/capture via the Cortex API.
 - CI runs on Node 20 and 22. Tests must pass on both.
+- All changes must pass the GitHub Actions workflow before merging. Run `npm test` and `npx tsc --noEmit` locally to catch issues before pushing.
 
 ## Skills
 
@@ -64,14 +65,10 @@ npm run verify-release    # checks version consistency across package.json and p
 
 ## Benchmarks
 
-Three benchmark versions measure recall quality:
-
-- **V1** (`benchmark/v1/`) — Simulated 3-way comparison (bare / OpenClaw / +Cortex), 8 sessions, 40 prompts
-- **V1.1** (`benchmark/v1.1/`) — Simulated full-fidelity OpenClaw baseline, 45 sessions, 50 prompts. Reference result: +0.10 overall, +0.50 rationale, +0.33 synthesis
-- **V2** (`benchmark/v2/`) — Real OpenClaw runtime via `openclaw agent` CLI, same 45-session Arclight dataset. Run on EC2 against a live agent
+The benchmark (`benchmark/v2/`) measures recall quality using a real OpenClaw runtime via `openclaw agent` CLI. It sends 45 Arclight project sessions through a live agent, then probes with 50 recall questions. Supports three conditions: baseline (no plugins), clawvault, and cortex.
 
 ```bash
-# V2 quick start (on the server with a running agent):
+# Quick start (on the server with a running agent):
 npx tsx benchmark/v2/run.ts --condition baseline --agent <agent-id>
 npx tsx benchmark/v2/run.ts --condition cortex --agent <agent-id>
 npx tsx benchmark/v2/run.ts --compare results/baseline-*.json results/cortex-*.json

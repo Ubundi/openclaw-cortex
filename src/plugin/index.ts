@@ -875,11 +875,79 @@ const plugin = {
                 process.exitCode = 1;
               }
             });
+          cortex
+            .command("reset")
+            .description("Permanently delete ALL memories for this agent (irreversible)")
+            .option("--yes", "Skip confirmation prompt")
+            .action(async (opts: { yes?: boolean }) => {
+              await userIdReady;
+              if (!userId) {
+                console.error("Cannot reset: user ID not available.");
+                process.exitCode = 1;
+                return;
+              }
+
+              // Show what will be deleted
+              let memoryCount = 0;
+              let sessionCount = 0;
+              try {
+                const knowledge = await client.knowledge(undefined, userId);
+                memoryCount = knowledge.total_memories;
+                sessionCount = knowledge.total_sessions;
+              } catch {
+                // Continue even if we can't get counts
+              }
+
+              console.log("");
+              console.log("  WARNING: This will permanently delete ALL data for this agent.");
+              console.log("");
+              console.log(`  Agent ID:   ${userId}`);
+              if (memoryCount > 0 || sessionCount > 0) {
+                console.log(`  Memories:   ${memoryCount.toLocaleString()}`);
+                console.log(`  Sessions:   ${sessionCount}`);
+              }
+              console.log("");
+              console.log("  This includes all memories, facts, suggestions, and graph data.");
+              console.log("  Agent links (TooToo pairing) will be preserved.");
+              console.log("  This action CANNOT be undone.");
+              console.log("");
+
+              if (!opts.yes) {
+                const { createInterface } = await import("node:readline");
+                const rl = createInterface({ input: process.stdin, output: process.stdout });
+                const answer = await new Promise<string>((resolve) => {
+                  rl.question("  Type 'reset' to confirm: ", resolve);
+                });
+                rl.close();
+
+                if (answer.trim().toLowerCase() !== "reset") {
+                  console.log("\n  Aborted. No data was deleted.");
+                  return;
+                }
+              }
+
+              try {
+                const result = await client.forgetUser(userId);
+                const d = result.deleted;
+                console.log("");
+                console.log("  Memory reset complete.");
+                console.log("");
+                console.log(`  Deleted:`);
+                console.log(`    Engraved memories:  ${d.engraved_memories}`);
+                console.log(`    Resonated memories: ${d.resonated_memories}`);
+                console.log(`    Graph nodes:        ${d.nodes}`);
+                console.log(`    Codex suggestions:  ${d.codex_suggestions}`);
+                console.log(`    Suppressions:       ${d.codex_suggestion_suppressions}`);
+              } catch (err) {
+                console.error(`\n  Reset failed: ${String(err)}`);
+                process.exitCode = 1;
+              }
+            });
         },
         { commands: ["cortex"] },
       );
 
-      api.logger.debug?.("Cortex CLI registered: openclaw cortex {status,memories,search,config,pair}");
+      api.logger.debug?.("Cortex CLI registered: openclaw cortex {status,memories,search,config,pair,reset}");
     }
 
     // --- Services: retry queue, file sync ---

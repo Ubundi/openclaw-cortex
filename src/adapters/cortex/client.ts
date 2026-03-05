@@ -148,6 +148,17 @@ export interface ForgetResponse {
   memories_removed: number;
 }
 
+export interface ForgetUserResponse {
+  user_id: string;
+  deleted: {
+    engraved_memories: number;
+    resonated_memories: number;
+    nodes: number;
+    codex_suggestions: number;
+    codex_suggestion_suppressions: number;
+  };
+}
+
 export interface KnowledgeEntity {
   name: string;
   memory_count: number;
@@ -568,6 +579,18 @@ export class CortexClient {
       { method: "DELETE" },
       timeoutMs,
       "forget/entity",
+    );
+  }
+
+  async forgetUser(
+    userId: string,
+    timeoutMs = DEFAULT_RECALL_TIMEOUT_MS,
+  ): Promise<ForgetUserResponse> {
+    return this.fetchRequest<ForgetUserResponse>(
+      `${this.baseUrl}/v1/forget/user/${encodeURIComponent(userId)}?confirm=true`,
+      { method: "DELETE" },
+      timeoutMs,
+      "forget/user",
     );
   }
 
