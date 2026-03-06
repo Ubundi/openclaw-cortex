@@ -188,6 +188,7 @@ const DEFAULT_WARMUP_TIMEOUT_MS = 60_000;
 // --- Agent API Defaults ---
 const DEFAULT_REMEMBER_TIMEOUT_MS = 45_000;
 const DEFAULT_RECALL_TIMEOUT_MS = 10_000;
+const DEFAULT_RESET_TIMEOUT_MS = 60_000;
 const DEFAULT_SOURCE_ORIGIN = "openclaw";
 const DEFAULT_DERIVATION_MODE = "inferred";
 const DEFAULT_SOURCE_APP = "OpenClaw";
@@ -584,7 +585,7 @@ export class CortexClient {
 
   async forgetUser(
     userId: string,
-    timeoutMs = DEFAULT_RECALL_TIMEOUT_MS,
+    timeoutMs = DEFAULT_RESET_TIMEOUT_MS,
   ): Promise<ForgetUserResponse> {
     return this.fetchRequest<ForgetUserResponse>(
       `${this.baseUrl}/v1/forget/user/${encodeURIComponent(userId)}?confirm=true`,

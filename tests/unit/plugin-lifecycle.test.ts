@@ -23,6 +23,54 @@ interface MockApi {
   registerTool: ReturnType<typeof vi.fn>;
   registerCommand: ReturnType<typeof vi.fn>;
   registerGatewayMethod: ReturnType<typeof vi.fn>;
+  registerCli: ReturnType<typeof vi.fn>;
+}
+
+interface CliNode {
+  name: string;
+  descriptionText?: string;
+  actionHandler?: (...args: any[]) => any;
+  children: Map<string, CliNode>;
+}
+
+function createCliNode(name: string): CliNode & {
+  description(desc: string): any;
+  command(childName: string): any;
+  argument(_name: string, _desc: string): any;
+  option(_flags: string, _desc: string, _defaultValue?: string): any;
+  action(fn: (...args: any[]) => any): any;
+} {
+  const commandApi: CliNode & {
+    description(desc: string): any;
+    command(childName: string): any;
+    argument(_name: string, _desc: string): any;
+    option(_flags: string, _desc: string, _defaultValue?: string): any;
+    action(fn: (...args: any[]) => any): any;
+  } = {
+    name,
+    children: new Map(),
+    description(desc: string) {
+      commandApi.descriptionText = desc;
+      return commandApi;
+    },
+    command(childName: string) {
+      const child = createCliNode(childName);
+      commandApi.children.set(childName, child);
+      return child;
+    },
+    argument(_name: string, _desc: string) {
+      return commandApi;
+    },
+    option(_flags: string, _desc: string, _defaultValue?: string) {
+      return commandApi;
+    },
+    action(fn: (...args: any[]) => any) {
+      commandApi.actionHandler = fn;
+      return commandApi;
+    },
+  };
+
+  return commandApi;
 }
 
 function makeApi(pluginConfig: Record<string, unknown>) {
@@ -31,6 +79,7 @@ function makeApi(pluginConfig: Record<string, unknown>) {
   const tools: Array<{ name: string; description: string; parameters: unknown; execute: Function }> = [];
   const commands: Array<{ name: string; description: string; handler: Function }> = [];
   const rpcMethods: Record<string, Function> = {};
+  const cliRegistrars: Array<{ registrar: Function; opts?: { commands?: string[] } }> = [];
   const logger: MockLogger = {
     debug: vi.fn(),
     info: vi.fn(),
@@ -61,9 +110,12 @@ function makeApi(pluginConfig: Record<string, unknown>) {
     registerGatewayMethod: vi.fn((name: string, handler: Function) => {
       rpcMethods[name] = handler;
     }),
+    registerCli: vi.fn((registrar: Function, opts?: { commands?: string[] }) => {
+      cliRegistrars.push({ registrar, opts });
+    }),
   };
 
-  return { api, hooks, services, tools, commands, rpcMethods, logger };
+  return { api, hooks, services, tools, commands, rpcMethods, cliRegistrars, logger };
 }
 
 async function flushMicrotasks() {
@@ -98,6 +150,7 @@ describe("plugin lifecycle contract", () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+    process.exitCode = undefined;
   });
 
   it("register wires hooks and service via api.on", async () => {
@@ -469,5 +522,79 @@ describe("plugin lifecycle contract", () => {
     // Should still register hooks and service without errors
     expect(api.registerHook).toHaveBeenCalledTimes(3);
     expect(api.registerService).toHaveBeenCalledTimes(1);
+  });
+
+  it("treats AbortError as success when reset already emptied knowledge", async () => {
+    vi.spyOn(CortexClient.prototype, "healthCheck").mockResolvedValue(false);
+    vi.spyOn(CortexClient.prototype, "forgetUser").mockRejectedValue(new DOMException("aborted", "AbortError"));
+    vi.spyOn(CortexClient.prototype, "knowledge")
+      .mockResolvedValueOnce({
+        total_memories: 45,
+        total_sessions: 7,
+        maturity: "warming",
+        entities: [],
+      })
+      .mockResolvedValueOnce({
+        total_memories: 0,
+        total_sessions: 0,
+        maturity: "cold",
+        entities: [],
+      });
+
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const { api, cliRegistrars } = makeApi({ fileSync: false });
+    plugin.register(api as any);
+    await new Promise((r) => setTimeout(r, 20));
+
+    const program = createCliNode("root");
+    cliRegistrars[0]!.registrar({ program, config: {}, logger: api.logger });
+    const reset = program.children.get("cortex")?.children.get("reset");
+
+    await reset?.actionHandler?.({ yes: true });
+
+    expect(CortexClient.prototype.forgetUser).toHaveBeenCalledOnce();
+    expect(CortexClient.prototype.knowledge).toHaveBeenCalledTimes(2);
+    expect(logSpy).toHaveBeenCalledWith("  Memory reset complete.");
+    expect(logSpy).toHaveBeenCalledWith(
+      "  The server finished the reset, but the request ended before deletion stats were returned.",
+    );
+    expect(errorSpy).not.toHaveBeenCalledWith(expect.stringContaining("Reset failed:"));
+    expect(process.exitCode).toBeUndefined();
+  });
+
+  it("still reports reset failure when AbortError occurs and knowledge is not empty", async () => {
+    vi.spyOn(CortexClient.prototype, "healthCheck").mockResolvedValue(false);
+    vi.spyOn(CortexClient.prototype, "forgetUser").mockRejectedValue(new DOMException("aborted", "AbortError"));
+    vi.spyOn(CortexClient.prototype, "knowledge")
+      .mockResolvedValueOnce({
+        total_memories: 45,
+        total_sessions: 7,
+        maturity: "warming",
+        entities: [],
+      })
+      .mockResolvedValueOnce({
+        total_memories: 3,
+        total_sessions: 1,
+        maturity: "warming",
+        entities: [],
+      });
+
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const { api, cliRegistrars } = makeApi({ fileSync: false });
+    plugin.register(api as any);
+    await new Promise((r) => setTimeout(r, 20));
+
+    const program = createCliNode("root");
+    cliRegistrars[0]!.registrar({ program, config: {}, logger: api.logger });
+    const reset = program.children.get("cortex")?.children.get("reset");
+
+    await reset?.actionHandler?.({ yes: true });
+
+    expect(errorSpy).toHaveBeenCalledWith("\n  Reset failed: AbortError: aborted");
+    expect(process.exitCode).toBe(1);
   });
 });

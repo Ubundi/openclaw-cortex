@@ -56,6 +56,25 @@ function mergePrependContext(recoveryContext: string | undefined, recallContext:
   return recoveryContext ?? recallContext;
 }
 
+function isAbortError(err: unknown): boolean {
+  if (typeof err === "object" && err !== null && "name" in err) {
+    return err.name === "AbortError";
+  }
+  return String(err).includes("AbortError");
+}
+
+async function resetCompletedAfterAbort(
+  client: CortexClient,
+  userId: string,
+): Promise<boolean> {
+  try {
+    const knowledge = await client.knowledge(undefined, userId);
+    return knowledge.total_memories === 0 && knowledge.total_sessions === 0;
+  } catch {
+    return false;
+  }
+}
+
 // --- OpenClaw Plugin API types (per docs.openclaw.ai/tools/plugin) ---
 
 interface HookMetadata {
@@ -939,6 +958,13 @@ const plugin = {
                 console.log(`    Codex suggestions:  ${d.codex_suggestions}`);
                 console.log(`    Suppressions:       ${d.codex_suggestion_suppressions}`);
               } catch (err) {
+                if (isAbortError(err) && await resetCompletedAfterAbort(client, userId)) {
+                  console.log("");
+                  console.log("  Memory reset complete.");
+                  console.log("");
+                  console.log("  The server finished the reset, but the request ended before deletion stats were returned.");
+                  return;
+                }
                 console.error(`\n  Reset failed: ${String(err)}`);
                 process.exitCode = 1;
               }
