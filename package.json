@@ -52,6 +52,11 @@
   "peerDependencies": {
     "openclaw": ">=0.1.0"
   },
+  "peerDependenciesMeta": {
+    "openclaw": {
+      "optional": true
+    }
+  },
   "dependencies": {
     "zod": "^3.23.0"
   },
