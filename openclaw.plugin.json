@@ -28,7 +28,12 @@
       "recallLimit": {
         "type": "number",
         "description": "Maximum number of memories to retrieve per turn",
-        "default": 10
+        "default": 20
+      },
+      "recallTopK": {
+        "type": "number",
+        "description": "Max memories returned after scoring (applied after recallLimit)",
+        "default": 20
       },
       "recallQueryType": {
         "type": "string",
@@ -40,6 +45,19 @@
           "codex"
         ],
         "default": "combined"
+      },
+      "recallProfile": {
+        "type": "string",
+        "description": "Recall profile for automatic recall (auto, default, factual, planning, incident, or handoff)",
+        "enum": [
+          "auto",
+          "default",
+          "factual",
+          "planning",
+          "incident",
+          "handoff"
+        ],
+        "default": "auto"
       },
       "recallTimeoutMs": {
         "type": "number",
@@ -66,6 +84,11 @@
         "description": "Max byte size of capture payloads. Oversized transcripts are trimmed from oldest messages.",
         "default": 262144
       },
+      "captureFilter": {
+        "type": "boolean",
+        "description": "Enable built-in filter to drop low-signal content (heartbeat messages, TUI artifacts, token counters) before ingestion",
+        "default": true
+      },
       "auditLog": {
         "type": "boolean",
         "description": "Record all data sent to Cortex in a local audit log at .cortex/audit/",
@@ -83,6 +106,14 @@
       "label": "Base URL",
       "advanced": true
     },
+    "autoRecall": {
+      "label": "Auto Recall",
+      "helpText": "Automatically inject relevant memories before each agent turn."
+    },
+    "autoCapture": {
+      "label": "Auto Capture",
+      "helpText": "Automatically extract facts from conversations after agent turns."
+    },
     "userId": {
       "label": "User ID",
       "advanced": true,
@@ -93,9 +124,28 @@
       "advanced": true,
       "helpText": "Maximum number of memories injected per turn (1-50)."
     },
+    "recallQueryType": {
+      "label": "Recall Query Type",
+      "advanced": true,
+      "helpText": "Query type for automatic recall: factual, emotional, combined, or codex."
+    },
+    "recallTopK": {
+      "label": "Recall Top-K",
+      "advanced": true,
+      "helpText": "Max memories returned after scoring, applied after recallLimit (1-50)."
+    },
+    "recallProfile": {
+      "label": "Recall Profile",
+      "advanced": true,
+      "helpText": "Recall strategy profile. 'auto' selects the best profile based on conversation context."
+    },
     "recallTimeoutMs": {
       "label": "Recall Timeout (ms)",
       "advanced": true
+    },
+    "fileSync": {
+      "label": "File Sync",
+      "helpText": "Watch MEMORY.md and daily logs for background ingestion into Cortex."
     },
     "transcriptSync": {
       "label": "Transcript Sync",
@@ -110,6 +160,10 @@
       "label": "Capture Max Payload Size",
       "advanced": true,
       "helpText": "Maximum byte size for capture payloads (default 256KB). Oversized transcripts are trimmed from oldest messages."
+    },
+    "captureFilter": {
+      "label": "Capture Filter",
+      "helpText": "Filters out low-signal content (heartbeats, TUI artifacts, token counters) before ingestion."
     },
     "auditLog": {
       "label": "Audit Log",

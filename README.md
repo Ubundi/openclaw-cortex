@@ -46,7 +46,16 @@ openclaw plugins install -l ./path/to/openclaw-cortex
    openclaw plugins install @ubundi/openclaw-cortex
    ```
 
-2. Add a minimal plugin config to `openclaw.json`:
+2. Set the tools profile to `full` so the agent can access memory tools:
+
+   ```bash
+   openclaw config set tools.profile full
+   openclaw gateway restart
+   ```
+
+   > **Note:** OpenClaw defaults to the `messaging` tools profile, which excludes memory tools. The plugin's own tools (`cortex_search_memory`, `cortex_save_memory`) are registered directly and work on any profile, but the built-in `memory_search`, `read`, `write`, and other tools require `full`. This must be re-applied after running `openclaw configure` as the wizard resets it.
+
+3. Add a minimal plugin config to `openclaw.json`:
 
    ```json
    {
@@ -66,7 +75,7 @@ openclaw plugins install -l ./path/to/openclaw-cortex
 
    That's it — no API key, no account, no setup. On first run the plugin generates a unique ID for this installation, persists it at `~/.openclaw/cortex-user-id`, and scopes all memories to that ID.
 
-3. Run an agent turn. If configured correctly, recall data is prepended in a `<cortex_memories>` block before the model turn.
+4. Run an agent turn. If configured correctly, recall data is prepended in a `<cortex_memories>` block before the model turn.
 
 ## Configuration
 
@@ -298,6 +307,7 @@ If both this plugin and the Cortex SKILL.md are active, the `<cortex_memories>` 
 
 ## Troubleshooting
 
+- **Agent not using plugin tools**: Check `tools.profile` in `openclaw.json` — OpenClaw defaults to `"messaging"`, which excludes memory tools. Run `openclaw config set tools.profile full && openclaw gateway restart`. The configure wizard resets this, so re-check after any reconfiguration.
 - Plugin installed but no memory behavior: verify both `"enabled": true` and `"slots.memory": "@ubundi/openclaw-cortex"` in `openclaw.json`.
 - `Cannot find module 'zod'` during plugin load (older installs): run `npm install --prefix ~/.openclaw/extensions/openclaw-cortex --omit=dev zod`.
 - Frequent recall timeouts: increase `recallTimeoutMs` for auto-recall or `toolTimeoutMs` for explicit searches.

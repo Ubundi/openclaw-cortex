@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Added
+
+- **Tools profile documentation**: Added Quick Start step and troubleshooting entry for `tools.profile` configuration. OpenClaw defaults to the `messaging` profile which excludes memory tools — users must set `tools.profile: "full"` after installation and after any reconfiguration.
+
 ## [1.7.5] - 2026-03-05
 
 ### Added

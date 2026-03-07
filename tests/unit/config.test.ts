@@ -1,4 +1,6 @@
 import { describe, it, expect } from "vitest";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { CortexConfigSchema } from "../../src/plugin/config/schema.js";
 
 describe("CortexConfigSchema", () => {
@@ -117,6 +119,49 @@ describe("CortexConfigSchema", () => {
         expect(result.data.fileSync).toBe(true);
         expect(result.data.transcriptSync).toBe(true);
         expect(result.data.namespace).toBe("openclaw");
+      }
+    });
+  });
+
+  describe("manifest parity", () => {
+    const manifest = JSON.parse(
+      readFileSync(resolve(__dirname, "../../openclaw.plugin.json"), "utf-8"),
+    );
+    const manifestProps = manifest.configSchema.properties;
+    const zodDefaults = CortexConfigSchema.safeParse({});
+
+    // Fields that are intentionally optional in Zod and omitted from manifest defaults
+    const optionalFields = new Set(["userId", "recallReferenceDate"]);
+
+    it("manifest configSchema has every Zod field", () => {
+      if (!zodDefaults.success) throw new Error("Zod parse failed");
+      const zodKeys = Object.keys(zodDefaults.data);
+      for (const key of zodKeys) {
+        expect(manifestProps, `manifest missing field: ${key}`).toHaveProperty(key);
+      }
+    });
+
+    it("manifest has no extra fields beyond Zod schema", () => {
+      if (!zodDefaults.success) throw new Error("Zod parse failed");
+      const zodShape = CortexConfigSchema.shape;
+      for (const key of Object.keys(manifestProps)) {
+        expect(zodShape, `manifest has extra field not in Zod: ${key}`).toHaveProperty(key);
+      }
+    });
+
+    it("manifest defaults match Zod defaults", () => {
+      if (!zodDefaults.success) throw new Error("Zod parse failed");
+      for (const [key, value] of Object.entries(zodDefaults.data)) {
+        if (optionalFields.has(key)) continue;
+        const manifestDefault = manifestProps[key]?.default;
+        expect(manifestDefault, `default mismatch for ${key}: manifest=${manifestDefault}, zod=${value}`).toEqual(value);
+      }
+    });
+
+    it("manifest has uiHints for every config field", () => {
+      for (const key of Object.keys(manifestProps)) {
+        if (optionalFields.has(key)) continue;
+        expect(manifest.uiHints, `missing uiHints for: ${key}`).toHaveProperty(key);
       }
     });
   });
