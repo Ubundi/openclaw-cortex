@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   formatMemories,
+  formatMemoriesWithStats,
   sanitizeMemoryContent,
   isRecalledNoise,
   filterNoisyMemories,
@@ -229,5 +230,55 @@ describe("filterNoisyMemories", () => {
     expect(result).toHaveLength(2);
     expect(result[0].content).toBe("User prefers dark mode");
     expect(result[1].content).toBe("Adii's favorite language is Rust");
+  });
+});
+
+describe("formatMemoriesWithStats near-duplicate collapsing", () => {
+  const makeMem = (content: string, confidence = 0.9): RecallMemory => ({
+    content,
+    confidence,
+    when: null,
+    session_id: null,
+    entities: [],
+  });
+
+  it("collapses near-duplicate memories and reports count", () => {
+    const memories = [
+      makeMem("User prefers dark mode for the IDE", 0.95),
+      makeMem("The user prefers dark mode for their IDE", 0.85),
+      makeMem("User likes dark mode in the IDE", 0.80),
+      makeMem("The project uses PostgreSQL for the database", 0.90),
+    ];
+
+    const result = formatMemoriesWithStats(memories, 20);
+    expect(result.collapsedCount).toBeGreaterThan(0);
+    expect(result.text).toContain("cortex_memories");
+    expect(result.text).toContain("PostgreSQL");
+    // Should keep the highest confidence version of the dark mode memory
+    expect(result.text).toContain("0.95");
+    expect(result.text).toContain("collapsed");
+  });
+
+  it("does not collapse unrelated memories", () => {
+    const memories = [
+      makeMem("User prefers dark mode", 0.9),
+      makeMem("The project uses PostgreSQL", 0.85),
+      makeMem("Deploy target is AWS us-east-1", 0.8),
+    ];
+
+    const result = formatMemoriesWithStats(memories, 20);
+    expect(result.collapsedCount).toBe(0);
+    expect(result.text).not.toContain("collapsed");
+  });
+
+  it("keeps backward-compatible formatMemories return type", () => {
+    const memories = [
+      makeMem("User prefers dark mode", 0.9),
+      makeMem("The user prefers dark mode", 0.85),
+    ];
+
+    const result = formatMemories(memories, 20);
+    expect(typeof result).toBe("string");
+    expect(result).toContain("cortex_memories");
   });
 });

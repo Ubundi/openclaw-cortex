@@ -2,7 +2,7 @@ import type { CortexClient, RetrieveResult, RecallMemory } from "../../adapters/
 import type { CortexConfig } from "../../plugin/config/schema.js";
 import type { KnowledgeState } from "../../plugin/index.js";
 import type { AuditLogger } from "../../internal/audit/audit-logger.js";
-import { formatMemories } from "./formatter.js";
+import { formatMemoriesWithStats } from "./formatter.js";
 import { inferRecallProfile, getProfileParams } from "./context-profile.js";
 import type { RecallProfile } from "./context-profile.js";
 import { LatencyMetrics } from "../../internal/metrics/latency-metrics.js";
@@ -193,6 +193,11 @@ function mapRetrieveToRecallMemories(results: RetrieveResult[]): RecallMemory[] 
   }));
 }
 
+export interface RecallStats {
+  memoriesReturned: number;
+  collapsedCount: number;
+}
+
 export function createRecallHandler(
   client: CortexClient,
   config: CortexConfig,
@@ -201,6 +206,7 @@ export function createRecallHandler(
   knowledgeState?: KnowledgeState,
   getUserId?: () => string | undefined,
   auditLogger?: AuditLogger,
+  onRecallStats?: (stats: RecallStats) => void,
 ) {
   const recallMetrics = metrics ?? new LatencyMetrics();
   let consecutiveFailures = 0;
@@ -348,11 +354,13 @@ export function createRecallHandler(
 
       if (!memories.length) return;
 
-      const formatted = formatMemories(memories, config.recallTopK);
+      const { text: formatted, collapsedCount } = formatMemoriesWithStats(memories, config.recallTopK);
       if (!formatted) return;
 
+      onRecallStats?.({ memoriesReturned: memories.length, collapsedCount });
+
       logger.debug?.(
-        `Cortex recall: ${memories.length} memories in ${elapsed}ms`,
+        `Cortex recall: ${memories.length} memories in ${elapsed}ms${collapsedCount > 0 ? ` (${collapsedCount} collapsed)` : ""}`,
       );
       return { prependContext: formatted };
     } catch (err) {

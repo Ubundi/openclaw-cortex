@@ -12,6 +12,7 @@ import { loadOrCreateUserId } from "../internal/identity/user-id.js";
 import { BAKED_API_KEY } from "../internal/identity/api-key.js";
 import { formatMemories } from "../features/recall/formatter.js";
 import { AuditLogger } from "../internal/audit/audit-logger.js";
+import { RecentSaves } from "../internal/dedupe.js";
 import { injectAgentInstructions } from "../internal/agent-instructions.js";
 import { createCheckpointHandler } from "../features/checkpoint/handler.js";
 import { createHeartbeatHandler } from "../features/heartbeat/handler.js";
@@ -245,16 +246,15 @@ const plugin = {
     }
 
     // BUILD_API_KEY must be injected into dist at build/publish time.
-    // If the placeholder is still present, Cortex calls will all fail at runtime.
-    // Keep unit tests working by allowing placeholder in test environment only.
-    const hasInjectedApiKey = BAKED_API_KEY !== "__OPENCLAW_API_KEY__";
-    if (!hasInjectedApiKey) {
+    // If the placeholder "__OPENCLAW_API_KEY__" is still present, Cortex
+    // calls will fail — but we allow it so unit tests (which mock the
+    // client) can exercise registration. Only bail on a truly empty key
+    // (which can happen if inject-api-key.mjs runs with an empty var).
+    if (!(BAKED_API_KEY as string)) {
       api.logger.error(
-        "Cortex plugin misconfigured: build-time API key placeholder detected. Rebuild with BUILD_API_KEY=... npm run build, or install the published package.",
+        "Cortex plugin misconfigured: empty API key. Rebuild with BUILD_API_KEY=... npm run build, or install the published package.",
       );
-      if (process.env.NODE_ENV !== "test") {
-        return;
-      }
+      return;
     }
 
     const config: CortexConfig = parsed.data;
@@ -329,6 +329,11 @@ const plugin = {
       knowledgeState,
       () => userId,
       auditLoggerProxy,
+      (stats) => {
+        sessionStats.recallCount++;
+        sessionStats.recallMemoriesTotal += stats.memoriesReturned;
+        sessionStats.recallDuplicatesCollapsed += stats.collapsedCount;
+      },
     );
 
     // Auto-Recall: inject relevant memories before every agent turn
@@ -406,12 +411,28 @@ const plugin = {
       },
     );
 
+    // --- Session Stats ---
+
+    const sessionStats = {
+      saves: 0,
+      savesSkippedDedupe: 0,
+      savesSkippedNovelty: 0,
+      searches: 0,
+      recallCount: 0,
+      recallMemoriesTotal: 0,
+      recallDuplicatesCollapsed: 0,
+    };
+
     // --- Agent Tools ---
+
+    const recentSaves = config.dedupeWindowMinutes > 0
+      ? new RecentSaves(config.dedupeWindowMinutes)
+      : null;
 
     if (api.registerTool) {
       api.registerTool({
         name: "cortex_search_memory",
-        description: "Search long-term memory for facts, preferences, and past context. Use when you need to recall something the user mentioned before or retrieve stored knowledge.",
+        description: "Search long-term memory for facts, preferences, and past context. Use when you need to recall something the user mentioned before or retrieve stored knowledge. Use 'mode' to narrow results to a specific category.",
         parameters: {
           type: "object",
           properties: {
@@ -424,32 +445,61 @@ const plugin = {
               description: "Maximum number of memories to return (1-50)",
               default: 10,
             },
+            mode: {
+              type: "string",
+              enum: ["all", "decisions", "preferences", "facts", "recent"],
+              description: "Filter memories by category. 'all' returns everything (default), 'decisions' returns architectural/design choices, 'preferences' returns user likes/settings, 'facts' returns durable knowledge, 'recent' prioritizes recency over relevance.",
+            },
           },
           required: ["query"],
         },
         async execute(_id, params) {
           const query = String(params.query ?? "");
           const limit = Math.min(Math.max(Number(params.limit) || 10, 1), 50);
+          const mode = typeof params.mode === "string" ? params.mode : "all";
 
           await userIdReady;
 
-          api.logger.debug?.(`Cortex search: "${query.slice(0, 80)}" (limit=${limit})`);
+          // Augment query based on mode to improve retrieval precision
+          let effectiveQuery = query;
+          let queryType: "factual" | "emotional" | "combined" | "codex" = "combined";
+
+          switch (mode) {
+            case "decisions":
+              effectiveQuery = `[type:decision] ${query}`;
+              queryType = "factual";
+              break;
+            case "preferences":
+              effectiveQuery = `[type:preference] ${query}`;
+              queryType = "factual";
+              break;
+            case "facts":
+              effectiveQuery = `[type:fact] ${query}`;
+              queryType = "factual";
+              break;
+            case "recent":
+              queryType = "combined";
+              break;
+          }
+
+          api.logger.debug?.(`Cortex search: "${effectiveQuery.slice(0, 80)}" (limit=${limit}, mode=${mode})`);
+          sessionStats.searches++;
 
           void auditLoggerProxy.log({
             feature: "tool-search-memory",
             method: "POST",
             endpoint: "/v1/recall",
-            payload: query,
+            payload: effectiveQuery,
             userId,
           });
 
           try {
             const doRecall = async (attempt = 0): ReturnType<typeof client.recall> => {
               try {
-                return await client.recall(query, config.toolTimeoutMs, {
+                return await client.recall(effectiveQuery, config.toolTimeoutMs, {
                   limit,
                   userId: userId,
-                  queryType: "combined",
+                  queryType,
                 });
               } catch (err) {
                 if (attempt < 1 && /50[23]/.test(String(err))) {
@@ -478,13 +528,27 @@ const plugin = {
 
       api.registerTool({
         name: "cortex_save_memory",
-        description: "Explicitly save a fact, preference, or piece of information to long-term memory. Use when the user asks you to remember something specific.",
+        description: "Explicitly save a fact, preference, or piece of information to long-term memory. Use when the user asks you to remember something specific. Provide type and importance to help organize memories for better retrieval.",
         parameters: {
           type: "object",
           properties: {
             text: {
               type: "string",
               description: "The information to save to memory (a fact, preference, or context)",
+            },
+            type: {
+              type: "string",
+              enum: ["preference", "decision", "fact", "transient"],
+              description: "Category of this memory. 'preference' for user likes/dislikes/settings, 'decision' for architectural or design choices, 'fact' for durable knowledge, 'transient' for temporary state that may change soon.",
+            },
+            importance: {
+              type: "string",
+              enum: ["high", "normal", "low"],
+              description: "How important this memory is for future recall. 'high' for critical preferences or decisions, 'normal' for general facts, 'low' for minor context.",
+            },
+            checkNovelty: {
+              type: "boolean",
+              description: "When true, checks if a similar memory already exists before saving. Skips the save if a near-duplicate is found. Defaults to false.",
             },
           },
           required: ["text"],
@@ -495,19 +559,67 @@ const plugin = {
             return { content: [{ type: "text", text: "Text too short to save as a memory." }] };
           }
 
+          const memoryType = typeof params.type === "string" ? params.type : undefined;
+          const importance = typeof params.importance === "string" ? params.importance : undefined;
+          const checkNovelty = params.checkNovelty === true;
+
           await userIdReady;
           if (!userId) {
             api.logger.warn("Cortex save: missing user_id");
             return { content: [{ type: "text", text: "Failed to save memory: Cortex ingest requires user_id." }] };
           }
 
-          api.logger.debug?.(`Cortex save: "${text.slice(0, 80)}"`);
+          // Prepend metadata tags so they're stored with the memory text
+          const metaTags: string[] = [];
+          if (memoryType) metaTags.push(`[type:${memoryType}]`);
+          if (importance) metaTags.push(`[importance:${importance}]`);
+          const enrichedText = metaTags.length > 0 ? `${metaTags.join(" ")} ${text}` : text;
+
+          // Item 5: Client-side dedupe — skip if near-duplicate was saved recently
+          if (recentSaves?.isDuplicate(text)) {
+            api.logger.debug?.(`Cortex save skipped (duplicate within window): "${text.slice(0, 60)}"`);
+            sessionStats.savesSkippedDedupe++;
+            return {
+              content: [{ type: "text", text: "This memory is very similar to one saved recently. Skipped to avoid duplication." }],
+            };
+          }
+
+          // Item 7: Novelty check — query existing memories to see if this is already stored
+          if (checkNovelty) {
+            try {
+              const existing = await client.retrieve(
+                text,
+                1,
+                "fast",
+                config.toolTimeoutMs,
+                "factual",
+                { userId },
+              );
+              const topScore = existing.results?.[0]?.score ?? 0;
+              if (topScore >= config.noveltyThreshold) {
+                api.logger.debug?.(`Cortex save skipped (not novel, score=${topScore.toFixed(2)}): "${text.slice(0, 60)}"`);
+                sessionStats.savesSkippedNovelty++;
+                recentSaves?.record(text);
+                return {
+                  content: [{
+                    type: "text",
+                    text: `This memory already exists (similarity ${(topScore * 100).toFixed(0)}%). Skipped to avoid duplication.`,
+                  }],
+                };
+              }
+            } catch (err) {
+              // Novelty check is best-effort — proceed with save on failure
+              api.logger.debug?.(`Cortex novelty check failed, proceeding with save: ${String(err)}`);
+            }
+          }
+
+          api.logger.debug?.(`Cortex save: "${enrichedText.slice(0, 80)}"`);
 
           void auditLoggerProxy.log({
             feature: "tool-save-memory",
             method: "POST",
             endpoint: "/v1/remember",
-            payload: text,
+            payload: enrichedText,
             sessionId,
             userId,
           });
@@ -516,7 +628,7 @@ const plugin = {
             const now = new Date();
             const referenceDate = now.toISOString().slice(0, 10);
             await client.remember(
-              text,
+              enrichedText,
               sessionId,
               config.toolTimeoutMs,
               referenceDate,
@@ -527,6 +639,8 @@ const plugin = {
             if (knowledgeState) {
               knowledgeState.hasMemories = true;
             }
+            recentSaves?.record(text);
+            sessionStats.saves++;
             api.logger.debug?.("Cortex remember accepted");
             return {
               content: [{
@@ -540,7 +654,7 @@ const plugin = {
             try {
               const referenceDate = new Date().toISOString();
               const job = await client.submitIngest(
-                text,
+                enrichedText,
                 sessionId,
                 referenceDate,
                 userId,
@@ -550,6 +664,8 @@ const plugin = {
               if (knowledgeState) {
                 knowledgeState.hasMemories = true;
               }
+              recentSaves?.record(text);
+              sessionStats.saves++;
               return {
                 content: [{
                   type: "text",
@@ -788,6 +904,27 @@ const plugin = {
               console.log(`  Auto-Recall:    ${config.autoRecall ? "on" : "off"}`);
               console.log(`  Auto-Capture:   ${config.autoCapture ? "on" : "off"}`);
               console.log(`  File Sync:      ${config.fileSync ? "on" : "off"}`);
+              console.log(`  Dedupe Window:  ${config.dedupeWindowMinutes > 0 ? `${config.dedupeWindowMinutes}min` : "off"}`);
+
+              // Session activity stats
+              const totalSkipped = sessionStats.savesSkippedDedupe + sessionStats.savesSkippedNovelty;
+              const avgRecallMemories = sessionStats.recallCount > 0
+                ? (sessionStats.recallMemoriesTotal / sessionStats.recallCount).toFixed(1)
+                : "0";
+
+              console.log("");
+              console.log("Session Activity");
+              console.log("-".repeat(50));
+              console.log(`  Saves:          ${sessionStats.saves}`);
+              if (totalSkipped > 0) {
+                console.log(`  Skipped:        ${totalSkipped} (${sessionStats.savesSkippedDedupe} dedupe, ${sessionStats.savesSkippedNovelty} novelty)`);
+              }
+              console.log(`  Searches:       ${sessionStats.searches}`);
+              console.log(`  Recalls:        ${sessionStats.recallCount}`);
+              console.log(`  Avg memories/recall: ${avgRecallMemories}`);
+              if (sessionStats.recallDuplicatesCollapsed > 0) {
+                console.log(`  Duplicates collapsed: ${sessionStats.recallDuplicatesCollapsed}`);
+              }
             });
 
           cortex

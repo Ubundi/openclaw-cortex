@@ -129,19 +129,101 @@ function truncateMemory(content: string, maxChars = MAX_MEMORY_LINE_CHARS): stri
   return `${trimmed.slice(0, maxChars - 1).trimEnd()}…`;
 }
 
+/** Tokenize text into a word set for Jaccard similarity. */
+function toWordSet(text: string): Set<string> {
+  return new Set(
+    text
+      .toLowerCase()
+      .replace(/\[type:\w+\]/g, "")
+      .replace(/\[importance:\w+\]/g, "")
+      .replace(/[^\w\s]/g, " ")
+      .split(/\s+/)
+      .filter((w) => w.length > 2),
+  );
+}
+
+/** Jaccard similarity between two word sets. */
+function jaccardSimilarity(a: Set<string>, b: Set<string>): number {
+  if (a.size === 0 && b.size === 0) return 1;
+  let intersection = 0;
+  for (const word of a) {
+    if (b.has(word)) intersection++;
+  }
+  const union = a.size + b.size - intersection;
+  return union === 0 ? 0 : intersection / union;
+}
+
+const SIMILARITY_COLLAPSE_THRESHOLD = 0.75;
+
+/**
+ * Collapse near-duplicate memories using fuzzy word-set similarity.
+ * Returns the collapsed list and the number of memories that were folded in.
+ */
+function collapseNearDuplicates(
+  memories: RecallMemory[],
+): { collapsed: RecallMemory[]; collapsedCount: number } {
+  const result: Array<{ memory: RecallMemory; words: Set<string>; count: number }> = [];
+
+  for (const memory of memories) {
+    const words = toWordSet(memory.content);
+    if (words.size === 0) {
+      result.push({ memory, words, count: 1 });
+      continue;
+    }
+
+    let merged = false;
+    for (const group of result) {
+      if (group.words.size === 0) continue;
+      if (jaccardSimilarity(words, group.words) >= SIMILARITY_COLLAPSE_THRESHOLD) {
+        group.count++;
+        // Keep the one with higher confidence
+        if (memory.confidence > group.memory.confidence) {
+          group.memory = memory;
+          group.words = words;
+        }
+        merged = true;
+        break;
+      }
+    }
+
+    if (!merged) {
+      result.push({ memory, words, count: 1 });
+    }
+  }
+
+  const collapsedCount = memories.length - result.length;
+  return {
+    collapsed: result.map((g) => g.memory),
+    collapsedCount,
+  };
+}
+
 /** Maximum memories to inject into agent context after noise filtering. */
 const DEFAULT_TOP_K = 15;
+
+export interface FormatMemoriesResult {
+  text: string;
+  collapsedCount: number;
+}
 
 export function formatMemories(
   memories: RecallMemory[],
   topK: number = DEFAULT_TOP_K,
 ): string {
-  const cleaned = filterNoisyMemories(memories);
-  if (!cleaned.length) return "";
+  return formatMemoriesWithStats(memories, topK).text;
+}
 
-  // De-duplicate before selection so repeated variants don't dominate context.
+export function formatMemoriesWithStats(
+  memories: RecallMemory[],
+  topK: number = DEFAULT_TOP_K,
+): FormatMemoriesResult {
+  const cleaned = filterNoisyMemories(memories);
+  if (!cleaned.length) return { text: "", collapsedCount: 0 };
+
+  // De-duplicate exact matches, then collapse fuzzy near-duplicates.
   const deduped = dedupeMemories(cleaned);
-  const candidates = deduped.slice(0, topK);
+  const { collapsed, collapsedCount } = collapseNearDuplicates(deduped);
+  const candidates = collapsed.slice(0, topK);
 
   const prefix = `<cortex_memories>\n${UNTRUSTED_PREAMBLE}\n`;
   const suffix = "\n</cortex_memories>";
@@ -157,6 +239,17 @@ export function formatMemories(
     totalChars += addedChars;
   }
 
-  if (!lines.length) return "";
-  return `${prefix}${lines.join("\n")}${suffix}`;
+  if (collapsedCount > 0) {
+    const note = `(${collapsedCount} similar ${collapsedCount === 1 ? "memory" : "memories"} collapsed)`;
+    const noteChars = (lines.length > 0 ? 1 : 0) + note.length;
+    if (totalChars + noteChars <= MAX_MEMORY_BLOCK_CHARS) {
+      lines.push(note);
+    }
+  }
+
+  if (!lines.length) return { text: "", collapsedCount };
+  return {
+    text: `${prefix}${lines.join("\n")}${suffix}`,
+    collapsedCount,
+  };
 }

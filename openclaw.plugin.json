@@ -89,6 +89,16 @@
         "description": "Enable built-in filter to drop low-signal content (heartbeat messages, TUI artifacts, token counters) before ingestion",
         "default": true
       },
+      "dedupeWindowMinutes": {
+        "type": "number",
+        "description": "Time window (in minutes) for client-side deduplication of explicit memory saves. Set to 0 to disable.",
+        "default": 30
+      },
+      "noveltyThreshold": {
+        "type": "number",
+        "description": "Similarity score threshold (0-1) for the novelty check against existing memories. Memories scoring above this are considered duplicates. Lower values are stricter.",
+        "default": 0.85
+      },
       "auditLog": {
         "type": "boolean",
         "description": "Record all data sent to Cortex in a local audit log at .cortex/audit/",
@@ -164,6 +174,16 @@
     "captureFilter": {
       "label": "Capture Filter",
       "helpText": "Filters out low-signal content (heartbeats, TUI artifacts, token counters) before ingestion."
+    },
+    "dedupeWindowMinutes": {
+      "label": "Dedupe Window (min)",
+      "advanced": true,
+      "helpText": "Time window for client-side deduplication of saves. Saves that are too similar to a recent save within this window are skipped. Set to 0 to disable."
+    },
+    "noveltyThreshold": {
+      "label": "Novelty Threshold",
+      "advanced": true,
+      "helpText": "Similarity score (0-1) above which an existing memory is considered a duplicate during save-if-novel checks. Lower = stricter deduplication."
     },
     "auditLog": {
       "label": "Audit Log",

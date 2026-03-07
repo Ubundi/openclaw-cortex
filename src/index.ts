@@ -10,5 +10,5 @@ export { createCaptureHandler } from "./features/capture/handler.js";
 export { FileSyncWatcher } from "./features/sync/watcher.js";
 export { RetryQueue } from "./internal/queue/retry-queue.js";
 export { LatencyMetrics } from "./internal/metrics/latency-metrics.js";
-export { formatMemories } from "./features/recall/formatter.js";
+export { formatMemories, formatMemoriesWithStats } from "./features/recall/formatter.js";
 export { cleanTranscript, cleanTranscriptChunk } from "./internal/transcript/cleaner.js";
