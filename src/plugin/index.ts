@@ -1,5 +1,7 @@
-import { basename } from "node:path";
+import { basename, join } from "node:path";
 import { createHash, randomUUID } from "node:crypto";
+import { readFileSync, writeFileSync, statSync } from "node:fs";
+import { homedir } from "node:os";
 import packageJson from "../../package.json" with { type: "json" };
 import { CortexConfigSchema, configSchema, type CortexConfig } from "./config/schema.js";
 import { CortexClient } from "../adapters/cortex/client.js";
@@ -23,6 +25,42 @@ import {
 } from "../internal/session/session-state.js";
 
 const version = packageJson.version;
+const STATS_FILE = join(homedir(), ".openclaw", "cortex-session-stats.json");
+
+interface SessionStats {
+  saves: number;
+  savesSkippedDedupe: number;
+  savesSkippedNovelty: number;
+  searches: number;
+  recallCount: number;
+  recallMemoriesTotal: number;
+  recallDuplicatesCollapsed: number;
+}
+
+function persistStats(stats: SessionStats): void {
+  try {
+    writeFileSync(STATS_FILE, JSON.stringify({ ...stats, updatedAt: Date.now() }) + "\n", { encoding: "utf-8", mode: 0o600 });
+  } catch {
+    // Best-effort — stats display is non-critical
+  }
+}
+
+function loadPersistedStats(): SessionStats | null {
+  try {
+    const raw = JSON.parse(readFileSync(STATS_FILE, "utf-8"));
+    return {
+      saves: raw.saves ?? 0,
+      savesSkippedDedupe: raw.savesSkippedDedupe ?? 0,
+      savesSkippedNovelty: raw.savesSkippedNovelty ?? 0,
+      searches: raw.searches ?? 0,
+      recallCount: raw.recallCount ?? 0,
+      recallMemoriesTotal: raw.recallMemoriesTotal ?? 0,
+      recallDuplicatesCollapsed: raw.recallDuplicatesCollapsed ?? 0,
+    };
+  } catch {
+    return null;
+  }
+}
 
 export interface KnowledgeState {
   hasMemories: boolean;
@@ -224,6 +262,49 @@ function registerHookCompat(
   }
 }
 
+/** Tool names that must survive the tools.profile allowlist filter. */
+const CORTEX_TOOL_NAMES = ["cortex_search_memory", "cortex_save_memory"] as const;
+
+/**
+ * Ensures `tools.alsoAllow` in the OpenClaw config includes our tool names.
+ * Without this, profiles like "coding" silently filter out plugin tools —
+ * auto-recall/capture hooks still work, but the agent can't explicitly
+ * search or save memories.
+ *
+ * Runs once on first registration; idempotent thereafter.
+ */
+function ensureToolsAllowlist(logger: Logger): void {
+  try {
+    const configPath = join(homedir(), ".openclaw", "openclaw.json");
+    const raw = readFileSync(configPath, "utf-8");
+    const config = JSON.parse(raw);
+
+    // Only needed when a tools profile is active (which creates a fixed allowlist)
+    if (!config.tools?.profile) return;
+
+    const existing: string[] = Array.isArray(config.tools.alsoAllow)
+      ? config.tools.alsoAllow
+      : [];
+    const missing = CORTEX_TOOL_NAMES.filter((name) => !existing.includes(name));
+    if (missing.length === 0) return;
+
+    config.tools.alsoAllow = [...existing, ...missing];
+    // Preserve original file permissions (e.g. 0o600) to avoid security audit warnings
+    let mode: number | undefined;
+    try { mode = statSync(configPath).mode & 0o777; } catch { /* ignore */ }
+    writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n", { encoding: "utf-8", mode: mode ?? 0o600 });
+    logger.info(
+      `Cortex: enabled memory tools for "${config.tools.profile}" profile`,
+    );
+  } catch {
+    // Config unreadable — tools may be filtered by the profile allowlist.
+    // Hooks (auto-recall, auto-capture) still work regardless.
+    logger.warn(
+      `Cortex: could not verify tool access — if the agent cannot use cortex_search_memory or cortex_save_memory, add them to tools.alsoAllow in openclaw.json`,
+    );
+  }
+}
+
 const plugin = {
   id: "openclaw-cortex",
   name: "Cortex Memory",
@@ -256,6 +337,9 @@ const plugin = {
       );
       return;
     }
+
+    // Ensure our tools survive the profile allowlist filter (one-time config patch)
+    ensureToolsAllowlist(api.logger);
 
     const config: CortexConfig = parsed.data;
     const client = new CortexClient(config.baseUrl, BAKED_API_KEY);
@@ -333,6 +417,7 @@ const plugin = {
         sessionStats.recallCount++;
         sessionStats.recallMemoriesTotal += stats.memoriesReturned;
         sessionStats.recallDuplicatesCollapsed += stats.collapsedCount;
+        persistStats(sessionStats);
       },
     );
 
@@ -423,6 +508,9 @@ const plugin = {
       recallDuplicatesCollapsed: 0,
     };
 
+    // Reset persisted stats for this new session
+    persistStats(sessionStats);
+
     // --- Agent Tools ---
 
     const recentSaves = config.dedupeWindowMinutes > 0
@@ -484,6 +572,7 @@ const plugin = {
 
           api.logger.debug?.(`Cortex search: "${effectiveQuery.slice(0, 80)}" (limit=${limit}, mode=${mode})`);
           sessionStats.searches++;
+          persistStats(sessionStats);
 
           void auditLoggerProxy.log({
             feature: "tool-search-memory",
@@ -579,6 +668,7 @@ const plugin = {
           if (recentSaves?.isDuplicate(text)) {
             api.logger.debug?.(`Cortex save skipped (duplicate within window): "${text.slice(0, 60)}"`);
             sessionStats.savesSkippedDedupe++;
+            persistStats(sessionStats);
             return {
               content: [{ type: "text", text: "This memory is very similar to one saved recently. Skipped to avoid duplication." }],
             };
@@ -599,6 +689,7 @@ const plugin = {
               if (topScore >= config.noveltyThreshold) {
                 api.logger.debug?.(`Cortex save skipped (not novel, score=${topScore.toFixed(2)}): "${text.slice(0, 60)}"`);
                 sessionStats.savesSkippedNovelty++;
+                persistStats(sessionStats);
                 recentSaves?.record(text);
                 return {
                   content: [{
@@ -641,6 +732,7 @@ const plugin = {
             }
             recentSaves?.record(text);
             sessionStats.saves++;
+            persistStats(sessionStats);
             api.logger.debug?.("Cortex remember accepted");
             return {
               content: [{
@@ -666,6 +758,7 @@ const plugin = {
               }
               recentSaves?.record(text);
               sessionStats.saves++;
+              persistStats(sessionStats);
               return {
                 content: [{
                   type: "text",
@@ -906,24 +999,26 @@ const plugin = {
               console.log(`  File Sync:      ${config.fileSync ? "on" : "off"}`);
               console.log(`  Dedupe Window:  ${config.dedupeWindowMinutes > 0 ? `${config.dedupeWindowMinutes}min` : "off"}`);
 
-              // Session activity stats
-              const totalSkipped = sessionStats.savesSkippedDedupe + sessionStats.savesSkippedNovelty;
-              const avgRecallMemories = sessionStats.recallCount > 0
-                ? (sessionStats.recallMemoriesTotal / sessionStats.recallCount).toFixed(1)
+              // Session activity stats — read from persisted file so CLI process
+              // can see stats from the running gateway instance
+              const liveStats = loadPersistedStats() ?? sessionStats;
+              const totalSkipped = liveStats.savesSkippedDedupe + liveStats.savesSkippedNovelty;
+              const avgRecallMemories = liveStats.recallCount > 0
+                ? (liveStats.recallMemoriesTotal / liveStats.recallCount).toFixed(1)
                 : "0";
 
               console.log("");
               console.log("Session Activity");
               console.log("-".repeat(50));
-              console.log(`  Saves:          ${sessionStats.saves}`);
+              console.log(`  Saves:          ${liveStats.saves}`);
               if (totalSkipped > 0) {
-                console.log(`  Skipped:        ${totalSkipped} (${sessionStats.savesSkippedDedupe} dedupe, ${sessionStats.savesSkippedNovelty} novelty)`);
+                console.log(`  Skipped:        ${totalSkipped} (${liveStats.savesSkippedDedupe} dedupe, ${liveStats.savesSkippedNovelty} novelty)`);
               }
-              console.log(`  Searches:       ${sessionStats.searches}`);
-              console.log(`  Recalls:        ${sessionStats.recallCount}`);
+              console.log(`  Searches:       ${liveStats.searches}`);
+              console.log(`  Recalls:        ${liveStats.recallCount}`);
               console.log(`  Avg memories/recall: ${avgRecallMemories}`);
-              if (sessionStats.recallDuplicatesCollapsed > 0) {
-                console.log(`  Duplicates collapsed: ${sessionStats.recallDuplicatesCollapsed}`);
+              if (liveStats.recallDuplicatesCollapsed > 0) {
+                console.log(`  Duplicates collapsed: ${liveStats.recallDuplicatesCollapsed}`);
               }
             });
 

@@ -5,6 +5,18 @@ import { FileSyncWatcher } from "../../src/features/sync/watcher.js";
 import { RetryQueue } from "../../src/internal/queue/retry-queue.js";
 import { SessionStateStore } from "../../src/internal/session/session-state.js";
 
+// Mock fs at module level so ensureToolsAllowlist can be tested
+const mockReadFileSync = vi.fn<typeof import("node:fs").readFileSync>();
+const mockWriteFileSync = vi.fn<typeof import("node:fs").writeFileSync>();
+vi.mock("node:fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:fs")>();
+  return {
+    ...actual,
+    readFileSync: (...args: any[]) => mockReadFileSync(...args as [any]),
+    writeFileSync: (...args: any[]) => mockWriteFileSync(...args as [any, any]),
+  };
+});
+
 type HookHandler = (...args: any[]) => any;
 
 interface MockLogger {
@@ -146,6 +158,14 @@ describe("plugin lifecycle contract", () => {
     mockClientHealth();
     mockClientKnowledge();
     vi.spyOn(CortexClient.prototype, "stats").mockResolvedValue({ pipeline_tier: 1, pipeline_maturity: "cold" });
+    // Default: ensureToolsAllowlist silently skips (no config file found)
+    mockReadFileSync.mockImplementation((...args: any[]) => {
+      const path = String(args[0]);
+      if (path.includes("openclaw.json")) throw new Error("ENOENT");
+      // Fall through to actual fs for other reads (e.g. package.json)
+      const actual = vi.importActual<typeof import("node:fs")>("node:fs");
+      return (actual as any).readFileSync(...args);
+    });
   });
 
   afterEach(() => {
@@ -596,5 +616,104 @@ describe("plugin lifecycle contract", () => {
 
     expect(errorSpy).toHaveBeenCalledWith("\n  Reset failed: AbortError: aborted");
     expect(process.exitCode).toBe(1);
+  });
+
+  describe("tools.alsoAllow auto-patch", () => {
+    it("adds cortex tools to alsoAllow when profile is set and tools are missing", async () => {
+      const config = {
+        tools: { profile: "coding" },
+        plugins: { entries: { "openclaw-cortex": { enabled: true } } },
+      };
+      mockReadFileSync.mockReturnValue(JSON.stringify(config));
+
+      const { api } = makeApi({ fileSync: false });
+      plugin.register(api as any);
+
+      // Filter out session stats writes (to cortex-session-stats.json)
+      const configWrites = mockWriteFileSync.mock.calls.filter(
+        (c) => String(c[0]).includes("openclaw.json"),
+      );
+      expect(configWrites).toHaveLength(1);
+      const written = JSON.parse(configWrites[0][1] as string);
+      expect(written.tools.alsoAllow).toEqual(["cortex_search_memory", "cortex_save_memory"]);
+      expect(api.logger.info).toHaveBeenCalledWith(
+        expect.stringContaining('enabled memory tools for "coding" profile'),
+      );
+    });
+
+    it("skips patching when no tools profile is set", async () => {
+      const config = {
+        tools: {},
+        plugins: { entries: { "openclaw-cortex": { enabled: true } } },
+      };
+      mockReadFileSync.mockReturnValue(JSON.stringify(config));
+
+      const { api } = makeApi({ fileSync: false });
+      plugin.register(api as any);
+
+      const configWrites = mockWriteFileSync.mock.calls.filter(
+        (c) => String(c[0]).includes("openclaw.json"),
+      );
+      expect(configWrites).toHaveLength(0);
+    });
+
+    it("skips patching when cortex tools are already in alsoAllow", async () => {
+      const config = {
+        tools: {
+          profile: "coding",
+          alsoAllow: ["cortex_search_memory", "cortex_save_memory"],
+        },
+      };
+      mockReadFileSync.mockReturnValue(JSON.stringify(config));
+
+      const { api } = makeApi({ fileSync: false });
+      plugin.register(api as any);
+
+      const configWrites = mockWriteFileSync.mock.calls.filter(
+        (c) => String(c[0]).includes("openclaw.json"),
+      );
+      expect(configWrites).toHaveLength(0);
+    });
+
+    it("preserves existing alsoAllow entries when adding cortex tools", async () => {
+      const config = {
+        tools: {
+          profile: "coding",
+          alsoAllow: ["some_other_tool"],
+        },
+      };
+      mockReadFileSync.mockReturnValue(JSON.stringify(config));
+
+      const { api } = makeApi({ fileSync: false });
+      plugin.register(api as any);
+
+      const configWrites = mockWriteFileSync.mock.calls.filter(
+        (c) => String(c[0]).includes("openclaw.json"),
+      );
+      const written = JSON.parse(configWrites[0][1] as string);
+      expect(written.tools.alsoAllow).toEqual([
+        "some_other_tool",
+        "cortex_search_memory",
+        "cortex_save_memory",
+      ]);
+    });
+
+    it("handles config file read errors gracefully with actionable warning", async () => {
+      mockReadFileSync.mockImplementation(() => {
+        throw new Error("ENOENT");
+      });
+
+      const { api } = makeApi({ fileSync: false });
+      // Should not throw
+      plugin.register(api as any);
+
+      const configWrites = mockWriteFileSync.mock.calls.filter(
+        (c) => String(c[0]).includes("openclaw.json"),
+      );
+      expect(configWrites).toHaveLength(0);
+      expect(api.logger.warn).toHaveBeenCalledWith(
+        expect.stringContaining("tools.alsoAllow"),
+      );
+    });
   });
 });
