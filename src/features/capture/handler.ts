@@ -4,7 +4,7 @@ import type { CortexConfig } from "../../plugin/config.js";
 import type { KnowledgeState } from "../../plugin/index.js";
 import type { RetryQueue } from "../../internal/retry-queue.js";
 import type { AuditLogger } from "../../internal/audit-logger.js";
-import { filterLowSignalMessages } from "./filter.js";
+import { filterLowSignalMessages, stripRuntimeMetadata } from "./filter.js";
 
 interface AgentEndEvent {
   runId?: string;
@@ -173,9 +173,18 @@ export function createCaptureHandler(
         )
         .map((msg) => ({
           role: String(msg.role),
-          content: stripRecallBlock(extractContent(msg.content)),
+          content: stripRuntimeMetadata(stripRecallBlock(extractContent(msg.content))),
         }))
         .filter((msg) => msg.content.length > 0);
+
+      // Truncate individual messages that exceed the Cortex per-message limit.
+      // The API rejects messages with content > 10,000 chars (422).
+      const API_MAX_MESSAGE_CHARS = 10_000;
+      for (const msg of normalized) {
+        if (msg.content.length > API_MAX_MESSAGE_CHARS) {
+          msg.content = msg.content.slice(0, API_MAX_MESSAGE_CHARS);
+        }
+      }
 
       // Drop low-signal messages (heartbeats, status lines, TUI artifacts)
       const filtered = config.captureFilter !== false

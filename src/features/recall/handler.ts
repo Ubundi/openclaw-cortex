@@ -6,6 +6,7 @@ import { formatMemoriesWithStats } from "./formatter.js";
 import { inferRecallProfile, getProfileParams } from "./context-profile.js";
 import type { RecallProfile } from "./context-profile.js";
 import { LatencyMetrics } from "../../internal/latency-metrics.js";
+import { stripRuntimeMetadata } from "../capture/filter.js";
 
 interface BeforeAgentStartEvent {
   prompt: string;
@@ -101,7 +102,7 @@ function getLatestUserQuery(messages: unknown[] | undefined): string | undefined
     if (typeof msg !== "object" || msg === null) continue;
     const m = msg as Record<string, unknown>;
     if (String(m.role) !== "user") continue;
-    const text = stripRecallBlock(extractText(m.content));
+    const text = stripRuntimeMetadata(stripRecallBlock(extractText(m.content)));
     if (text) return text;
   }
   return undefined;

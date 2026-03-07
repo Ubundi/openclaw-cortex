@@ -76,19 +76,23 @@ export function buildSearchMemoryTool(deps: ToolsDeps): ToolDefinition {
       // Augment query based on mode to improve retrieval precision
       let effectiveQuery = query;
       let queryType: "factual" | "emotional" | "combined" | "codex" = "combined";
+      let memoryType: string | undefined;
 
       switch (mode) {
         case "decisions":
           effectiveQuery = `[type:decision] ${query}`;
           queryType = "factual";
+          memoryType = "decision";
           break;
         case "preferences":
           effectiveQuery = `[type:preference] ${query}`;
           queryType = "factual";
+          memoryType = "preference";
           break;
         case "facts":
           effectiveQuery = `[type:fact] ${query}`;
           queryType = "factual";
+          memoryType = "fact";
           break;
         case "recent":
           queryType = "combined";
@@ -114,6 +118,7 @@ export function buildSearchMemoryTool(deps: ToolsDeps): ToolDefinition {
               limit,
               userId: userId,
               queryType,
+              memoryType,
             });
           } catch (err) {
             if (attempt < 1 && /50[23]/.test(String(err))) {

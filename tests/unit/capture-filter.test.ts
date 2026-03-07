@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { isLowSignal, filterLowSignalMessages, filterLowSignalLines } from "../../src/features/capture/filter.js";
+import { isLowSignal, filterLowSignalMessages, filterLowSignalLines, stripRuntimeMetadata } from "../../src/features/capture/filter.js";
 
 describe("isLowSignal", () => {
   it.each([
@@ -83,6 +83,56 @@ describe("filterLowSignalMessages", () => {
     ];
 
     expect(filterLowSignalMessages(messages)).toHaveLength(2);
+  });
+});
+
+describe("stripRuntimeMetadata", () => {
+  it("strips conversation info metadata block", () => {
+    const input = `Conversation info (untrusted metadata):\n\`\`\`json\n{\n  "message_id": "628",\n  "sender_id": "8798365142"\n}\n\`\`\`\n\nWhat is ubundi about?`;
+    expect(stripRuntimeMetadata(input)).toBe("What is ubundi about?");
+  });
+
+  it("strips sender metadata block", () => {
+    const input = `Sender (untrusted metadata):\n\`\`\`json\n{\n  "label": "Matthew Schramm",\n  "id": "123"\n}\n\`\`\`\n\nHello world`;
+    expect(stripRuntimeMetadata(input)).toBe("Hello world");
+  });
+
+  it("strips both metadata blocks together", () => {
+    const input = [
+      "Conversation info (untrusted metadata):",
+      "```json",
+      '{ "message_id": "628", "sender_id": "123", "sender": "Matt", "timestamp": "Sat 2026-03-07 20:14 UTC" }',
+      "```",
+      "",
+      "Sender (untrusted metadata):",
+      "```json",
+      '{ "label": "Matt (123)", "id": "123", "name": "Matt" }',
+      "```",
+      "",
+      "What is ubundi about?",
+    ].join("\n");
+    expect(stripRuntimeMetadata(input)).toBe("What is ubundi about?");
+  });
+
+  it("returns unchanged content when no metadata present", () => {
+    const input = "What is ubundi about?";
+    expect(stripRuntimeMetadata(input)).toBe("What is ubundi about?");
+  });
+
+  it("preserves content after metadata blocks", () => {
+    const input = [
+      "Conversation info (untrusted metadata):",
+      "```json",
+      '{ "message_id": "1" }',
+      "```",
+      "",
+      "First line of actual content.",
+      "Second line of actual content.",
+    ].join("\n");
+    const result = stripRuntimeMetadata(input);
+    expect(result).toContain("First line of actual content.");
+    expect(result).toContain("Second line of actual content.");
+    expect(result).not.toContain("message_id");
   });
 });
 

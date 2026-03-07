@@ -45,16 +45,55 @@ export interface IngestEntity {
   aliases: string[];
 }
 
+// --- RESONATE output types (structured extraction results) ---
+
+export interface EmotionOut {
+  name: string;
+  intensity: string;
+  context?: string | null;
+  source: string;
+  evidence_quote?: string | null;
+}
+
+export interface ValueOut {
+  name: string;
+  importance: string;
+  temporal: string;
+  evidence_quote?: string | null;
+}
+
+export interface BeliefOut {
+  content: string;
+  belief_type: string;
+  conviction: number;
+  source: string;
+  temporal: string;
+  evidence_quote?: string | null;
+}
+
+export interface InsightOut {
+  content: string;
+  confidence: number;
+  evidence_quote?: string | null;
+}
+
+export interface LifeContextOut {
+  stage?: string | null;
+  transition?: string | null;
+  pattern?: string | null;
+}
+
 export interface IngestResponse {
   nodes_created: number;
   edges_created: number;
+  duplicates_merged?: number;
   facts: IngestFact[];
   entities: IngestEntity[];
-  emotions?: string[];
-  values?: string[];
-  beliefs?: string[];
-  insights?: string[];
-  life_context?: string[];
+  emotions?: EmotionOut[];
+  values?: ValueOut[];
+  beliefs?: BeliefOut[];
+  insights?: InsightOut[];
+  life_context?: LifeContextOut | null;
 }
 
 export interface ReflectResponse {
@@ -114,10 +153,12 @@ export interface JobSubmitResponse {
 export interface RecallMemory {
   content: string;
   confidence: number;
+  relevance?: number;
   when: string | null;
   session_id: string | null;
   entities: string[];
   type?: NodeType;
+  memory_type?: string;
   grounded?: boolean;
   source_origin?: string;
   derivation_mode?: string;
@@ -136,6 +177,7 @@ export interface RememberAcceptedResponse {
 export interface RememberResponse {
   session_id: string | null;
   memories_created: number;
+  duplicates_merged?: number;
   entities_found: string[];
   facts: string[];
   emotions: string[];
@@ -537,6 +579,7 @@ export class CortexClient {
       includeOrigins?: string[];
       excludeOrigins?: string[];
       derivationMode?: string;
+      memoryType?: string;
     },
   ): Promise<RecallResponse> {
     return this.fetchJsonWithTimeout<RecallResponse>(
@@ -550,6 +593,7 @@ export class CortexClient {
         query_type: options?.queryType ?? undefined,
         min_confidence: options?.minConfidence ?? undefined,
         include_ungrounded: options?.includeUngrounded ?? undefined,
+        memory_type: options?.memoryType ?? undefined,
         ...(options?.includeOrigins ? { include_origins: options.includeOrigins } : {}),
         ...(options?.excludeOrigins ? { exclude_origins: options.excludeOrigins } : {}),
         ...(options?.derivationMode ? { derivation_mode: options.derivationMode } : {}),

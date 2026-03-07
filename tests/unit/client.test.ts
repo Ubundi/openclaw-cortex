@@ -384,6 +384,18 @@ describe("CortexClient", () => {
       expect(body.derivation_mode).toBe("extracted");
     });
 
+    it("includes memory_type in recall when provided", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ memories: [] }),
+      });
+
+      await client.recall("query", 500, { memoryType: "preference" });
+
+      const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+      expect(body.memory_type).toBe("preference");
+    });
+
     it("omits codex filter params from recall when not provided", async () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,

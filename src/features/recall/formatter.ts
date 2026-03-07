@@ -111,9 +111,11 @@ function dedupeMemories(memories: RecallMemory[]): RecallMemory[] {
     }
 
     const existing = deduped[existingIndex];
+    const memRelevance = memory.relevance ?? memory.confidence;
+    const existRelevance = existing.relevance ?? existing.confidence;
     if (
-      memory.confidence > existing.confidence ||
-      (memory.confidence === existing.confidence && memory.content.length < existing.content.length)
+      memRelevance > existRelevance ||
+      (memRelevance === existRelevance && memory.content.length < existing.content.length)
     ) {
       deduped[existingIndex] = memory;
     }
@@ -176,8 +178,10 @@ function collapseNearDuplicates(
       if (group.words.size === 0) continue;
       if (jaccardSimilarity(words, group.words) >= SIMILARITY_COLLAPSE_THRESHOLD) {
         group.count++;
-        // Keep the one with higher confidence
-        if (memory.confidence > group.memory.confidence) {
+        // Keep the one with higher relevance (falls back to confidence)
+        const memRelevance = memory.relevance ?? memory.confidence;
+        const groupRelevance = group.memory.relevance ?? group.memory.confidence;
+        if (memRelevance > groupRelevance) {
           group.memory = memory;
           group.words = words;
         }
@@ -232,7 +236,8 @@ export function formatMemoriesWithStats(
 
   for (const memory of candidates) {
     const content = truncateMemory(memory.content, MAX_MEMORY_LINE_CHARS);
-    const line = `- [${memory.confidence.toFixed(2)}] ${sanitizeMemoryContent(content)}`;
+    const displayScore = memory.relevance ?? memory.confidence;
+    const line = `- [${displayScore.toFixed(2)}] ${sanitizeMemoryContent(content)}`;
     const addedChars = (lines.length > 0 ? 1 : 0) + line.length;
     if (totalChars + addedChars > MAX_MEMORY_BLOCK_CHARS) break;
     lines.push(line);

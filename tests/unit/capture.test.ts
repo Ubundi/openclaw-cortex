@@ -321,6 +321,30 @@ describe("createCaptureHandler", () => {
     expect(transcript).toContain("Recent");
   });
 
+  it("truncates individual messages exceeding 10,000 chars", async () => {
+    const submitPromise = Promise.resolve({ job_id: "job-trunc", status: "pending" });
+    const submitMock = vi.fn().mockReturnValue(submitPromise);
+    const client = { submitIngestConversation: submitMock } as unknown as CortexClient;
+
+    const handler = createCaptureHandler(client, makeConfig(), logger);
+
+    const oversizedContent = "x".repeat(12_000);
+    await handler({
+      messages: [
+        { role: "user", content: `Tell me about this: ${oversizedContent}` },
+        { role: "assistant", content: "Here is a sufficiently long response to pass the content threshold check" },
+      ],
+      aborted: false,
+    });
+
+    await submitPromise;
+
+    const messages = submitMock.mock.calls[0][0] as Array<{ role: string; content: string }>;
+    const userMsg = messages.find((m) => m.role === "user");
+    expect(userMsg).toBeDefined();
+    expect(userMsg!.content.length).toBeLessThanOrEqual(10_000);
+  });
+
   it("skips messages between 20 and 50 chars (raised threshold)", async () => {
     const submitMock = vi.fn();
     const client = { submitIngestConversation: submitMock } as unknown as CortexClient;

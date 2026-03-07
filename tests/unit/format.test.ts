@@ -233,6 +233,45 @@ describe("filterNoisyMemories", () => {
   });
 });
 
+describe("formatMemories relevance scoring", () => {
+  const makeMem = (content: string, confidence: number, relevance?: number): RecallMemory => ({
+    content,
+    confidence,
+    relevance,
+    when: null,
+    session_id: null,
+    entities: [],
+  });
+
+  it("uses relevance for display score when present", () => {
+    const result = formatMemories([
+      makeMem("User prefers dark mode", 0.95, 0.72),
+    ]);
+
+    expect(result).toContain("- [0.72] User prefers dark mode");
+    expect(result).not.toContain("0.95");
+  });
+
+  it("falls back to confidence when relevance is absent", () => {
+    const result = formatMemories([
+      makeMem("User prefers dark mode", 0.95),
+    ]);
+
+    expect(result).toContain("- [0.95] User prefers dark mode");
+  });
+
+  it("dedup tie-breaking prefers higher relevance over higher confidence", () => {
+    const result = formatMemories([
+      makeMem("Project uses PostgreSQL with Neon", 0.90, 0.60),
+      makeMem("Project uses PostgreSQL with Neon", 0.95, 0.80),
+    ], 10);
+
+    // Should keep the one with 0.80 relevance, not the 0.95 confidence one
+    expect(result).toContain("0.80");
+    expect(result).not.toContain("0.60");
+  });
+});
+
 describe("formatMemoriesWithStats near-duplicate collapsing", () => {
   const makeMem = (content: string, confidence = 0.9): RecallMemory => ({
     content,

@@ -34,6 +34,19 @@ const LOW_SIGNAL_PATTERNS: RegExp[] = [
   /\bcreated on\b/i,
 ];
 
+/**
+ * Strip OpenClaw runtime metadata wrappers injected by the Telegram/messaging
+ * integration. These blocks carry message IDs, sender info, and timestamps that
+ * pollute both capture (junk memories) and recall (degraded semantic search).
+ *
+ * Pattern: `<Label> (untrusted metadata):\n```json\n{...}\n```\n`
+ */
+const RUNTIME_METADATA_RE = /(?:^|\n)[\w ]+\(untrusted metadata\):\s*```json\s*\{[\s\S]*?\}\s*```[ \t]*/g;
+
+export function stripRuntimeMetadata(text: string): string {
+  return text.replace(RUNTIME_METADATA_RE, "").trim();
+}
+
 /** Returns true if the content matches a known low-signal pattern. */
 export function isLowSignal(content: string): boolean {
   const trimmed = content.trim();
