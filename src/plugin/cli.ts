@@ -324,11 +324,12 @@ export function registerCliCommands(
             console.log(`    Codex suggestions:  ${d.codex_suggestions}`);
             console.log(`    Suppressions:       ${d.codex_suggestion_suppressions}`);
           } catch (err) {
-            if (isAbortError(err) && await resetCompletedAfterAbort(client, userId)) {
+            const is503 = /50[23]/.test(String(err));
+            if ((isAbortError(err) || is503) && await resetCompletedAfterAbort(client, userId)) {
               console.log("");
               console.log("  Memory reset complete.");
               console.log("");
-              console.log("  The server finished the reset, but the request ended before deletion stats were returned.");
+              console.log("  The server finished the reset, but the response timed out before deletion stats were returned.");
               return;
             }
             console.error(`\n  Reset failed: ${String(err)}`);

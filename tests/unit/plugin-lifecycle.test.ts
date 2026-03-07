@@ -578,7 +578,7 @@ describe("plugin lifecycle contract", () => {
     expect(CortexClient.prototype.knowledge).toHaveBeenCalledTimes(2);
     expect(logSpy).toHaveBeenCalledWith("  Memory reset complete.");
     expect(logSpy).toHaveBeenCalledWith(
-      "  The server finished the reset, but the request ended before deletion stats were returned.",
+      "  The server finished the reset, but the response timed out before deletion stats were returned.",
     );
     expect(errorSpy).not.toHaveBeenCalledWith(expect.stringContaining("Reset failed:"));
     expect(process.exitCode).toBeUndefined();
