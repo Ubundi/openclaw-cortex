@@ -425,8 +425,9 @@ const plugin = {
       recallDuplicatesCollapsed: 0,
     };
 
-    // Reset persisted stats for this new session
-    persistStats(sessionStats);
+    // Don't eagerly reset the stats file here — the dual-instance runtime
+    // means [plugins] would clobber stats that [gateway] already persisted.
+    // In-memory counters start at zero and get persisted on first real activity.
 
     // --- Agent Tools ---
 
