@@ -22,7 +22,7 @@ async function main() {
     readFile(new URL("../package.json", import.meta.url), "utf-8"),
     readFile(new URL("../openclaw.plugin.json", import.meta.url), "utf-8"),
     readFile(new URL("../src/plugin/index.ts", import.meta.url), "utf-8"),
-    readFile(new URL("../src/plugin/config/schema.ts", import.meta.url), "utf-8"),
+    readFile(new URL("../src/plugin/config.ts", import.meta.url), "utf-8"),
     readFile(new URL("../README.md", import.meta.url), "utf-8"),
   ]);
 
