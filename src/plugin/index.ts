@@ -3,26 +3,32 @@ import { createHash, randomUUID } from "node:crypto";
 import { readFileSync, writeFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import packageJson from "../../package.json" with { type: "json" };
-import { CortexConfigSchema, configSchema, type CortexConfig } from "./config/schema.js";
-import { CortexClient } from "../adapters/cortex/client.js";
+import { CortexConfigSchema, configSchema, type CortexConfig } from "./config.js";
+import { CortexClient } from "../cortex/client.js";
 import { createRecallHandler } from "../features/recall/handler.js";
 import { createCaptureHandler } from "../features/capture/handler.js";
 import { FileSyncWatcher } from "../features/sync/watcher.js";
-import { RetryQueue } from "../internal/queue/retry-queue.js";
-import { LatencyMetrics } from "../internal/metrics/latency-metrics.js";
-import { loadOrCreateUserId } from "../internal/identity/user-id.js";
-import { BAKED_API_KEY } from "../internal/identity/api-key.js";
-import { formatMemories } from "../features/recall/formatter.js";
-import { AuditLogger } from "../internal/audit/audit-logger.js";
+import { RetryQueue } from "../internal/retry-queue.js";
+import { LatencyMetrics } from "../internal/latency-metrics.js";
+import { loadOrCreateUserId } from "../internal/user-id.js";
+import { BAKED_API_KEY } from "../internal/api-key.js";
+import { AuditLogger } from "../internal/audit-logger.js";
 import { RecentSaves } from "../internal/dedupe.js";
 import { injectAgentInstructions } from "../internal/agent-instructions.js";
-import { createCheckpointHandler } from "../features/checkpoint/handler.js";
 import { createHeartbeatHandler } from "../features/heartbeat/handler.js";
 import {
   buildSessionSummaryFromMessages,
   formatRecoveryContext,
   SessionStateStore,
-} from "../internal/session/session-state.js";
+} from "../internal/session-state.js";
+import type {
+  HookMetadata,
+  PluginApi,
+  Logger,
+} from "./types.js";
+import { registerCliCommands } from "./cli.js";
+import { buildSearchMemoryTool, buildSaveMemoryTool } from "./tools.js";
+import { buildCommands } from "./commands.js";
 
 const version = packageJson.version;
 const STATS_FILE = join(homedir(), ".openclaw", "cortex-session-stats.json");
@@ -112,95 +118,6 @@ async function resetCompletedAfterAbort(
   } catch {
     return false;
   }
-}
-
-// --- OpenClaw Plugin API types (per docs.openclaw.ai/tools/plugin) ---
-
-interface HookMetadata {
-  name: string;
-  description: string;
-}
-
-interface ToolDefinition {
-  name: string;
-  description: string;
-  parameters: Record<string, unknown>;
-  execute: (id: string, params: Record<string, unknown>) => Promise<{
-    content: Array<{ type: string; text: string }>;
-  }>;
-}
-
-interface CommandDefinition {
-  name: string;
-  description: string;
-  acceptsArgs?: boolean;
-  requireAuth?: boolean;
-  handler: (ctx: CommandContext) => Promise<{ text: string }> | { text: string };
-}
-
-interface CommandContext {
-  senderId?: string;
-  channel?: string;
-  isAuthorizedSender?: boolean;
-  args?: string;
-  commandBody?: string;
-  config?: Record<string, unknown>;
-}
-
-interface PluginApi {
-  pluginConfig?: Record<string, unknown>;
-  logger: {
-    debug?(...args: unknown[]): void;
-    info(...args: unknown[]): void;
-    warn(...args: unknown[]): void;
-    error(...args: unknown[]): void;
-  };
-  // Legacy hook registration (kept for backward compatibility)
-  on?(hookName: string, handler: (...args: any[]) => any, opts?: { priority?: number }): void;
-  // Modern hook registration with metadata
-  registerHook?(
-    hookName: string,
-    handler: (...args: any[]) => any,
-    metadata: HookMetadata,
-  ): void;
-  registerService(service: {
-    id: string;
-    start?: (ctx: { workspaceDir?: string }) => void;
-    stop?: (ctx: { workspaceDir?: string }) => void;
-  }): void;
-  // Agent tools (LLM-invocable functions)
-  registerTool?(definition: ToolDefinition, options?: { optional?: boolean }): void;
-  // Auto-reply commands (execute without AI agent)
-  registerCommand?(definition: CommandDefinition): void;
-  // Gateway RPC methods
-  registerGatewayMethod?(
-    name: string,
-    handler: (ctx: { respond: (ok: boolean, data: unknown) => void }) => void,
-  ): void;
-  // CLI commands (terminal-level, uses Commander.js)
-  registerCli?(
-    registrar: (ctx: { program: CliProgram; config: Record<string, unknown>; workspaceDir?: string; logger: Logger }) => void,
-    opts?: { commands?: string[] },
-  ): void;
-}
-
-interface CliProgram {
-  command(name: string): CliCommand;
-}
-
-interface CliCommand {
-  description(desc: string): CliCommand;
-  command(name: string): CliCommand;
-  argument(name: string, desc: string): CliCommand;
-  option(flags: string, desc: string, defaultValue?: string): CliCommand;
-  action(fn: (...args: any[]) => void | Promise<void>): CliCommand;
-}
-
-interface Logger {
-  debug?(...args: unknown[]): void;
-  info(...args: unknown[]): void;
-  warn(...args: unknown[]): void;
-  error(...args: unknown[]): void;
 }
 
 
@@ -518,260 +435,22 @@ const plugin = {
       : null;
 
     if (api.registerTool) {
-      api.registerTool({
-        name: "cortex_search_memory",
-        description: "Search long-term memory for facts, preferences, and past context. Use when you need to recall something the user mentioned before or retrieve stored knowledge. Use 'mode' to narrow results to a specific category.",
-        parameters: {
-          type: "object",
-          properties: {
-            query: {
-              type: "string",
-              description: "Natural language search query for memory retrieval",
-            },
-            limit: {
-              type: "number",
-              description: "Maximum number of memories to return (1-50)",
-              default: 10,
-            },
-            mode: {
-              type: "string",
-              enum: ["all", "decisions", "preferences", "facts", "recent"],
-              description: "Filter memories by category. 'all' returns everything (default), 'decisions' returns architectural/design choices, 'preferences' returns user likes/settings, 'facts' returns durable knowledge, 'recent' prioritizes recency over relevance.",
-            },
-          },
-          required: ["query"],
-        },
-        async execute(_id, params) {
-          const query = String(params.query ?? "");
-          const limit = Math.min(Math.max(Number(params.limit) || 10, 1), 50);
-          const mode = typeof params.mode === "string" ? params.mode : "all";
+      const toolsDeps = {
+        client,
+        config,
+        logger: api.logger,
+        getUserId: () => userId,
+        userIdReady,
+        sessionId,
+        sessionStats,
+        persistStats,
+        auditLoggerProxy,
+        knowledgeState,
+        recentSaves,
+      };
 
-          await userIdReady;
-
-          // Augment query based on mode to improve retrieval precision
-          let effectiveQuery = query;
-          let queryType: "factual" | "emotional" | "combined" | "codex" = "combined";
-
-          switch (mode) {
-            case "decisions":
-              effectiveQuery = `[type:decision] ${query}`;
-              queryType = "factual";
-              break;
-            case "preferences":
-              effectiveQuery = `[type:preference] ${query}`;
-              queryType = "factual";
-              break;
-            case "facts":
-              effectiveQuery = `[type:fact] ${query}`;
-              queryType = "factual";
-              break;
-            case "recent":
-              queryType = "combined";
-              break;
-          }
-
-          api.logger.debug?.(`Cortex search: "${effectiveQuery.slice(0, 80)}" (limit=${limit}, mode=${mode})`);
-          sessionStats.searches++;
-          persistStats(sessionStats);
-
-          void auditLoggerProxy.log({
-            feature: "tool-search-memory",
-            method: "POST",
-            endpoint: "/v1/recall",
-            payload: effectiveQuery,
-            userId,
-          });
-
-          try {
-            const doRecall = async (attempt = 0): ReturnType<typeof client.recall> => {
-              try {
-                return await client.recall(effectiveQuery, config.toolTimeoutMs, {
-                  limit,
-                  userId: userId,
-                  queryType,
-                });
-              } catch (err) {
-                if (attempt < 1 && /50[23]/.test(String(err))) {
-                  await new Promise((r) => setTimeout(r, 1500));
-                  return doRecall(attempt + 1);
-                }
-                throw err;
-              }
-            };
-
-            const response = await doRecall();
-
-            if (!response.memories?.length) {
-              return { content: [{ type: "text", text: "No memories found matching that query." }] };
-            }
-
-            api.logger.debug?.(`Cortex search returned ${response.memories.length} memories`);
-            const formatted = formatMemories(response.memories, config.recallTopK);
-            return { content: [{ type: "text", text: formatted }] };
-          } catch (err) {
-            api.logger.warn(`Cortex search failed: ${String(err)}`);
-            return { content: [{ type: "text", text: `Memory search failed: ${String(err)}` }] };
-          }
-        },
-      });
-
-      api.registerTool({
-        name: "cortex_save_memory",
-        description: "Explicitly save a fact, preference, or piece of information to long-term memory. Use when the user asks you to remember something specific. Provide type and importance to help organize memories for better retrieval.",
-        parameters: {
-          type: "object",
-          properties: {
-            text: {
-              type: "string",
-              description: "The information to save to memory (a fact, preference, or context)",
-            },
-            type: {
-              type: "string",
-              enum: ["preference", "decision", "fact", "transient"],
-              description: "Category of this memory. 'preference' for user likes/dislikes/settings, 'decision' for architectural or design choices, 'fact' for durable knowledge, 'transient' for temporary state that may change soon.",
-            },
-            importance: {
-              type: "string",
-              enum: ["high", "normal", "low"],
-              description: "How important this memory is for future recall. 'high' for critical preferences or decisions, 'normal' for general facts, 'low' for minor context.",
-            },
-            checkNovelty: {
-              type: "boolean",
-              description: "When true, checks if a similar memory already exists before saving. Skips the save if a near-duplicate is found. Defaults to false.",
-            },
-          },
-          required: ["text"],
-        },
-        async execute(_id, params) {
-          const text = String(params.text ?? "");
-          if (!text || text.length < 5) {
-            return { content: [{ type: "text", text: "Text too short to save as a memory." }] };
-          }
-
-          const memoryType = typeof params.type === "string" ? params.type : undefined;
-          const importance = typeof params.importance === "string" ? params.importance : undefined;
-          const checkNovelty = params.checkNovelty === true;
-
-          await userIdReady;
-          if (!userId) {
-            api.logger.warn("Cortex save: missing user_id");
-            return { content: [{ type: "text", text: "Failed to save memory: Cortex ingest requires user_id." }] };
-          }
-
-          // Prepend metadata tags so they're stored with the memory text
-          const metaTags: string[] = [];
-          if (memoryType) metaTags.push(`[type:${memoryType}]`);
-          if (importance) metaTags.push(`[importance:${importance}]`);
-          const enrichedText = metaTags.length > 0 ? `${metaTags.join(" ")} ${text}` : text;
-
-          // Item 5: Client-side dedupe — skip if near-duplicate was saved recently
-          if (recentSaves?.isDuplicate(text)) {
-            api.logger.debug?.(`Cortex save skipped (duplicate within window): "${text.slice(0, 60)}"`);
-            sessionStats.savesSkippedDedupe++;
-            persistStats(sessionStats);
-            return {
-              content: [{ type: "text", text: "This memory is very similar to one saved recently. Skipped to avoid duplication." }],
-            };
-          }
-
-          // Item 7: Novelty check — query existing memories to see if this is already stored
-          if (checkNovelty) {
-            try {
-              const existing = await client.retrieve(
-                text,
-                1,
-                "fast",
-                config.toolTimeoutMs,
-                "factual",
-                { userId },
-              );
-              const topScore = existing.results?.[0]?.score ?? 0;
-              if (topScore >= config.noveltyThreshold) {
-                api.logger.debug?.(`Cortex save skipped (not novel, score=${topScore.toFixed(2)}): "${text.slice(0, 60)}"`);
-                sessionStats.savesSkippedNovelty++;
-                persistStats(sessionStats);
-                recentSaves?.record(text);
-                return {
-                  content: [{
-                    type: "text",
-                    text: `This memory already exists (similarity ${(topScore * 100).toFixed(0)}%). Skipped to avoid duplication.`,
-                  }],
-                };
-              }
-            } catch (err) {
-              // Novelty check is best-effort — proceed with save on failure
-              api.logger.debug?.(`Cortex novelty check failed, proceeding with save: ${String(err)}`);
-            }
-          }
-
-          api.logger.debug?.(`Cortex save: "${enrichedText.slice(0, 80)}"`);
-
-          void auditLoggerProxy.log({
-            feature: "tool-save-memory",
-            method: "POST",
-            endpoint: "/v1/remember",
-            payload: enrichedText,
-            sessionId,
-            userId,
-          });
-
-          try {
-            const now = new Date();
-            const referenceDate = now.toISOString().slice(0, 10);
-            await client.remember(
-              enrichedText,
-              sessionId,
-              config.toolTimeoutMs,
-              referenceDate,
-              userId,
-              "openclaw",
-              "OpenClaw",
-            );
-            if (knowledgeState) {
-              knowledgeState.hasMemories = true;
-            }
-            recentSaves?.record(text);
-            sessionStats.saves++;
-            persistStats(sessionStats);
-            api.logger.debug?.("Cortex remember accepted");
-            return {
-              content: [{
-                type: "text",
-                text: "Memory submitted for processing. It should be available shortly.",
-              }],
-            };
-          } catch (err) {
-            api.logger.warn(`Cortex save failed, falling back to async ingest: ${String(err)}`);
-
-            try {
-              const referenceDate = new Date().toISOString();
-              const job = await client.submitIngest(
-                enrichedText,
-                sessionId,
-                referenceDate,
-                userId,
-                "openclaw",
-                "OpenClaw",
-              );
-              if (knowledgeState) {
-                knowledgeState.hasMemories = true;
-              }
-              recentSaves?.record(text);
-              sessionStats.saves++;
-              persistStats(sessionStats);
-              return {
-                content: [{
-                  type: "text",
-                  text: `Memory save queued (job ${job.job_id}, status=${job.status}). It should be available shortly.`,
-                }],
-              };
-            } catch (fallbackErr) {
-              api.logger.warn(`Cortex save fallback failed: ${String(fallbackErr)}`);
-              return { content: [{ type: "text", text: `Failed to save memory: ${String(err)}` }] };
-            }
-          }
-        },
-      });
+      api.registerTool(buildSearchMemoryTool(toolsDeps));
+      api.registerTool(buildSaveMemoryTool(toolsDeps));
 
       api.logger.debug?.("Cortex tools registered: cortex_search_memory, cortex_save_memory");
     }
@@ -779,106 +458,19 @@ const plugin = {
     // --- Auto-Reply Commands ---
 
     if (api.registerCommand) {
-      const checkpointHandler = createCheckpointHandler(
+      buildCommands(api.registerCommand.bind(api), {
         client,
         config,
-        api.logger,
-        () => userId,
+        logger: api.logger,
+        getUserId: () => userId,
         userIdReady,
-        () => lastMessages,
+        getLastMessages: () => lastMessages,
         sessionId,
         auditLoggerProxy,
-      );
-
-      api.registerCommand({
-        name: "audit",
-        description: "Toggle or check Cortex audit log (records all data sent to Cortex)",
-        acceptsArgs: true,
-        handler: (ctx) => {
-          const arg = ctx.args?.trim().toLowerCase();
-
-          if (arg === "on") {
-            if (!workspaceDirResolved) {
-              return { text: "Cannot enable audit log — no workspace directory available. The plugin must be started with a workspace first." };
-            }
-            if (auditLoggerInner) {
-              return { text: `Audit log is already enabled.\nAll Cortex API calls are being recorded at:\n\`${workspaceDirResolved}/.cortex/audit/\`` };
-            }
-            auditLoggerInner = new AuditLogger(workspaceDirResolved, api.logger);
-            api.logger.info(`Cortex audit log enabled via command: ${workspaceDirResolved}/.cortex/audit/`);
-            return {
-              text: [
-                `**Audit log enabled.**`,
-                ``,
-                `All data sent to and received from Cortex will be recorded locally.`,
-                `Log path: \`${workspaceDirResolved}/.cortex/audit/\``,
-                ``,
-                `Turn off with \`/audit off\`. Log files are preserved when disabled.`,
-              ].join("\n"),
-            };
-          }
-
-          if (arg === "off") {
-            if (!auditLoggerInner) {
-              return { text: "Audit log is already off. No data is being recorded." };
-            }
-            auditLoggerInner = undefined;
-            api.logger.info("Cortex audit log disabled via command");
-            return {
-              text: [
-                `**Audit log disabled.**`,
-                ``,
-                `Cortex API calls are no longer being recorded.`,
-                `Existing log files are preserved and can be reviewed at:`,
-                `\`${workspaceDirResolved}/.cortex/audit/\``,
-              ].join("\n"),
-            };
-          }
-
-          // No args — show status
-          const status = auditLoggerInner ? "on" : "off";
-          const lines = [
-            `**Cortex Audit Log**`,
-            ``,
-            `The audit log records all data sent to and received from the Cortex API, stored locally for inspection.`,
-            ``,
-            `- Status: **${status}**`,
-            `- Config default: ${config.auditLog ? "on" : "off"}`,
-          ];
-          if (workspaceDirResolved) {
-            lines.push(`- Log path: \`${workspaceDirResolved}/.cortex/audit/\``);
-          }
-          lines.push("", "Toggle: `/audit on` · `/audit off`");
-          return { text: lines.join("\n") };
-        },
-      });
-
-      api.registerCommand({
-        name: "checkpoint",
-        description: "Save a session checkpoint to Cortex before resetting",
-        acceptsArgs: true,
-        handler: checkpointHandler,
-      });
-
-      api.registerCommand({
-        name: "sleep",
-        description: "Mark the current session as cleanly ended (clears recovery warning state)",
-        acceptsArgs: false,
-        handler: async () => {
-          try {
-            await sessionState.clear();
-            return {
-              text: [
-                `**Session ended cleanly.**`,
-                ``,
-                `Cortex will not show a recovery warning when you start your next session.`,
-                `Use \`/checkpoint\` before \`/sleep\` if you want to save a summary of what you were working on.`,
-              ].join("\n"),
-            };
-          } catch (err) {
-            return { text: `Failed to mark session clean: ${String(err)}` };
-          }
-        },
+        sessionState,
+        getWorkspaceDir: () => workspaceDirResolved,
+        getAuditLoggerInner: () => auditLoggerInner,
+        setAuditLoggerInner: (l) => { auditLoggerInner = l; },
       });
 
       api.logger.debug?.("Cortex commands registered: /audit, /checkpoint, /sleep");
@@ -917,293 +509,18 @@ const plugin = {
     // --- CLI Commands (terminal-level) ---
 
     if (api.registerCli) {
-      api.registerCli(
-        ({ program }) => {
-          const cortex = program.command("cortex").description("Cortex memory CLI commands");
-
-          cortex
-            .command("status")
-            .description("Check Cortex API health and show memory status")
-            .action(async () => {
-              await userIdReady;
-
-              console.log("Cortex Status Check");
-              console.log("=".repeat(50));
-
-              // Health check
-              const startHealth = Date.now();
-              let healthy = false;
-              try {
-                healthy = await client.healthCheck();
-                const ms = Date.now() - startHealth;
-                console.log(`  API Health:     ${healthy ? "OK" : "UNREACHABLE"} (${ms}ms)`);
-              } catch {
-                console.log(`  API Health:     UNREACHABLE`);
-              }
-
-              if (!healthy) {
-                console.log("\nAPI is unreachable. Check baseUrl and network connectivity.");
-                return;
-              }
-
-              // Knowledge
-              try {
-                const startKnowledge = Date.now();
-                const knowledge = await client.knowledge(undefined, userId);
-                const ms = Date.now() - startKnowledge;
-                console.log(`  Knowledge:      OK (${ms}ms)`);
-                console.log(`    Memories:     ${knowledge.total_memories.toLocaleString()}`);
-                console.log(`    Sessions:     ${knowledge.total_sessions}`);
-                console.log(`    Maturity:     ${knowledge.maturity}`);
-              } catch (err) {
-                console.log(`  Knowledge:      FAILED — ${String(err)}`);
-              }
-
-              // Stats
-              try {
-                const startStats = Date.now();
-                const stats = await client.stats(undefined, userId);
-                const ms = Date.now() - startStats;
-                console.log(`  Stats:          OK (${ms}ms)`);
-                console.log(`    Pipeline:     tier ${stats.pipeline_tier}`);
-              } catch (err) {
-                console.log(`  Stats:          FAILED — ${String(err)}`);
-              }
-
-              // Recall
-              try {
-                const startRecall = Date.now();
-                await client.recall("test", 5000, { limit: 1, userId });
-                const ms = Date.now() - startRecall;
-                console.log(`  Recall:         OK (${ms}ms)`);
-              } catch (err) {
-                console.log(`  Recall:         FAILED — ${String(err)}`);
-              }
-
-              // Retrieve
-              try {
-                const startRetrieve = Date.now();
-                await client.retrieve("test", 1, "fast", 5000, undefined, { userId });
-                const ms = Date.now() - startRetrieve;
-                console.log(`  Retrieve:       OK (${ms}ms)`);
-              } catch (err) {
-                console.log(`  Retrieve:       FAILED — ${String(err)}`);
-              }
-
-              console.log("");
-              console.log(`  Version:        ${version}`);
-              console.log(`  User ID:        ${userId ?? "unknown"}`);
-              console.log(`  Base URL:       ${config.baseUrl}`);
-              console.log(`  Auto-Recall:    ${config.autoRecall ? "on" : "off"}`);
-              console.log(`  Auto-Capture:   ${config.autoCapture ? "on" : "off"}`);
-              console.log(`  File Sync:      ${config.fileSync ? "on" : "off"}`);
-              console.log(`  Dedupe Window:  ${config.dedupeWindowMinutes > 0 ? `${config.dedupeWindowMinutes}min` : "off"}`);
-
-              // Session activity stats — read from persisted file so CLI process
-              // can see stats from the running gateway instance
-              const liveStats = loadPersistedStats() ?? sessionStats;
-              const totalSkipped = liveStats.savesSkippedDedupe + liveStats.savesSkippedNovelty;
-              const avgRecallMemories = liveStats.recallCount > 0
-                ? (liveStats.recallMemoriesTotal / liveStats.recallCount).toFixed(1)
-                : "0";
-
-              console.log("");
-              console.log("Session Activity");
-              console.log("-".repeat(50));
-              console.log(`  Saves:          ${liveStats.saves}`);
-              if (totalSkipped > 0) {
-                console.log(`  Skipped:        ${totalSkipped} (${liveStats.savesSkippedDedupe} dedupe, ${liveStats.savesSkippedNovelty} novelty)`);
-              }
-              console.log(`  Searches:       ${liveStats.searches}`);
-              console.log(`  Recalls:        ${liveStats.recallCount}`);
-              console.log(`  Avg memories/recall: ${avgRecallMemories}`);
-              if (liveStats.recallDuplicatesCollapsed > 0) {
-                console.log(`  Duplicates collapsed: ${liveStats.recallDuplicatesCollapsed}`);
-              }
-            });
-
-          cortex
-            .command("memories")
-            .description("Show memory count and maturity")
-            .action(async () => {
-              await userIdReady;
-
-              try {
-                const knowledge = await client.knowledge(undefined, userId);
-                console.log(`Memories:  ${knowledge.total_memories.toLocaleString()}`);
-                console.log(`Sessions:  ${knowledge.total_sessions}`);
-                console.log(`Maturity:  ${knowledge.maturity}`);
-
-                if (knowledge.entities.length > 0) {
-                  console.log(`\nTop Entities:`);
-                  knowledge.entities.slice(0, 10).forEach((e) => {
-                    console.log(`  ${e.name} (${e.memory_count} memories, last seen ${e.last_seen})`);
-                  });
-                }
-              } catch (err) {
-                console.error(`Failed: ${String(err)}`);
-                process.exitCode = 1;
-              }
-            });
-
-          cortex
-            .command("search")
-            .description("Search memories from the terminal")
-            .argument("<query>", "Search query")
-            .option("--limit <n>", "Max results", "10")
-            .action(async (query: string, opts: { limit: string }) => {
-              await userIdReady;
-
-              try {
-                const response = await client.recall(query, config.toolTimeoutMs, {
-                  limit: parseInt(opts.limit),
-                  userId,
-                  queryType: "combined",
-                });
-
-                if (!response.memories?.length) {
-                  console.log(`No memories found for: "${query}"`);
-                  return;
-                }
-
-                console.log(`Found ${response.memories.length} memories:\n`);
-                response.memories.forEach((m, i) => {
-                  console.log(`${i + 1}. [${m.confidence.toFixed(2)}] ${m.content}`);
-                  if (m.entities.length > 0) {
-                    console.log(`   entities: ${m.entities.join(", ")}`);
-                  }
-                  console.log("");
-                });
-              } catch (err) {
-                console.error(`Search failed: ${String(err)}`);
-                process.exitCode = 1;
-              }
-            });
-
-          cortex
-            .command("config")
-            .description("Show current Cortex plugin configuration")
-            .action(async () => {
-              await userIdReady;
-              console.log(`Version:          ${version}`);
-              console.log(`Base URL:         ${config.baseUrl}`);
-              console.log(`User ID:          ${userId ?? "unknown"}`);
-              console.log(`Namespace:        ${namespace}`);
-              console.log(`Auto-Recall:      ${config.autoRecall ? "on" : "off"}`);
-              console.log(`Auto-Capture:     ${config.autoCapture ? "on" : "off"}`);
-              console.log(`File Sync:        ${config.fileSync ? "on" : "off"}`);
-              console.log(`Transcript Sync:  ${config.transcriptSync ? "on" : "off"}`);
-              console.log(`Recall Limit:     ${config.recallLimit}`);
-              console.log(`Recall Timeout:   ${config.recallTimeoutMs}ms`);
-              console.log(`Tool Timeout:     ${config.toolTimeoutMs}ms`);
-              console.log(`Audit Log:        ${config.auditLog ? "on" : "off"}`);
-            });
-
-          cortex
-            .command("pair")
-            .description("Generate a TooToo pairing code to link your agent")
-            .action(async () => {
-              await userIdReady;
-              if (!userId) {
-                console.error("Cannot generate pairing code: user ID not available.");
-                process.exitCode = 1;
-                return;
-              }
-
-              try {
-                const { user_code, expires_in } = await client.generatePairingCode(userId);
-                const mins = Math.floor(expires_in / 60);
-                console.log(`Agent ID:      ${userId}`);
-                console.log(`Pairing code:  ${user_code}`);
-                console.log(`Expires in:    ${mins} minute${mins !== 1 ? "s" : ""}`);
-                console.log("");
-                console.log("To link your TooToo account:");
-                console.log("  1. Open app.tootoo.io/settings/agents");
-                console.log('  2. Click "Connect Agent"');
-                console.log("  3. Enter the code above");
-              } catch (err) {
-                console.error(`Failed to generate pairing code: ${String(err)}`);
-                process.exitCode = 1;
-              }
-            });
-          cortex
-            .command("reset")
-            .description("Permanently delete ALL memories for this agent (irreversible)")
-            .option("--yes", "Skip confirmation prompt")
-            .action(async (opts: { yes?: boolean }) => {
-              await userIdReady;
-              if (!userId) {
-                console.error("Cannot reset: user ID not available.");
-                process.exitCode = 1;
-                return;
-              }
-
-              // Show what will be deleted
-              let memoryCount = 0;
-              let sessionCount = 0;
-              try {
-                const knowledge = await client.knowledge(undefined, userId);
-                memoryCount = knowledge.total_memories;
-                sessionCount = knowledge.total_sessions;
-              } catch {
-                // Continue even if we can't get counts
-              }
-
-              console.log("");
-              console.log("  WARNING: This will permanently delete ALL data for this agent.");
-              console.log("");
-              console.log(`  Agent ID:   ${userId}`);
-              if (memoryCount > 0 || sessionCount > 0) {
-                console.log(`  Memories:   ${memoryCount.toLocaleString()}`);
-                console.log(`  Sessions:   ${sessionCount}`);
-              }
-              console.log("");
-              console.log("  This includes all memories, facts, suggestions, and graph data.");
-              console.log("  Agent links (TooToo pairing) will be preserved.");
-              console.log("  This action CANNOT be undone.");
-              console.log("");
-
-              if (!opts.yes) {
-                const { createInterface } = await import("node:readline");
-                const rl = createInterface({ input: process.stdin, output: process.stdout });
-                const answer = await new Promise<string>((resolve) => {
-                  rl.question("  Type 'reset' to confirm: ", resolve);
-                });
-                rl.close();
-
-                if (answer.trim().toLowerCase() !== "reset") {
-                  console.log("\n  Aborted. No data was deleted.");
-                  return;
-                }
-              }
-
-              try {
-                const result = await client.forgetUser(userId);
-                const d = result.deleted;
-                console.log("");
-                console.log("  Memory reset complete.");
-                console.log("");
-                console.log(`  Deleted:`);
-                console.log(`    Engraved memories:  ${d.engraved_memories}`);
-                console.log(`    Resonated memories: ${d.resonated_memories}`);
-                console.log(`    Graph nodes:        ${d.nodes}`);
-                console.log(`    Codex suggestions:  ${d.codex_suggestions}`);
-                console.log(`    Suppressions:       ${d.codex_suggestion_suppressions}`);
-              } catch (err) {
-                if (isAbortError(err) && await resetCompletedAfterAbort(client, userId)) {
-                  console.log("");
-                  console.log("  Memory reset complete.");
-                  console.log("");
-                  console.log("  The server finished the reset, but the request ended before deletion stats were returned.");
-                  return;
-                }
-                console.error(`\n  Reset failed: ${String(err)}`);
-                process.exitCode = 1;
-              }
-            });
-        },
-        { commands: ["cortex"] },
-      );
+      registerCliCommands(api.registerCli.bind(api), {
+        client,
+        config,
+        version,
+        getUserId: () => userId,
+        userIdReady,
+        getNamespace: () => namespace,
+        sessionStats,
+        loadPersistedStats,
+        isAbortError,
+        resetCompletedAfterAbort,
+      });
 
       api.logger.debug?.("Cortex CLI registered: openclaw cortex {status,memories,search,config,pair,reset}");
     }

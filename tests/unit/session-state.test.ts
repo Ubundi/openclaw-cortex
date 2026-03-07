@@ -6,7 +6,7 @@ import {
   buildSessionSummaryFromMessages,
   formatRecoveryContext,
   SessionStateStore,
-} from "../../src/internal/session/session-state.js";
+} from "../../src/internal/session-state.js";
 
 async function makeStore() {
   const dir = await mkdtemp(join(tmpdir(), "cortex-session-state-"));

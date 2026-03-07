@@ -1,11 +1,11 @@
-import type { CortexClient, RetrieveResult, RecallMemory } from "../../adapters/cortex/client.js";
-import type { CortexConfig } from "../../plugin/config/schema.js";
+import type { CortexClient, RetrieveResult, RecallMemory } from "../../cortex/client.js";
+import type { CortexConfig } from "../../plugin/config.js";
 import type { KnowledgeState } from "../../plugin/index.js";
-import type { AuditLogger } from "../../internal/audit/audit-logger.js";
+import type { AuditLogger } from "../../internal/audit-logger.js";
 import { formatMemoriesWithStats } from "./formatter.js";
 import { inferRecallProfile, getProfileParams } from "./context-profile.js";
 import type { RecallProfile } from "./context-profile.js";
-import { LatencyMetrics } from "../../internal/metrics/latency-metrics.js";
+import { LatencyMetrics } from "../../internal/latency-metrics.js";
 
 interface BeforeAgentStartEvent {
   prompt: string;

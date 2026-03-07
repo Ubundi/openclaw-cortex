@@ -1,6 +1,6 @@
-import type { CortexClient } from "../../adapters/cortex/client.js";
-import type { CortexConfig } from "../../plugin/config/schema.js";
-import type { AuditLogger } from "../../internal/audit/audit-logger.js";
+import type { CortexClient } from "../../cortex/client.js";
+import type { CortexConfig } from "../../plugin/config.js";
+import type { AuditLogger } from "../../internal/audit-logger.js";
 
 type Logger = {
   debug?(...args: unknown[]): void;

@@ -1,9 +1,9 @@
 import { createHash } from "node:crypto";
-import type { CortexClient, ConversationMessage } from "../../adapters/cortex/client.js";
-import type { CortexConfig } from "../../plugin/config/schema.js";
+import type { CortexClient, ConversationMessage } from "../../cortex/client.js";
+import type { CortexConfig } from "../../plugin/config.js";
 import type { KnowledgeState } from "../../plugin/index.js";
-import type { RetryQueue } from "../../internal/queue/retry-queue.js";
-import type { AuditLogger } from "../../internal/audit/audit-logger.js";
+import type { RetryQueue } from "../../internal/retry-queue.js";
+import type { AuditLogger } from "../../internal/audit-logger.js";
 import { filterLowSignalMessages } from "./filter.js";
 
 interface AgentEndEvent {

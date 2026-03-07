@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import plugin from "../../src/plugin/index.js";
-import { CortexClient } from "../../src/adapters/cortex/client.js";
+import { CortexClient } from "../../src/cortex/client.js";
 import { FileSyncWatcher } from "../../src/features/sync/watcher.js";
-import { RetryQueue } from "../../src/internal/queue/retry-queue.js";
-import { SessionStateStore } from "../../src/internal/session/session-state.js";
+import { RetryQueue } from "../../src/internal/retry-queue.js";
+import { SessionStateStore } from "../../src/internal/session-state.js";
 
 // Mock fs at module level so ensureToolsAllowlist can be tested
 const mockReadFileSync = vi.fn<typeof import("node:fs").readFileSync>();

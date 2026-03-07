@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { mkdtemp, writeFile, symlink, rm, mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { safePath, safePathCheck } from "../../src/internal/fs/safe-path.js";
+import { safePath, safePathCheck } from "../../src/internal/safe-path.js";
 
 describe("safePath", () => {
   let root: string;

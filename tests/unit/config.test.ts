@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { CortexConfigSchema } from "../../src/plugin/config/schema.js";
+import { CortexConfigSchema } from "../../src/plugin/config.js";
 
 describe("CortexConfigSchema", () => {
   const validBase = {};

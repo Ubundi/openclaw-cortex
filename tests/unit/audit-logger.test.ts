@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { mkdtemp, readFile, readdir, stat, writeFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { AuditLogger } from "../../src/internal/audit/audit-logger.js";
+import { AuditLogger } from "../../src/internal/audit-logger.js";
 
 const logger = {
   debug: vi.fn(),

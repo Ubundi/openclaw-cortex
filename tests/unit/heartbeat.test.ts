@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { createHeartbeatHandler } from "../../src/features/heartbeat/handler.js";
-import type { CortexClient } from "../../src/adapters/cortex/client.js";
+import type { CortexClient } from "../../src/cortex/client.js";
 import type { KnowledgeState } from "../../src/plugin/index.js";
-import type { RetryQueue } from "../../src/internal/queue/retry-queue.js";
+import type { RetryQueue } from "../../src/internal/retry-queue.js";
 
 const logger = {
   debug: vi.fn(),

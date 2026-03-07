@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { cleanTranscript, cleanTranscriptChunk } from "../../src/internal/transcript/cleaner.js";
+import { cleanTranscript, cleanTranscriptChunk } from "../../src/internal/cleaner.js";
 
 describe("cleanTranscript", () => {
   it("extracts user and assistant messages", () => {

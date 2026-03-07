@@ -21,7 +21,7 @@ if (!apiKey) {
 }
 
 const distDir = join(fileURLToPath(import.meta.url), "../../dist");
-const targetFile = join(distDir, "internal/identity/api-key.js");
+const targetFile = join(distDir, "internal/api-key.js");
 
 try {
   const content = readFileSync(targetFile, "utf-8");

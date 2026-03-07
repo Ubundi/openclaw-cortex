@@ -1,4 +1,4 @@
-import type { CortexConfig } from "../../plugin/config/schema.js";
+import type { CortexConfig } from "../../plugin/config.js";
 
 export type RecallProfile = "default" | "factual" | "planning" | "incident" | "handoff";
 

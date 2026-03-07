@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { inferRecallProfile, getProfileParams } from "../../src/features/recall/context-profile.js";
-import type { CortexConfig } from "../../src/plugin/config/schema.js";
+import type { CortexConfig } from "../../src/plugin/config.js";
 
 function makeConfig(overrides: Partial<CortexConfig> = {}): CortexConfig {
   return {

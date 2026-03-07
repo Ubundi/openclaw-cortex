@@ -8,7 +8,7 @@ import {
   MAX_MEMORY_LINE_CHARS,
   MAX_MEMORY_BLOCK_CHARS,
 } from "../../src/features/recall/formatter.js";
-import type { RecallMemory } from "../../src/adapters/cortex/client.js";
+import type { RecallMemory } from "../../src/cortex/client.js";
 
 describe("sanitizeMemoryContent", () => {
   it("escapes closing XML tags", () => {

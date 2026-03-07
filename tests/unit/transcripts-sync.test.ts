@@ -1,19 +1,19 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { TranscriptsSync } from "../../src/features/sync/transcripts-sync.js";
-import type { CortexClient } from "../../src/adapters/cortex/client.js";
-import type { RetryQueue } from "../../src/internal/queue/retry-queue.js";
+import type { CortexClient } from "../../src/cortex/client.js";
+import type { RetryQueue } from "../../src/internal/retry-queue.js";
 
 vi.mock("node:fs/promises", () => ({
   readFile: vi.fn(),
 }));
 
-vi.mock("../../src/internal/fs/safe-path.js", () => ({
+vi.mock("../../src/internal/safe-path.js", () => ({
   safePath: vi.fn(),
   safePathCheck: vi.fn(),
 }));
 
 import { readFile } from "node:fs/promises";
-import { safePathCheck } from "../../src/internal/fs/safe-path.js";
+import { safePathCheck } from "../../src/internal/safe-path.js";
 
 const mockReadFile = readFile as ReturnType<typeof vi.fn>;
 const mockSafePathCheck = safePathCheck as ReturnType<typeof vi.fn>;

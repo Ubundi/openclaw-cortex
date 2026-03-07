@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { createRecallHandler, deriveEffectiveTimeout } from "../../src/features/recall/handler.js";
-import type { CortexClient } from "../../src/adapters/cortex/client.js";
-import type { CortexConfig } from "../../src/plugin/config/schema.js";
+import type { CortexClient } from "../../src/cortex/client.js";
+import type { CortexConfig } from "../../src/plugin/config.js";
 import type { KnowledgeState } from "../../src/plugin/index.js";
 
 function makeConfig(overrides: Partial<CortexConfig> = {}): CortexConfig {

@@ -1,6 +1,6 @@
-import type { CortexClient } from "../../adapters/cortex/client.js";
+import type { CortexClient } from "../../cortex/client.js";
 import type { KnowledgeState } from "../../plugin/index.js";
-import type { RetryQueue } from "../../internal/queue/retry-queue.js";
+import type { RetryQueue } from "../../internal/retry-queue.js";
 
 type Logger = {
   debug?(...args: unknown[]): void;

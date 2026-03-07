@@ -1,8 +1,8 @@
 import { watch, type FSWatcher } from "node:fs";
 import { dirname, join } from "node:path";
-import type { CortexClient } from "../../adapters/cortex/client.js";
-import type { RetryQueue } from "../../internal/queue/retry-queue.js";
-import type { AuditLogger } from "../../internal/audit/audit-logger.js";
+import type { CortexClient } from "../../cortex/client.js";
+import type { RetryQueue } from "../../internal/retry-queue.js";
+import type { AuditLogger } from "../../internal/audit-logger.js";
 import { MemoryMdSync } from "./memory-md-sync.js";
 import { DailyLogsSync } from "./daily-logs-sync.js";
 import { TranscriptsSync } from "./transcripts-sync.js";

@@ -1,4 +1,4 @@
-import type { ConversationMessage } from "../../adapters/cortex/client.js";
+import type { ConversationMessage } from "../../cortex/client.js";
 
 /**
  * Patterns that match low-signal content not worth ingesting into memory.
