@@ -7,6 +7,7 @@ dist/
 
 # Local Codex/Claude settings
 .claude/settings.local.json
+CLAUDE.md
 
 # Test and coverage outputs
 coverage/
