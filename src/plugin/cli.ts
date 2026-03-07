@@ -53,8 +53,8 @@ export function registerCliCommands(
         .command("status")
         .description("Check Cortex API health and show memory status")
         .action(async () => {
-          const userId = getUserId();
           await userIdReady;
+          const userId = getUserId();
 
           console.log("Cortex Status Check");
           console.log("=".repeat(50));
@@ -155,8 +155,8 @@ export function registerCliCommands(
         .command("memories")
         .description("Show memory count and maturity")
         .action(async () => {
-          const userId = getUserId();
           await userIdReady;
+          const userId = getUserId();
 
           try {
             const knowledge = await client.knowledge(undefined, userId);
@@ -182,8 +182,8 @@ export function registerCliCommands(
         .argument("<query>", "Search query")
         .option("--limit <n>", "Max results", "10")
         .action(async (query: string, opts: { limit: string }) => {
-          const userId = getUserId();
           await userIdReady;
+          const userId = getUserId();
 
           try {
             const response = await client.recall(query, config.toolTimeoutMs, {
@@ -215,8 +215,8 @@ export function registerCliCommands(
         .command("config")
         .description("Show current Cortex plugin configuration")
         .action(async () => {
-          const userId = getUserId();
           await userIdReady;
+          const userId = getUserId();
           console.log(`Version:          ${version}`);
           console.log(`Base URL:         ${config.baseUrl}`);
           console.log(`User ID:          ${userId ?? "unknown"}`);
@@ -235,8 +235,8 @@ export function registerCliCommands(
         .command("pair")
         .description("Generate a TooToo pairing code to link your agent")
         .action(async () => {
-          const userId = getUserId();
           await userIdReady;
+          const userId = getUserId();
           if (!userId) {
             console.error("Cannot generate pairing code: user ID not available.");
             process.exitCode = 1;
@@ -264,8 +264,8 @@ export function registerCliCommands(
         .description("Permanently delete ALL memories for this agent (irreversible)")
         .option("--yes", "Skip confirmation prompt")
         .action(async (opts: { yes?: boolean }) => {
-          const userId = getUserId();
           await userIdReady;
+          const userId = getUserId();
           if (!userId) {
             console.error("Cannot reset: user ID not available.");
             process.exitCode = 1;
