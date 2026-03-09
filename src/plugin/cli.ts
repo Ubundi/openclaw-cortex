@@ -246,19 +246,100 @@ export function registerCliCommands(
           try {
             const { user_code, expires_in } = await client.generatePairingCode(userId);
             const mins = Math.floor(expires_in / 60);
-            console.log(`Agent ID:      ${userId}`);
-            console.log(`Pairing code:  ${user_code}`);
-            console.log(`Expires in:    ${mins} minute${mins !== 1 ? "s" : ""}`);
-            console.log("");
-            console.log("To link your TooToo account:");
-            console.log("  1. Open app.tootoo.io/settings/agents");
-            console.log('  2. Click "Connect Agent"');
-            console.log("  3. Enter the code above");
+            console.log(`
+  TooToo Agent Pairing
+  ${"=".repeat(46)}
+
+  TooToo (https://tootoo.ai) is a personal discovery platform that
+  builds a living codex of your values, beliefs, principles, and
+  goals through interactive journeys.
+
+  By pairing your agent, conversations you have with your AI agent
+  are automatically analyzed for personal insights — values you
+  express, beliefs you hold, decisions you make — and surfaced as
+  suggestions in your TooToo codex.
+
+  This means your day-to-day work conversations quietly contribute
+  to your self-knowledge, without any extra effort.
+
+  Your pairing details
+  ${"-".repeat(46)}
+
+    Agent ID:      ${userId}
+    Pairing code:  ${user_code}
+    Expires in:    ${mins} minute${mins !== 1 ? "s" : ""}
+
+  How to connect
+  ${"-".repeat(46)}
+
+    1. Go to https://tootoo.ai/settings/agents
+    2. Click "Connect Agent"
+    3. Enter the pairing code above
+
+  Once linked, codex suggestions from your agent conversations
+  will appear in your TooToo codex automatically. You can unlink
+  at any time from the TooToo settings page.
+`);
           } catch (err) {
             console.error(`Failed to generate pairing code: ${String(err)}`);
             process.exitCode = 1;
           }
         });
+      cortex
+        .command("info")
+        .description("Learn what Cortex does and how it works")
+        .action(async () => {
+          console.log(`
+  Cortex Memory — v${version}
+  ${"=".repeat(46)}
+
+  Cortex gives your AI agent persistent long-term memory that spans
+  across sessions, projects, and conversations. It remembers what
+  matters and surfaces it when relevant — automatically.
+
+  How it works
+  ${"-".repeat(46)}
+
+  Auto-Capture    After each conversation turn, Cortex extracts key
+                  facts, decisions, and context from the exchange and
+                  stores them in a knowledge graph.
+
+  Auto-Recall     Before the agent responds, Cortex searches your
+                  memory for anything relevant to the current query
+                  and injects it into the agent's context.
+
+  File Sync       Watches MEMORY.md, daily logs, and session
+                  transcripts in your workspace and syncs them into
+                  Cortex in the background.
+
+  The more you use your agent, the smarter recall gets. Cortex
+  adapts its retrieval pipeline as your memory store grows:
+
+    Tier 1  →  Fast flat retrieval (few memories)
+    Tier 2  →  Reranking for relevance (moderate)
+    Tier 3  →  Graph traversal + reranking (mature)
+
+  Commands
+  ${"-".repeat(46)}
+
+    cortex status     API health, memory count, session activity
+    cortex memories   Memory count, maturity, top entities
+    cortex search     Search your memories from the terminal
+    cortex config     Show current plugin configuration
+    cortex pair       Link your agent to TooToo
+    cortex reset      Delete all memories (irreversible)
+    cortex info       This page
+
+  In-chat tools
+  ${"-".repeat(46)}
+
+    cortex_search_memory   Search memories during a conversation
+    cortex_save_memory     Explicitly save a memory
+
+  Learn more at https://github.com/Ubundi/openclaw-cortex
+`);
+        });
+
       cortex
         .command("reset")
         .description("Permanently delete ALL memories for this agent (irreversible)")

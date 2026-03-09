@@ -36,8 +36,12 @@
     "clean": "rm -rf dist",
     "version": "node scripts/sync-version.mjs && git add openclaw.plugin.json"
   },
+  "bin": {
+    "cortex": "./bin/cortex.mjs"
+  },
   "files": [
     "dist",
+    "bin",
     "openclaw.plugin.json",
     "LICENSE"
   ],

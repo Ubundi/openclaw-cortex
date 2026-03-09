@@ -31,7 +31,10 @@ import { buildSearchMemoryTool, buildSaveMemoryTool } from "./tools.js";
 import { buildCommands } from "./commands.js";
 
 const version = packageJson.version;
+const PACKAGE_NAME = packageJson.name;
 const STATS_FILE = join(homedir(), ".openclaw", "cortex-session-stats.json");
+const UPDATE_CHECK_FILE = join(homedir(), ".openclaw", "cortex-update-check.json");
+const UPDATE_CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
 interface SessionStats {
   saves: number;
@@ -121,6 +124,50 @@ async function resetCompletedAfterAbort(
 }
 
 
+/**
+ * Checks the npm registry for a newer version and logs a hint if available.
+ * Throttled to once per 24 hours via a local timestamp file. Fully async
+ * and non-blocking — failures are silently ignored.
+ */
+async function checkForUpdate(logger: Logger): Promise<void> {
+  try {
+    // Throttle: skip if checked recently
+    try {
+      const raw = readFileSync(UPDATE_CHECK_FILE, "utf-8");
+      const { checkedAt } = JSON.parse(raw);
+      if (Date.now() - checkedAt < UPDATE_CHECK_INTERVAL_MS) return;
+    } catch { /* first run or corrupt file — continue */ }
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5000);
+    try {
+      const res = await fetch(
+        `https://registry.npmjs.org/${PACKAGE_NAME}/latest`,
+        { signal: controller.signal },
+      );
+      if (!res.ok) return;
+      const data = await res.json() as { version?: string };
+      const latest = data.version;
+      if (latest && latest !== version) {
+        logger.info(
+          `Cortex: update available ${version} → ${latest} — run \`openclaw install ${PACKAGE_NAME}@latest\` to update`,
+        );
+      }
+    } finally {
+      clearTimeout(timeout);
+    }
+
+    // Persist check timestamp (even if no update found)
+    writeFileSync(
+      UPDATE_CHECK_FILE,
+      JSON.stringify({ checkedAt: Date.now(), currentVersion: version }),
+      { encoding: "utf-8", mode: 0o600 },
+    );
+  } catch {
+    // Non-fatal — network errors, write errors, etc.
+  }
+}
+
 async function bootstrapClient(
   client: CortexClient,
   logger: Logger,
@@ -182,6 +229,38 @@ function registerHookCompat(
 /** Tool names that must survive the tools.profile allowlist filter. */
 const CORTEX_TOOL_NAMES = ["cortex_search_memory", "cortex_save_memory"] as const;
 
+const PLUGIN_ID = "openclaw-cortex";
+
+/**
+ * Ensures `plugins.allow` in the OpenClaw config includes our plugin id.
+ * Without this, the runtime logs a noisy warning about auto-loaded plugins
+ * on every startup.
+ *
+ * Runs once on first registration; idempotent thereafter.
+ */
+function ensurePluginsAllowlist(logger: Logger): void {
+  try {
+    const configPath = join(homedir(), ".openclaw", "openclaw.json");
+    const raw = readFileSync(configPath, "utf-8");
+    const config = JSON.parse(raw);
+
+    const existing: string[] = Array.isArray(config.plugins?.allow)
+      ? config.plugins.allow
+      : [];
+    if (existing.includes(PLUGIN_ID)) return;
+
+    if (!config.plugins) config.plugins = {};
+    config.plugins.allow = [...existing, PLUGIN_ID];
+
+    let mode: number | undefined;
+    try { mode = statSync(configPath).mode & 0o777; } catch { /* ignore */ }
+    writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n", { encoding: "utf-8", mode: mode ?? 0o600 });
+    logger.info(`Cortex: added "${PLUGIN_ID}" to plugins.allow`);
+  } catch {
+    // Non-fatal — the warning is cosmetic only
+  }
+}
+
 /**
  * Ensures `tools.alsoAllow` in the OpenClaw config includes our tool names.
  * Without this, profiles like "coding" silently filter out plugin tools —
@@ -223,7 +302,7 @@ function ensureToolsAllowlist(logger: Logger): void {
 }
 
 const plugin = {
-  id: "openclaw-cortex",
+  id: PLUGIN_ID,
   name: "Cortex Memory",
   description:
     "Long-term memory powered by Cortex — Auto-Recall, Auto-Capture, and background file sync",
@@ -255,6 +334,8 @@ const plugin = {
       return;
     }
 
+    // Ensure our plugin is in the explicit allowlist (suppresses auto-load warning)
+    ensurePluginsAllowlist(api.logger);
     // Ensure our tools survive the profile allowlist filter (one-time config patch)
     ensureToolsAllowlist(api.logger);
 
@@ -313,9 +394,28 @@ const plugin = {
     // Health check + knowledge probe — runs after userId resolves so recall
     // knows whether memories exist. Must happen in register() because some
     // runtime instances never call start().
-    void userIdReady.then(() => bootstrapClient(client, api.logger, knowledgeState, userId));
+    // Skip when running CLI commands (e.g. `openclaw cortex status`) — the
+    // async log races with command output and CLI commands fetch their own data.
+    const isCliInvocation = process.argv.some((a) => a === "cortex");
+    if (!isCliInvocation) {
+      void userIdReady.then(() => bootstrapClient(client, api.logger, knowledgeState, userId));
+      void checkForUpdate(api.logger);
+    }
 
     api.logger.info(`Cortex v${version} ready`);
+
+    // Show a getting-started hint on first install or after version upgrade
+    if (!isCliInvocation) {
+      try {
+        const versionFile = join(homedir(), ".openclaw", "cortex-last-version");
+        let lastVersion: string | undefined;
+        try { lastVersion = readFileSync(versionFile, "utf-8").trim(); } catch { /* first run */ }
+        if (lastVersion !== version) {
+          api.logger.info("Cortex: run `cortex help` to see available commands");
+          writeFileSync(versionFile, version, { encoding: "utf-8", mode: 0o600 });
+        }
+      } catch { /* non-fatal */ }
+    }
 
     // --- Hooks ---
 

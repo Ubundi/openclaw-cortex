@@ -633,18 +633,19 @@ describe("plugin lifecycle contract", () => {
       const configWrites = mockWriteFileSync.mock.calls.filter(
         (c) => String(c[0]).includes("openclaw.json"),
       );
-      expect(configWrites).toHaveLength(1);
-      const written = JSON.parse(configWrites[0][1] as string);
-      expect(written.tools.alsoAllow).toEqual(["cortex_search_memory", "cortex_save_memory"]);
+      // Two writes: one for plugins.allow, one for tools.alsoAllow
+      expect(configWrites.length).toBeGreaterThanOrEqual(1);
+      const lastWrite = JSON.parse(configWrites[configWrites.length - 1][1] as string);
+      expect(lastWrite.tools.alsoAllow).toEqual(["cortex_search_memory", "cortex_save_memory"]);
       expect(api.logger.info).toHaveBeenCalledWith(
         expect.stringContaining('enabled memory tools for "coding" profile'),
       );
     });
 
-    it("skips patching when no tools profile is set", async () => {
+    it("skips tools patching when no tools profile is set", async () => {
       const config = {
         tools: {},
-        plugins: { entries: { "openclaw-cortex": { enabled: true } } },
+        plugins: { allow: ["openclaw-cortex"], entries: { "openclaw-cortex": { enabled: true } } },
       };
       mockReadFileSync.mockReturnValue(JSON.stringify(config));
 
@@ -657,12 +658,13 @@ describe("plugin lifecycle contract", () => {
       expect(configWrites).toHaveLength(0);
     });
 
-    it("skips patching when cortex tools are already in alsoAllow", async () => {
+    it("skips patching when cortex tools and plugin are already allowed", async () => {
       const config = {
         tools: {
           profile: "coding",
           alsoAllow: ["cortex_search_memory", "cortex_save_memory"],
         },
+        plugins: { allow: ["openclaw-cortex"] },
       };
       mockReadFileSync.mockReturnValue(JSON.stringify(config));
 
@@ -681,6 +683,7 @@ describe("plugin lifecycle contract", () => {
           profile: "coding",
           alsoAllow: ["some_other_tool"],
         },
+        plugins: { allow: ["openclaw-cortex"] },
       };
       mockReadFileSync.mockReturnValue(JSON.stringify(config));
 
