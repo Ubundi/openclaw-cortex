@@ -75,6 +75,21 @@ export function registerCliCommands(
             return;
           }
 
+          // Link status
+          if (userId) {
+            try {
+              const linkStatus = await client.getLinkStatus(userId);
+              if (linkStatus.linked && linkStatus.link) {
+                const linkedDate = new Date(linkStatus.link.linked_at).toISOString().slice(0, 10);
+                console.log(`  TooToo Link:    ✓ Linked since ${linkedDate}`);
+              } else {
+                console.log(`  TooToo Link:    Not linked. Run \`openclaw cortex pair\` to connect.`);
+              }
+            } catch {
+              console.log(`  TooToo Link:    Unable to check`);
+            }
+          }
+
           // Knowledge
           try {
             const startKnowledge = Date.now();

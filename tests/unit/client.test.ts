@@ -440,6 +440,43 @@ describe("CortexClient", () => {
     });
   });
 
+  describe("getLinkStatus", () => {
+    it("sends GET request with agent_user_id query param", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ linked: true, link: { tootoo_user_id: "tt-user-1", linked_at: "2026-03-01T10:00:00Z" } }),
+      });
+
+      const result = await client.getLinkStatus("agent-uuid-123");
+
+      expect(mockFetch).toHaveBeenCalledWith(
+        "https://api.example.com/v1/auth/link?agent_user_id=agent-uuid-123",
+        expect.objectContaining({ method: "GET" }),
+      );
+      expect(result.linked).toBe(true);
+      expect(result.link?.tootoo_user_id).toBe("tt-user-1");
+    });
+
+    it("returns linked=false when not linked", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ linked: false }),
+      });
+
+      const result = await client.getLinkStatus("agent-uuid-123");
+      expect(result.linked).toBe(false);
+      expect(result.link).toBeUndefined();
+    });
+
+    it("throws on non-ok response", async () => {
+      mockFetch.mockResolvedValueOnce({ ok: false, status: 500 });
+
+      await expect(client.getLinkStatus("agent-uuid-123")).rejects.toThrow(
+        "Cortex auth/link failed: 500",
+      );
+    });
+  });
+
   describe("reflect", () => {
     it("sends empty body", async () => {
       mockFetch.mockResolvedValueOnce({

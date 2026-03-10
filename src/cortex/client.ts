@@ -139,6 +139,16 @@ export interface GeneratePairingCodeResponse {
   expires_at: string;
 }
 
+export interface LinkStatusLink {
+  tootoo_user_id: string;
+  linked_at: string;
+}
+
+export interface LinkStatusResponse {
+  linked: boolean;
+  link?: LinkStatusLink;
+}
+
 export interface HealthCheckResponse {
   status: string;
 }
@@ -651,6 +661,18 @@ export class CortexClient {
       { method: "GET" },
       timeoutMs,
       "knowledge",
+    );
+  }
+
+  async getLinkStatus(
+    agentUserId: string,
+    timeoutMs = DEFAULT_RECALL_TIMEOUT_MS,
+  ): Promise<LinkStatusResponse> {
+    return this.fetchRequest<LinkStatusResponse>(
+      `${this.baseUrl}/v1/auth/link?agent_user_id=${encodeURIComponent(agentUserId)}`,
+      { method: "GET" },
+      timeoutMs,
+      "auth/link",
     );
   }
 
