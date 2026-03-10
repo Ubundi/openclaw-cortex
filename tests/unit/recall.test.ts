@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { createRecallHandler, deriveEffectiveTimeout } from "../../src/features/recall/handler.js";
+import { createRecallHandler, deriveEffectiveTimeout, mapRetrieveToRecallMemories } from "../../src/features/recall/handler.js";
 import type { CortexClient } from "../../src/cortex/client.js";
 import type { CortexConfig } from "../../src/plugin/config.js";
 import type { KnowledgeState } from "../../src/plugin/index.js";
@@ -436,5 +436,67 @@ describe("deriveEffectiveTimeout", () => {
   it("scales 2× with 20s floor for Tier 3", () => {
     expect(deriveEffectiveTimeout(500, 3)).toBe(20000);    // max(1000, 20000)
     expect(deriveEffectiveTimeout(15000, 3)).toBe(30000);  // max(30000, 20000)
+  });
+});
+
+describe("mapRetrieveToRecallMemories", () => {
+  it("preserves retrieve ranking score as relevance and confidence separately", () => {
+    const [memory] = mapRetrieveToRecallMemories([
+      {
+        node_id: "1",
+        type: "FACT",
+        content: "Project uses PostgreSQL",
+        score: 0.42,
+        confidence: 0.96,
+        source: "semantic",
+      },
+    ]);
+
+    expect(memory.relevance).toBe(0.42);
+    expect(memory.confidence).toBe(0.96);
+    expect(memory.source_origin).toBeUndefined();
+  });
+
+  it("maps provenance and session_id from retrieve metadata instead of retrieval stage", () => {
+    const [memory] = mapRetrieveToRecallMemories([
+      {
+        node_id: "1",
+        type: "FACT",
+        content: "Worker jobs come from pg-boss",
+        score: 0.67,
+        source: "reranked",
+        metadata: {
+          occurred_at: "2026-03-10T10:00:00Z",
+          entity_refs: ["pg-boss"],
+          session_id: "sess-123",
+          source_origin: "transcript",
+          derivation_mode: "extracted",
+          source_app: "openclaw",
+        },
+      },
+    ]);
+
+    expect(memory.relevance).toBe(0.67);
+    expect(memory.confidence).toBe(0.67);
+    expect(memory.when).toBe("2026-03-10T10:00:00Z");
+    expect(memory.entities).toEqual(["pg-boss"]);
+    expect(memory.session_id).toBe("sess-123");
+    expect(memory.source_origin).toBe("transcript");
+    expect(memory.derivation_mode).toBe("extracted");
+    expect(memory.source_app).toBe("openclaw");
+  });
+
+  it("falls back to retrieval score when retrieve confidence is omitted", () => {
+    const [memory] = mapRetrieveToRecallMemories([
+      {
+        node_id: "1",
+        type: "FACT",
+        content: "The queue runs on pg-boss",
+        score: 0.18,
+      },
+    ]);
+
+    expect(memory.relevance).toBe(0.18);
+    expect(memory.confidence).toBe(0.18);
   });
 });

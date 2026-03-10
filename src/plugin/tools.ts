@@ -5,6 +5,7 @@ import type { AuditLogger } from "../internal/audit-logger.js";
 import type { RecentSaves } from "../internal/dedupe.js";
 import type { KnowledgeState } from "./index.js";
 import { formatMemories } from "../features/recall/formatter.js";
+import { coerceSearchMode, prepareSearchQuery } from "./search-query.js";
 
 export interface SessionStats {
   saves: number;
@@ -68,38 +69,14 @@ export function buildSearchMemoryTool(deps: ToolsDeps): ToolDefinition {
     async execute(_id, params) {
       const query = String(params.query ?? "");
       const limit = Math.min(Math.max(Number(params.limit) || 10, 1), 50);
-      const mode = typeof params.mode === "string" ? params.mode : "all";
+      const mode = coerceSearchMode(typeof params.mode === "string" ? params.mode : undefined);
 
       await userIdReady;
       const userId = getUserId();
 
-      // Augment query based on mode to improve retrieval precision
-      let effectiveQuery = query;
-      let queryType: "factual" | "emotional" | "combined" | "codex" = "combined";
-      let memoryType: string | undefined;
+      const prepared = prepareSearchQuery(query, mode);
 
-      switch (mode) {
-        case "decisions":
-          effectiveQuery = `[type:decision] ${query}`;
-          queryType = "factual";
-          memoryType = "decision";
-          break;
-        case "preferences":
-          effectiveQuery = `[type:preference] ${query}`;
-          queryType = "factual";
-          memoryType = "preference";
-          break;
-        case "facts":
-          effectiveQuery = `[type:fact] ${query}`;
-          queryType = "factual";
-          memoryType = "fact";
-          break;
-        case "recent":
-          queryType = "combined";
-          break;
-      }
-
-      logger.debug?.(`Cortex search: "${effectiveQuery.slice(0, 80)}" (limit=${limit}, mode=${mode})`);
+      logger.debug?.(`Cortex search: "${prepared.effectiveQuery.slice(0, 80)}" (limit=${limit}, mode=${prepared.mode})`);
       sessionStats.searches++;
       persistStats(sessionStats);
 
@@ -107,18 +84,18 @@ export function buildSearchMemoryTool(deps: ToolsDeps): ToolDefinition {
         feature: "tool-search-memory",
         method: "POST",
         endpoint: "/v1/recall",
-        payload: effectiveQuery,
+        payload: prepared.effectiveQuery,
         userId,
       });
 
       try {
         const doRecall = async (attempt = 0): ReturnType<typeof client.recall> => {
           try {
-            return await client.recall(effectiveQuery, config.toolTimeoutMs, {
+            return await client.recall(prepared.effectiveQuery, config.toolTimeoutMs, {
               limit,
               userId: userId,
-              queryType,
-              memoryType,
+              queryType: prepared.queryType,
+              memoryType: prepared.memoryType,
             });
           } catch (err) {
             if (attempt < 1 && /50[23]/.test(String(err))) {

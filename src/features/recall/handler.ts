@@ -184,15 +184,18 @@ export function deriveEffectiveTimeout(configuredMs: number, pipelineTier: 1 | 2
   return configuredMs;
 }
 
-function mapRetrieveToRecallMemories(results: RetrieveResult[]): RecallMemory[] {
+export function mapRetrieveToRecallMemories(results: RetrieveResult[]): RecallMemory[] {
   return results.map((r): RecallMemory => ({
     content: r.content,
     confidence: r.confidence ?? r.score,
+    relevance: r.score,
     when: r.metadata?.occurred_at ?? null,
-    session_id: null,
+    session_id: typeof r.metadata?.session_id === "string" ? r.metadata.session_id : null,
     entities: r.metadata?.entity_refs ?? [],
     type: r.type,
-    source_origin: r.source,
+    source_origin: typeof r.metadata?.source_origin === "string" ? r.metadata.source_origin : undefined,
+    derivation_mode: typeof r.metadata?.derivation_mode === "string" ? r.metadata.derivation_mode : undefined,
+    source_app: typeof r.metadata?.source_app === "string" ? r.metadata.source_app : undefined,
   }));
 }
 

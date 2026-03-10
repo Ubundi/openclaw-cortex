@@ -14,6 +14,10 @@ export interface RetrieveResultMetadata {
   fact_type?: string;
   entity_refs?: string[];
   occurred_at?: string | null;
+  session_id?: string | null;
+  source_origin?: string;
+  derivation_mode?: string;
+  source_app?: string;
   [key: string]: unknown;
 }
 

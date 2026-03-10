@@ -242,7 +242,8 @@ The plugin registers terminal-level commands under `openclaw cortex`:
 ```bash
 openclaw cortex status             # API health check with latency and memory counts
 openclaw cortex memories           # Memory count, session count, maturity, top entities
-openclaw cortex search <query>     # Search memories from the terminal
+openclaw cortex search [query...]  # Search memories from the terminal with natural-language questions
+openclaw cortex search --mode decisions what database did we choose
 openclaw cortex config             # Show current plugin configuration
 openclaw cortex pair               # Generate a TooToo pairing code to link your agent
 openclaw cortex reset              # Permanently delete all memories (prompts for confirmation)

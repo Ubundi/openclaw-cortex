@@ -1,6 +1,7 @@
 import type { CortexClient } from "../cortex/client.js";
 import type { CortexConfig } from "./config.js";
 import type { CliProgram, Logger } from "./types.js";
+import { coerceCliSearchQuery, coerceSearchMode, prepareSearchQuery } from "./search-query.js";
 
 export interface SessionStats {
   saves: number;
@@ -194,17 +195,28 @@ export function registerCliCommands(
       cortex
         .command("search")
         .description("Search memories from the terminal")
-        .argument("<query>", "Search query")
+        .argument("[query...]", "Search query")
         .option("--limit <n>", "Max results", "10")
-        .action(async (query: string, opts: { limit: string }) => {
+        .option("--mode <mode>", "Search mode: all, decisions, preferences, facts, recent")
+        .action(async (queryInput: string[] | string | undefined, opts: { limit: string; mode?: string }) => {
           await userIdReady;
           const userId = getUserId();
+          const query = coerceCliSearchQuery(queryInput);
+
+          if (!query) {
+            console.error("Search failed: provide a query, for example `openclaw cortex search what database did we choose`.");
+            process.exitCode = 1;
+            return;
+          }
+
+          const prepared = prepareSearchQuery(query, coerceSearchMode(opts.mode));
 
           try {
-            const response = await client.recall(query, config.toolTimeoutMs, {
+            const response = await client.recall(prepared.effectiveQuery, config.toolTimeoutMs, {
               limit: parseInt(opts.limit),
               userId,
-              queryType: "combined",
+              queryType: prepared.queryType,
+              memoryType: prepared.memoryType,
             });
 
             if (!response.memories?.length) {
@@ -212,9 +224,10 @@ export function registerCliCommands(
               return;
             }
 
-            console.log(`Found ${response.memories.length} memories:\n`);
+            console.log(`Found ${response.memories.length} memories (mode: ${prepared.mode}):\n`);
             response.memories.forEach((m, i) => {
-              console.log(`${i + 1}. [${m.confidence.toFixed(2)}] ${m.content}`);
+              const displayScore = m.relevance ?? m.confidence;
+              console.log(`${i + 1}. [${displayScore.toFixed(2)}] ${m.content}`);
               if (m.entities.length > 0) {
                 console.log(`   entities: ${m.entities.join(", ")}`);
               }
