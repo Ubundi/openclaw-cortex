@@ -1,7 +1,9 @@
-import { readFile, appendFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import { join } from "node:path";
 
 const MARKER = "## Cortex Memory";
+const MARKER_END = "<!-- /cortex-memory -->";
 
 const CORTEX_INSTRUCTIONS = `
 
@@ -22,12 +24,25 @@ You have a long-term memory system powered by Cortex. Before each conversation t
 - Don't treat recalled memory as the sole source of truth for volatile config/version questions.
 - Don't ignore recalled memories when the question is about history, rationale, decisions, or user preferences.
 - Don't fabricate details beyond what the memories state — if a memory says "TTL is 600s", use 600s, don't guess a different value.
+- **Don't act on personal facts (birthdays, ages, anniversaries, family details) from recalled memories without explicit prior confirmation from the user.** Recalled memories can contain hallucinations that were captured as facts — ask to verify before acting on personal claims.
+- **Don't make unsolicited factual claims about the user.** If the user didn't ask, don't volunteer personal details from memory (e.g., don't spontaneously wish happy birthday based on a recalled memory).
+- **Don't assume a recalled fact is true because it appears multiple times.** Hallucinations can get captured and re-recalled repeatedly, creating false confidence through repetition.
 
 ### When to search explicitly
 
 - When asked a specific factual question (port numbers, library choices, config values), use \`cortex_search_memory\` to look up the answer before responding from general knowledge.
 - When auto-recalled memories don't cover the topic being asked about, search before saying "I don't know."
 `;
+
+/** Short hash of the instructions content for staleness detection. */
+function instructionsHash(): string {
+  return createHash("sha256").update(CORTEX_INSTRUCTIONS).digest("hex").slice(0, 12);
+}
+
+/** Build the full block with version marker for replacement detection. */
+function buildBlock(): string {
+  return `${CORTEX_INSTRUCTIONS.trimEnd()}\n\n<!-- cortex-memory-hash:${instructionsHash()} -->\n${MARKER_END}\n`;
+}
 
 interface Logger {
   debug?(...args: unknown[]): void;
@@ -36,8 +51,13 @@ interface Logger {
 }
 
 /**
- * Appends Cortex memory instructions to AGENTS.md if not already present.
- * Idempotent — checks for the marker heading before appending.
+ * Injects or updates Cortex memory instructions in AGENTS.md.
+ *
+ * - If AGENTS.md doesn't exist, skip silently.
+ * - If the marker is absent, append the full block.
+ * - If the marker exists but the hash is stale (or missing), replace the section in-place.
+ * - If the marker exists and the hash matches, do nothing.
+ *
  * Non-fatal — logs a warning and returns silently on any error.
  */
 export async function injectAgentInstructions(
@@ -58,13 +78,51 @@ export async function injectAgentInstructions(
       throw err;
     }
 
-    if (content.includes(MARKER)) {
-      // Already injected
+    const currentHash = instructionsHash();
+    const block = buildBlock();
+
+    if (!content.includes(MARKER)) {
+      // Fresh injection
+      await writeFile(agentsMdPath, content + block, "utf-8");
+      logger.info("Cortex instructions appended to AGENTS.md");
       return;
     }
 
-    await appendFile(agentsMdPath, CORTEX_INSTRUCTIONS, "utf-8");
-    logger.info("Cortex instructions appended to AGENTS.md");
+    // Marker exists — check if hash matches
+    if (content.includes(`cortex-memory-hash:${currentHash}`)) {
+      // Up to date
+      return;
+    }
+
+    // Stale or missing hash — replace the section.
+    // Find the section boundaries: starts at "## Cortex Memory", ends at
+    // "<!-- /cortex-memory -->" or at the next same-level heading (## ...).
+    const markerIdx = content.indexOf(MARKER);
+    let endIdx: number;
+
+    const markerEndIdx = content.indexOf(MARKER_END, markerIdx);
+    if (markerEndIdx !== -1) {
+      // New-style block with explicit end marker
+      endIdx = markerEndIdx + MARKER_END.length;
+      // Consume trailing newlines
+      while (endIdx < content.length && content[endIdx] === "\n") endIdx++;
+    } else {
+      // Legacy block without end marker — find the next ## heading or EOF
+      const afterMarker = content.indexOf("\n", markerIdx);
+      if (afterMarker === -1) {
+        endIdx = content.length;
+      } else {
+        const nextHeading = content.indexOf("\n## ", afterMarker);
+        endIdx = nextHeading === -1 ? content.length : nextHeading;
+      }
+    }
+
+    const before = content.slice(0, markerIdx);
+    const after = content.slice(endIdx);
+    const updated = before + block.trimStart() + after;
+
+    await writeFile(agentsMdPath, updated, "utf-8");
+    logger.info("Cortex instructions updated in AGENTS.md");
   } catch (err) {
     logger.warn(`Cortex: failed to inject AGENTS.md instructions: ${String(err)}`);
   }

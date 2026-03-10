@@ -37,6 +37,8 @@ describe("injectAgentInstructions", () => {
     expect(result).toContain("cortex_search_memory");
     expect(result).toContain("For volatile current-state facts, verify against live workspace/runtime first.");
     expect(result).toContain("If memory and live state conflict, report both with timing context.");
+    expect(result).toContain("<!-- /cortex-memory -->");
+    expect(result).toContain("cortex-memory-hash:");
     expect(result).toContain("# AGENTS.md"); // original content preserved
     expect(logger.logs.some((l) => l.level === "info" && l.msg.includes("appended"))).toBe(true);
   });
@@ -71,15 +73,72 @@ describe("injectAgentInstructions", () => {
     expect(logger.logs.every((l) => l.level !== "error")).toBe(true);
   });
 
-  it("skips when AGENTS.md already contains Cortex section", async () => {
+  it("replaces stale section when hash is missing (legacy injection)", async () => {
     const agentsMd = join(tmpDir, "AGENTS.md");
-    await writeFile(agentsMd, "# AGENTS.md\n\n## Cortex Memory\n\nAlready here.\n");
+    // Simulate old-style injection without hash or end marker
+    await writeFile(agentsMd, "# AGENTS.md\n\n## Cortex Memory\n\nOld instructions without hash.\n");
 
     const logger = mockLogger();
     await injectAgentInstructions(tmpDir, logger);
 
     const result = await readFile(agentsMd, "utf-8");
-    expect(result).toBe("# AGENTS.md\n\n## Cortex Memory\n\nAlready here.\n");
+    // Should have replaced with new content
+    expect(result).toContain("cortex-memory-hash:");
+    expect(result).toContain("<!-- /cortex-memory -->");
+    expect(result).toContain("Don't act on personal facts");
+    expect(result).not.toContain("Old instructions without hash.");
+    expect(result).toContain("# AGENTS.md"); // original content before section preserved
+    expect(logger.logs.some((l) => l.level === "info" && l.msg.includes("updated"))).toBe(true);
+  });
+
+  it("replaces stale section when hash doesn't match", async () => {
+    const agentsMd = join(tmpDir, "AGENTS.md");
+    await writeFile(
+      agentsMd,
+      "# AGENTS.md\n\n## Cortex Memory\n\nOld content.\n\n<!-- cortex-memory-hash:000000000000 -->\n<!-- /cortex-memory -->\n",
+    );
+
+    const logger = mockLogger();
+    await injectAgentInstructions(tmpDir, logger);
+
+    const result = await readFile(agentsMd, "utf-8");
+    expect(result).toContain("Don't act on personal facts");
+    expect(result).not.toContain("000000000000");
+    expect(result).not.toContain("Old content.");
+    expect(logger.logs.some((l) => l.level === "info" && l.msg.includes("updated"))).toBe(true);
+  });
+
+  it("skips when hash matches (up to date)", async () => {
+    const agentsMd = join(tmpDir, "AGENTS.md");
+    await writeFile(agentsMd, "# AGENTS.md\n\nSome content.\n");
+
+    const logger = mockLogger();
+    // First injection
+    await injectAgentInstructions(tmpDir, logger);
+    const firstResult = await readFile(agentsMd, "utf-8");
+
+    // Second injection — should be a no-op
+    logger.logs.length = 0;
+    await injectAgentInstructions(tmpDir, logger);
+    const secondResult = await readFile(agentsMd, "utf-8");
+
+    expect(secondResult).toBe(firstResult);
     expect(logger.logs).toHaveLength(0);
+  });
+
+  it("preserves content after the Cortex section", async () => {
+    const agentsMd = join(tmpDir, "AGENTS.md");
+    await writeFile(
+      agentsMd,
+      "# AGENTS.md\n\n## Cortex Memory\n\nOld stuff.\n\n<!-- cortex-memory-hash:000000000000 -->\n<!-- /cortex-memory -->\n\n## Other Section\n\nKeep this.\n",
+    );
+
+    const logger = mockLogger();
+    await injectAgentInstructions(tmpDir, logger);
+
+    const result = await readFile(agentsMd, "utf-8");
+    expect(result).toContain("## Other Section");
+    expect(result).toContain("Keep this.");
+    expect(result).toContain("Don't act on personal facts");
   });
 });

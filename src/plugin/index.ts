@@ -14,6 +14,7 @@ import { loadOrCreateUserId } from "../internal/user-id.js";
 import { BAKED_API_KEY } from "../internal/api-key.js";
 import { AuditLogger } from "../internal/audit-logger.js";
 import { RecentSaves } from "../internal/dedupe.js";
+import { RecallEchoStore } from "../internal/recall-echo-store.js";
 import { injectAgentInstructions } from "../internal/agent-instructions.js";
 import { createHeartbeatHandler } from "../features/heartbeat/handler.js";
 import {
@@ -356,6 +357,10 @@ const plugin = {
     // a single Cortex SESSION node so total_sessions increments properly.
     const sessionId = randomUUID();
 
+    // Shared store between recall and capture to break feedback loops.
+    // Recall deposits what it retrieved; capture checks before ingesting.
+    const echoStore = new RecallEchoStore();
+
     // Whether the user explicitly set a namespace vs. relying on default
     const userSetNamespace = raw.namespace != null;
     let namespace = config.namespace;
@@ -436,6 +441,7 @@ const plugin = {
         sessionStats.recallDuplicatesCollapsed += stats.collapsedCount;
         persistStats(sessionStats);
       },
+      echoStore,
     );
 
     // Auto-Recall: inject relevant memories before every agent turn
@@ -475,7 +481,7 @@ const plugin = {
     );
 
     // Auto-Capture: extract facts after agent responses
-    const captureHandler = createCaptureHandler(client, config, api.logger, retryQueue, knowledgeState, () => userId, userIdReady, sessionId, auditLoggerProxy);
+    const captureHandler = createCaptureHandler(client, config, api.logger, retryQueue, knowledgeState, () => userId, userIdReady, sessionId, auditLoggerProxy, echoStore);
     registerHookCompat(
       api,
       "agent_end",

@@ -5,6 +5,8 @@ import type { KnowledgeState } from "../../plugin/index.js";
 import type { RetryQueue } from "../../internal/retry-queue.js";
 import type { AuditLogger } from "../../internal/audit-logger.js";
 import { filterLowSignalMessages, stripRuntimeMetadata } from "./filter.js";
+import type { RecallEchoStore } from "../../internal/recall-echo-store.js";
+import { containsHeartbeatPrompt } from "../../internal/heartbeat-detect.js";
 
 interface AgentEndEvent {
   runId?: string;
@@ -139,6 +141,7 @@ export function createCaptureHandler(
   userIdReady?: Promise<void>,
   pluginSessionId?: string,
   auditLogger?: AuditLogger,
+  echoStore?: RecallEchoStore,
 ) {
   let captureCounter = 0;
   const lastCapturedAtBySession = new Map<string, number>();
@@ -186,12 +189,37 @@ export function createCaptureHandler(
         }
       }
 
+      // Skip capture entirely for heartbeat turns — they produce low-signal
+      // operational noise that pollutes the memory store and amplifies false facts.
+      if (containsHeartbeatPrompt(normalized)) {
+        markCapturedWatermark();
+        logger.info("Cortex capture: skipping — heartbeat turn");
+        return;
+      }
+
       // Drop low-signal messages (heartbeats, status lines, TUI artifacts)
       const filtered = config.captureFilter !== false
         ? filterLowSignalMessages(normalized)
         : normalized;
 
-      if (!isWorthCapturing(filtered)) {
+      // Strip assistant messages that echo recently recalled memories.
+      // This breaks the feedback loop: recall → agent parrots → capture → recall (stronger).
+      let echoFiltered = filtered;
+      if (echoStore) {
+        let echoesStripped = 0;
+        echoFiltered = filtered.filter((msg) => {
+          if (msg.role === "assistant" && echoStore.isEcho(msg.content)) {
+            echoesStripped++;
+            return false;
+          }
+          return true;
+        });
+        if (echoesStripped > 0) {
+          logger.info(`Cortex capture: stripped ${echoesStripped} assistant message(s) echoing recalled memories`);
+        }
+      }
+
+      if (!isWorthCapturing(echoFiltered)) {
         markCapturedWatermark();
         logger.info("Cortex capture: skipping — not enough substantive content");
         return;
@@ -199,7 +227,7 @@ export function createCaptureHandler(
 
       // API caps at 200 messages — take the most recent to stay within the limit
       const MAX_MESSAGES = 200;
-      const trimmed = filtered.length > MAX_MESSAGES ? filtered.slice(-MAX_MESSAGES) : filtered;
+      const trimmed = echoFiltered.length > MAX_MESSAGES ? echoFiltered.slice(-MAX_MESSAGES) : echoFiltered;
 
       // Enforce byte-size cap — drop oldest messages until the transcript fits.
       // This prevents oversized payloads from pasted files or long tool outputs.

@@ -7,6 +7,8 @@ import { inferRecallProfile, getProfileParams } from "./context-profile.js";
 import type { RecallProfile } from "./context-profile.js";
 import { LatencyMetrics } from "../../internal/latency-metrics.js";
 import { stripRuntimeMetadata } from "../capture/filter.js";
+import type { RecallEchoStore } from "../../internal/recall-echo-store.js";
+import { isHeartbeatTurn } from "../../internal/heartbeat-detect.js";
 
 interface BeforeAgentStartEvent {
   prompt: string;
@@ -208,6 +210,7 @@ export function createRecallHandler(
   getUserId?: () => string | undefined,
   auditLogger?: AuditLogger,
   onRecallStats?: (stats: RecallStats) => void,
+  echoStore?: RecallEchoStore,
 ) {
   const recallMetrics = metrics ?? new LatencyMetrics();
   let consecutiveFailures = 0;
@@ -220,6 +223,15 @@ export function createRecallHandler(
     logger.info("Cortex recall: hook fired");
 
     if (!config.autoRecall) return;
+
+    // Skip recall for heartbeat turns — they're periodic status checks that
+    // don't need memory context. Recalling during heartbeats floods the agent
+    // with operational noise and can trigger unsolicited actions from recalled facts.
+    const { source: promptSource, query: promptQuery } = selectRecallQuery(event);
+    if (isHeartbeatTurn(promptQuery)) {
+      logger.info("Cortex recall: skipped (heartbeat turn)");
+      return;
+    }
 
     // Skip recall when we know there are no memories yet, but periodically
     // re-check in case another plugin instance ingested memories or the
@@ -256,7 +268,8 @@ export function createRecallHandler(
       }
     }
 
-    const { source: querySource, query: selectedQuery } = selectRecallQuery(event);
+    const querySource = promptSource;
+    const selectedQuery = promptQuery;
     // Extract a [cortex-date: YYYY-MM-DD] marker if present (injected by the
     // benchmark runner for historical datasets). Strips the marker from the query
     // so it doesn't pollute the semantic search, and uses it as reference_date.
@@ -354,6 +367,12 @@ export function createRecallHandler(
       }
 
       if (!memories.length) return;
+
+      // Store recalled content so the capture handler can detect echo loops.
+      // Must happen before formatting/truncation to capture full content.
+      if (echoStore) {
+        echoStore.storeRecalled(memories.map((m) => m.content));
+      }
 
       const { text: formatted, collapsedCount } = formatMemoriesWithStats(memories, config.recallTopK);
       if (!formatted) return;
