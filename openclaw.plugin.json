@@ -2,7 +2,7 @@
   "id": "openclaw-cortex",
   "name": "Cortex Memory",
   "description": "Long-term memory powered by Cortex — Auto-Recall, Auto-Capture, and agent memory tools",
-  "version": "2.3.1",
+  "version": "2.3.2",
   "configSchema": {
     "type": "object",
     "properties": {
