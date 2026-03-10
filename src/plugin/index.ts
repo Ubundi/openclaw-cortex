@@ -650,6 +650,9 @@ const plugin = {
 
     // --- Services: retry queue, audit, workspace metadata ---
 
+    const WARMUP_INTERVAL_MS = 5 * 60_000; // 5 minutes
+    let warmupTimer: ReturnType<typeof setInterval> | null = null;
+
     api.registerService({
       id: "cortex-services",
       start(ctx) {
@@ -660,6 +663,17 @@ const plugin = {
         started = true;
 
         retryQueue.start();
+
+        // Periodic warmup ping to keep the Cortex tenant in the LRU cache
+        // and avoid cold-start latency when the ECS worker recycles.
+        if (config.autoCapture || config.autoRecall) {
+          warmupTimer = setInterval(() => {
+            client.warmup().then(
+              () => api.logger.debug?.("Cortex warmup ping OK"),
+              (err) => api.logger.debug?.(`Cortex warmup ping failed: ${String(err)}`),
+            );
+          }, WARMUP_INTERVAL_MS);
+        }
 
         // Capture workspaceDir for runtime audit toggle via /audit command
         workspaceDirResolved = ctx.workspaceDir;
@@ -688,6 +702,11 @@ const plugin = {
         started = false;
 
         retryQueue.stop();
+
+        if (warmupTimer) {
+          clearInterval(warmupTimer);
+          warmupTimer = null;
+        }
 
         const summary = recallMetrics.summary();
         if (summary.count > 0) {
