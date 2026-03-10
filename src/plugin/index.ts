@@ -14,6 +14,7 @@ import { BAKED_API_KEY } from "../internal/api-key.js";
 import { AuditLogger } from "../internal/audit-logger.js";
 import { RecentSaves } from "../internal/dedupe.js";
 import { RecallEchoStore } from "../internal/recall-echo-store.js";
+import { CaptureWatermarkStore } from "../internal/capture-watermark-store.js";
 import { injectAgentInstructions } from "../internal/agent-instructions.js";
 import { createHeartbeatHandler } from "../features/heartbeat/handler.js";
 import {
@@ -495,7 +496,9 @@ const plugin = {
     );
 
     // Auto-Capture: extract facts after agent responses
-    const captureHandler = createCaptureHandler(client, config, api.logger, retryQueue, knowledgeState, () => userId, userIdReady, sessionId, auditLoggerProxy, echoStore);
+    const watermarkStore = new CaptureWatermarkStore();
+    void watermarkStore.load().catch((err) => api.logger.debug?.(`Cortex watermark load failed: ${String(err)}`));
+    const captureHandler = createCaptureHandler(client, config, api.logger, retryQueue, knowledgeState, () => userId, userIdReady, sessionId, auditLoggerProxy, echoStore, watermarkStore);
     registerHookCompat(
       api,
       "agent_end",

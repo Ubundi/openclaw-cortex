@@ -7,6 +7,7 @@ import type { AuditLogger } from "../../internal/audit-logger.js";
 import { filterLowSignalMessages, stripRuntimeMetadata } from "./filter.js";
 import type { RecallEchoStore } from "../../internal/recall-echo-store.js";
 import { containsHeartbeatPrompt } from "../../internal/heartbeat-detect.js";
+import type { CaptureWatermarkStore } from "../../internal/capture-watermark-store.js";
 
 interface AgentEndEvent {
   runId?: string;
@@ -36,7 +37,7 @@ const LOOKUP_MAX_QUESTION_CHARS = 220;
 const LOOKUP_MAX_ANSWER_CHARS = 220;
 const TURN_DEDUP_TTL_MS = 24 * 60 * 60 * 1000; // 24h
 const TURN_DEDUP_MAX_FINGERPRINTS = 1000;
-const CAPTURE_DERIVATION_MODE = "explicit";
+const CAPTURE_DERIVATION_MODE = "inferred";
 const BENCHMARK_SEED_SESSION_PREFIX = "benchmark-seed-";
 
 /** Strip injected recall block so we don't re-ingest recalled memories as new content */
@@ -140,9 +141,9 @@ export function createCaptureHandler(
   pluginSessionId?: string,
   auditLogger?: AuditLogger,
   echoStore?: RecallEchoStore,
+  watermarkStore?: CaptureWatermarkStore,
 ) {
   let captureCounter = 0;
-  const lastCapturedAtBySession = new Map<string, number>();
   const seenTurnFingerprints = new Map<string, number>();
   let capturesSinceRefresh = 0;
 
@@ -156,12 +157,12 @@ export function createCaptureHandler(
     try {
       const sessionId = event.sessionKey ?? event.sessionId ?? pluginSessionId;
       const watermarkKey = sessionId ?? "__default__";
-      const previousWatermark = lastCapturedAtBySession.get(watermarkKey) ?? 0;
+      const previousWatermark = watermarkStore?.get(watermarkKey) ?? 0;
       const watermark = previousWatermark > event.messages.length ? 0 : previousWatermark;
       const delta = event.messages.slice(watermark);
       const markCapturedWatermark = () => {
         // Advance watermark so we don't repeatedly re-process the same turn.
-        lastCapturedAtBySession.set(watermarkKey, event.messages.length);
+        watermarkStore?.set(watermarkKey, event.messages.length);
       };
 
       const normalized: ConversationMessage[] = delta

@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import { createCaptureHandler } from "../../src/features/capture/handler.js";
 import type { CortexClient } from "../../src/cortex/client.js";
 import type { CortexConfig } from "../../src/plugin/config.js";
+import { CaptureWatermarkStore } from "../../src/internal/capture-watermark-store.js";
 
 function makeConfig(overrides: Partial<CortexConfig> = {}): CortexConfig {
   return {
@@ -24,6 +25,14 @@ const logger = {
   warn: vi.fn(),
   error: vi.fn(),
 };
+
+/** In-memory watermark store for tests (no disk I/O) */
+function makeWatermarkStore(): CaptureWatermarkStore {
+  const store = new CaptureWatermarkStore("/dev/null");
+  // Pre-load with empty data so get() works synchronously
+  (store as any).data = {};
+  return store;
+}
 
 function submittedTranscript(submitMock: ReturnType<typeof vi.fn>, callIndex = 0): string {
   const messages = submitMock.mock.calls[callIndex][0] as Array<{ role: string; content: string }>;
@@ -59,7 +68,7 @@ describe("createCaptureHandler", () => {
       undefined,
       "openclaw",
       "OpenClaw",
-      "explicit",
+      "inferred",
     );
   });
 
@@ -153,7 +162,7 @@ describe("createCaptureHandler", () => {
     const submitMock = vi.fn().mockResolvedValue({ job_id: "job-4", status: "pending" });
     const client = { submitIngestConversation: submitMock } as unknown as CortexClient;
 
-    const handler = createCaptureHandler(client, makeConfig(), logger);
+    const handler = createCaptureHandler(client, makeConfig(), logger, undefined, undefined, undefined, undefined, undefined, undefined, undefined, makeWatermarkStore());
 
     const turn1Messages = [
       { role: "user", content: "What is the deployment strategy for our backend services?" },
@@ -182,7 +191,7 @@ describe("createCaptureHandler", () => {
   it("tracks watermarks per session", async () => {
     const submitMock = vi.fn().mockResolvedValue({ job_id: "job-per-session", status: "pending" });
     const client = { submitIngestConversation: submitMock } as unknown as CortexClient;
-    const handler = createCaptureHandler(client, makeConfig(), logger);
+    const handler = createCaptureHandler(client, makeConfig(), logger, undefined, undefined, undefined, undefined, undefined, undefined, undefined, makeWatermarkStore());
 
     const session1Turn1 = [
       { role: "user", content: "Session one asks about deployment strategy for backend services and blue-green rollout details." },
@@ -484,7 +493,7 @@ describe("createCaptureHandler", () => {
       undefined,
       "openclaw",
       "OpenClaw",
-      "explicit",
+      "inferred",
     );
   });
 
