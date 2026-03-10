@@ -35,8 +35,6 @@ export const CortexConfigSchema = z.object({
   recallProfile: z.enum(["auto", "default", "factual", "planning", "incident", "handoff"]).default("auto"),
   recallTimeoutMs: z.number().int().min(100).max(120000).default(60000),
   toolTimeoutMs: z.number().int().min(1000).max(120000).default(60000),
-  fileSync: z.boolean().default(true),
-  transcriptSync: z.boolean().default(true),
   captureMaxPayloadBytes: z.number().int().min(1024).max(1_048_576).default(262_144),
   captureFilter: z.boolean().default(true),
   dedupeWindowMinutes: z.number().int().min(0).max(1440).default(30),

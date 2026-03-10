@@ -31,8 +31,6 @@ describeIf(!!API_KEY)("Recall pipeline integration", () => {
     recallLimit: 10,
     recallQueryType: "combined",
     recallTimeoutMs: 5000,
-    fileSync: true,
-    transcriptSync: true,
     namespace: TEST_SESSION,
   };
 

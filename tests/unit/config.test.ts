@@ -116,8 +116,6 @@ describe("CortexConfigSchema", () => {
         expect(result.data.recallTopK).toBe(20);
         expect(result.data.recallQueryType).toBe("combined");
         expect(result.data.recallTimeoutMs).toBe(60000);
-        expect(result.data.fileSync).toBe(true);
-        expect(result.data.transcriptSync).toBe(true);
         expect(result.data.namespace).toBe("openclaw");
       }
     });

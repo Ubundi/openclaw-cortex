@@ -12,8 +12,6 @@ function makeConfig(overrides: Partial<CortexConfig> = {}): CortexConfig {
     recallQueryType: "combined",
     recallTimeoutMs: 500,
     toolTimeoutMs: 10000,
-    fileSync: true,
-    transcriptSync: true,
     captureFilter: true,
     ...overrides,
     namespace: overrides.namespace ?? "test",

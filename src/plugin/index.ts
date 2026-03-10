@@ -7,7 +7,6 @@ import { CortexConfigSchema, configSchema, type CortexConfig } from "./config.js
 import { CortexClient } from "../cortex/client.js";
 import { createRecallHandler } from "../features/recall/handler.js";
 import { createCaptureHandler } from "../features/capture/handler.js";
-import { FileSyncWatcher } from "../features/sync/watcher.js";
 import { RetryQueue } from "../internal/retry-queue.js";
 import { LatencyMetrics } from "../internal/latency-metrics.js";
 import { loadOrCreateUserId } from "../internal/user-id.js";
@@ -306,7 +305,7 @@ const plugin = {
   id: PLUGIN_ID,
   name: "Cortex Memory",
   description:
-    "Long-term memory powered by Cortex — Auto-Recall, Auto-Capture, and background file sync",
+    "Long-term memory powered by Cortex — Auto-Recall, Auto-Capture, and agent memory tools",
   version,
   // No `kind` — cortex supplements the built-in memory system rather than replacing it
   configSchema,
@@ -365,7 +364,6 @@ const plugin = {
     const userSetNamespace = raw.namespace != null;
     let namespace = config.namespace;
     let started = false;
-    let watcher: FileSyncWatcher | null = null;
 
     // Audit logger is created lazily in start(ctx) when workspaceDir is available,
     // or on-demand via the /audit command. The proxy always exists so handlers can
@@ -603,8 +601,6 @@ const plugin = {
           config: {
             autoRecall: config.autoRecall,
             autoCapture: config.autoCapture,
-            fileSync: config.fileSync,
-            transcriptSync: config.transcriptSync,
             namespace,
           },
         });
@@ -632,7 +628,7 @@ const plugin = {
       api.logger.debug?.("Cortex CLI registered: openclaw cortex {status,memories,search,config,pair,reset}");
     }
 
-    // --- Services: retry queue, file sync ---
+    // --- Services: retry queue, audit, workspace metadata ---
 
     api.registerService({
       id: "cortex-services",
@@ -665,36 +661,12 @@ const plugin = {
           void injectAgentInstructions(ctx.workspaceDir, api.logger);
         }
 
-        // File sync (MEMORY.md, daily logs, transcripts)
-        if (config.fileSync) {
-          const workspaceDir = ctx.workspaceDir;
-          if (!workspaceDir) {
-            api.logger.warn("Cortex file sync: no workspaceDir, skipping");
-          } else {
-            const newWatcher = new FileSyncWatcher(
-              workspaceDir,
-              client,
-              namespace,
-              api.logger,
-              retryQueue,
-              { transcripts: config.transcriptSync, captureFilter: config.captureFilter },
-              () => userId,
-              auditLoggerProxy,
-            );
-            newWatcher.start();
-            watcher = newWatcher;
-            api.logger.debug?.("Cortex file sync started");
-          }
-        }
-
         api.logger.debug?.("Cortex services started");
       },
       stop() {
         if (!started) return;
         started = false;
 
-        watcher?.stop();
-        watcher = null;
         retryQueue.stop();
 
         const summary = recallMetrics.summary();

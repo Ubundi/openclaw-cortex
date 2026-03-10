@@ -31,8 +31,6 @@ const api = {
     autoCapture: true,
     recallLimit: 10,
     recallTimeoutMs: 10000,
-    fileSync: false,
-    transcriptSync: false,
     namespace: "manual-test",
   },
   logger: {

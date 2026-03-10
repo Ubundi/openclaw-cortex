@@ -1,7 +1,7 @@
 {
   "id": "openclaw-cortex",
   "name": "Cortex Memory",
-  "description": "Long-term memory powered by Cortex — Auto-Recall, Auto-Capture, agent tools, /memories command, transcript ingestion, and background file sync",
+  "description": "Long-term memory powered by Cortex — Auto-Recall, Auto-Capture, and agent memory tools",
   "version": "2.2.2",
   "configSchema": {
     "type": "object",
@@ -63,16 +63,6 @@
         "type": "number",
         "description": "Maximum time to wait for memory recall (ms)",
         "default": 60000
-      },
-      "fileSync": {
-        "type": "boolean",
-        "description": "Watch MEMORY.md and daily logs for background ingestion",
-        "default": true
-      },
-      "transcriptSync": {
-        "type": "boolean",
-        "description": "Watch sessions/*.jsonl and ingest cleaned transcripts",
-        "default": true
       },
       "toolTimeoutMs": {
         "type": "number",
@@ -152,14 +142,6 @@
     "recallTimeoutMs": {
       "label": "Recall Timeout (ms)",
       "advanced": true
-    },
-    "fileSync": {
-      "label": "File Sync",
-      "helpText": "Watch MEMORY.md and daily logs for background ingestion into Cortex."
-    },
-    "transcriptSync": {
-      "label": "Transcript Sync",
-      "helpText": "Automatically ingest session transcripts (sessions/*.jsonl) after stripping system prompts and tool JSON."
     },
     "toolTimeoutMs": {
       "label": "Tool Timeout (ms)",

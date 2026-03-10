@@ -65,9 +65,7 @@ function extractContent(content: unknown): string {
 
 function isWorthCapturing(messages: ConversationMessage[]): boolean {
   const hasUser = messages.some((m) => m.role === "user" && m.content.length > MIN_CONTENT_LENGTH);
-  const hasSubstantiveResponse = messages.some(
-    (m) => (m.role === "assistant" || m.role === "tool") && m.content.length > MIN_CONTENT_LENGTH,
-  );
+  const hasSubstantiveResponse = messages.some((m) => m.role === "assistant" && m.content.length > MIN_CONTENT_LENGTH);
   return hasUser && hasSubstantiveResponse;
 }
 
@@ -85,7 +83,7 @@ const REASONING_ANSWER_RE = /\b(because|therefore|trade-?off|recommend|should|st
 
 function isProbeLookupTurn(messages: ConversationMessage[]): boolean {
   const user = latestByRole(messages, "user");
-  const assistant = latestByRole(messages, "assistant") ?? latestByRole(messages, "tool");
+  const assistant = latestByRole(messages, "assistant");
   if (!user || !assistant) return false;
 
   const question = user.replace(/\s+/g, " ").trim();
@@ -117,7 +115,7 @@ function normalizeFingerprintText(text: string): string {
 
 function buildTurnFingerprint(messages: ConversationMessage[]): string | undefined {
   const user = latestByRole(messages, "user");
-  const assistant = latestByRole(messages, "assistant") ?? latestByRole(messages, "tool");
+  const assistant = latestByRole(messages, "assistant");
   if (!user || !assistant) return undefined;
 
   const normalizedUser = normalizeFingerprintText(user);
@@ -172,7 +170,8 @@ export function createCaptureHandler(
             typeof msg === "object" &&
             msg !== null &&
             "role" in msg &&
-            "content" in msg,
+            "content" in msg &&
+            (msg.role === "user" || msg.role === "assistant"),
         )
         .map((msg) => ({
           role: String(msg.role),
@@ -230,7 +229,7 @@ export function createCaptureHandler(
       const trimmed = echoFiltered.length > MAX_MESSAGES ? echoFiltered.slice(-MAX_MESSAGES) : echoFiltered;
 
       // Enforce byte-size cap — drop oldest messages until the transcript fits.
-      // This prevents oversized payloads from pasted files or long tool outputs.
+      // This prevents oversized payloads from pasted files or verbose replies.
       const maxBytes = config.captureMaxPayloadBytes ?? 262_144;
       while (trimmed.length > 2) {
         const estimatedSize = trimmed.reduce((sum, m) => sum + Buffer.byteLength(m.role, "utf-8") + 2 + Buffer.byteLength(m.content, "utf-8") + 2, 0);

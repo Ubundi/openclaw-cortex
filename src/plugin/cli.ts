@@ -141,7 +141,6 @@ export function registerCliCommands(
           console.log(`  Base URL:       ${config.baseUrl}`);
           console.log(`  Auto-Recall:    ${config.autoRecall ? "on" : "off"}`);
           console.log(`  Auto-Capture:   ${config.autoCapture ? "on" : "off"}`);
-          console.log(`  File Sync:      ${config.fileSync ? "on" : "off"}`);
           console.log(`  Dedupe Window:  ${config.dedupeWindowMinutes > 0 ? `${config.dedupeWindowMinutes}min` : "off"}`);
 
           // Session activity stats — read from persisted file so CLI process
@@ -251,8 +250,6 @@ export function registerCliCommands(
           console.log(`Namespace:        ${getNamespace()}`);
           console.log(`Auto-Recall:      ${config.autoRecall ? "on" : "off"}`);
           console.log(`Auto-Capture:     ${config.autoCapture ? "on" : "off"}`);
-          console.log(`File Sync:        ${config.fileSync ? "on" : "off"}`);
-          console.log(`Transcript Sync:  ${config.transcriptSync ? "on" : "off"}`);
           console.log(`Recall Limit:     ${config.recallLimit}`);
           console.log(`Recall Timeout:   ${config.recallTimeoutMs}ms`);
           console.log(`Tool Timeout:     ${config.toolTimeoutMs}ms`);
@@ -335,10 +332,6 @@ export function registerCliCommands(
   Auto-Recall     Before the agent responds, Cortex searches your
                   memory for anything relevant to the current query
                   and injects it into the agent's context.
-
-  File Sync       Watches MEMORY.md, daily logs, and session
-                  transcripts in your workspace and syncs them into
-                  Cortex in the background.
 
   The more you use your agent, the smarter recall gets. Cortex
   adapts its retrieval pipeline as your memory store grows:

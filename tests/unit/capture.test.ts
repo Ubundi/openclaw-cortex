@@ -12,8 +12,6 @@ function makeConfig(overrides: Partial<CortexConfig> = {}): CortexConfig {
     recallQueryType: "combined",
     recallTimeoutMs: 500,
     toolTimeoutMs: 10000,
-    fileSync: true,
-    transcriptSync: true,
     captureFilter: true,
     ...overrides,
     namespace: overrides.namespace ?? "test",
@@ -127,7 +125,7 @@ describe("createCaptureHandler", () => {
     expect(transcript).toContain("The project uses PostgreSQL with pgvector for embedding storage.");
   });
 
-  it("extracts tool_result content from tool messages", async () => {
+  it("ignores tool messages and only ingests user and assistant content", async () => {
     const submitPromise = Promise.resolve({ job_id: "job-3", status: "pending" });
     const submitMock = vi.fn().mockReturnValue(submitPromise);
     const client = { submitIngestConversation: submitMock } as unknown as CortexClient;
@@ -147,7 +145,8 @@ describe("createCaptureHandler", () => {
     await submitPromise;
 
     const transcript = submittedTranscript(submitMock);
-    expect(transcript).toContain("index.ts\nplugin.ts\nclient.ts");
+    expect(transcript).not.toContain("index.ts\nplugin.ts\nclient.ts");
+    expect(transcript).toContain("The src directory contains index.ts, plugin.ts, and client.ts.");
   });
 
   it("only sends the delta on subsequent turns (watermark)", async () => {

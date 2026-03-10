@@ -50,8 +50,6 @@ function createPluginApi(configOverrides: Record<string, unknown> = {}) {
       autoCapture: true,
       recallLimit: 10,
       recallTimeoutMs: 10000,
-      fileSync: false,
-      transcriptSync: false,
       ...configOverrides,
       namespace: configOverrides?.namespace ?? "manual-test",
     },

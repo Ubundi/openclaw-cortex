@@ -1,7 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import plugin from "../../src/plugin/index.js";
 import { CortexClient } from "../../src/cortex/client.js";
-import { FileSyncWatcher } from "../../src/features/sync/watcher.js";
 import { RetryQueue } from "../../src/internal/retry-queue.js";
 import { SessionStateStore } from "../../src/internal/session-state.js";
 
@@ -174,9 +173,7 @@ describe("plugin lifecycle contract", () => {
   });
 
   it("register wires hooks and service via api.on", async () => {
-    const { api, hooks, services } = makeApi({
-      fileSync: false,
-    });
+    const { api, hooks, services } = makeApi({});
 
     plugin.register(api as any);
     // Bootstrap (userId + healthCheck) now runs in start(), not register()
@@ -202,12 +199,10 @@ describe("plugin lifecycle contract", () => {
 
     expect(api.registerService).toHaveBeenCalledTimes(1);
     expect(services[0]?.id).toBe("cortex-services");
-
-    expect(CortexClient.prototype.healthCheck).toHaveBeenCalledOnce();
   });
 
   it("falls back to registerHook when api.on is not available", async () => {
-    const { api, hooks } = makeApi({ fileSync: false });
+    const { api, hooks } = makeApi({});
 
     // Remove api.on to simulate runtime without it
     const fallbackApi = {
@@ -239,7 +234,7 @@ describe("plugin lifecycle contract", () => {
   });
 
   it("registers agent tools", async () => {
-    const { api, tools } = makeApi({ fileSync: false });
+    const { api, tools } = makeApi({});
 
     plugin.register(api as any);
     await flushMicrotasks();
@@ -260,7 +255,6 @@ describe("plugin lifecycle contract", () => {
     });
 
     const { api, tools } = makeApi({
-      fileSync: false,
       toolTimeoutMs: 1000,
     });
 
@@ -294,7 +288,7 @@ describe("plugin lifecycle contract", () => {
   });
 
   it("registers auto-reply command", async () => {
-    const { api, commands } = makeApi({ fileSync: false });
+    const { api, commands } = makeApi({});
 
     plugin.register(api as any);
     await flushMicrotasks();
@@ -307,7 +301,7 @@ describe("plugin lifecycle contract", () => {
 
   it("sleep command clears dirty session state", async () => {
     const clearSpy = vi.spyOn(SessionStateStore.prototype, "clear").mockResolvedValue();
-    const { api, commands } = makeApi({ fileSync: false });
+    const { api, commands } = makeApi({});
 
     plugin.register(api as any);
     await flushMicrotasks();
@@ -332,7 +326,7 @@ describe("plugin lifecycle contract", () => {
       .mockResolvedValue(null);
     const clearSpy = vi.spyOn(SessionStateStore.prototype, "clear").mockResolvedValue();
 
-    const { api, hooks } = makeApi({ fileSync: false });
+    const { api, hooks } = makeApi({});
     plugin.register(api as any);
     await flushMicrotasks();
 
@@ -354,7 +348,7 @@ describe("plugin lifecycle contract", () => {
   });
 
   it("registers Gateway RPC method", async () => {
-    const { api, rpcMethods } = makeApi({ fileSync: false });
+    const { api, rpcMethods } = makeApi({});
 
     plugin.register(api as any);
     await flushMicrotasks();
@@ -372,16 +366,11 @@ describe("plugin lifecycle contract", () => {
     expect(rpcResponse).toHaveProperty("config");
   });
 
-  it("service start/stop initializes retry queue and file sync", async () => {
+  it("service start/stop initializes retry queue", async () => {
     const retryStart = vi.spyOn(RetryQueue.prototype, "start").mockImplementation(() => {});
     const retryStop = vi.spyOn(RetryQueue.prototype, "stop").mockImplementation(() => {});
-    const watcherStart = vi.spyOn(FileSyncWatcher.prototype, "start").mockImplementation(() => {});
-    const watcherStop = vi.spyOn(FileSyncWatcher.prototype, "stop").mockImplementation(() => {});
 
-    const { api, services } = makeApi({
-      fileSync: true,
-      transcriptSync: true,
-    });
+    const { api, services } = makeApi({});
 
     plugin.register(api as any);
     await flushMicrotasks();
@@ -391,10 +380,8 @@ describe("plugin lifecycle contract", () => {
 
     expect(() => service.start?.({ workspaceDir: "/tmp/workspace" })).not.toThrow();
     expect(retryStart).toHaveBeenCalledOnce();
-    expect(watcherStart).toHaveBeenCalledOnce();
 
     expect(() => service.stop?.call(service)).not.toThrow();
-    expect(watcherStop).toHaveBeenCalledOnce();
     expect(retryStop).toHaveBeenCalledOnce();
 
     expect(() => service.stop?.call(service)).not.toThrow();
@@ -402,11 +389,8 @@ describe("plugin lifecycle contract", () => {
 
   it("service start is idempotent and does not duplicate background services", async () => {
     const retryStart = vi.spyOn(RetryQueue.prototype, "start").mockImplementation(() => {});
-    const watcherStart = vi.spyOn(FileSyncWatcher.prototype, "start").mockImplementation(() => {});
 
-    const { api, services } = makeApi({
-      fileSync: true,
-    });
+    const { api, services } = makeApi({});
 
     plugin.register(api as any);
     await flushMicrotasks();
@@ -416,26 +400,6 @@ describe("plugin lifecycle contract", () => {
     service.start?.({ workspaceDir: "/tmp/workspace" });
 
     expect(retryStart).toHaveBeenCalledOnce();
-    expect(watcherStart).toHaveBeenCalledOnce();
-  });
-
-  it("logs warning and skips file sync when workspaceDir is missing", async () => {
-    const watcherStart = vi.spyOn(FileSyncWatcher.prototype, "start").mockImplementation(() => {});
-    const retryStart = vi.spyOn(RetryQueue.prototype, "start").mockImplementation(() => {});
-
-    const { api, services, logger } = makeApi({
-      fileSync: true,
-    });
-
-    plugin.register(api as any);
-    await flushMicrotasks();
-
-    const service = services[0];
-    service.start?.({});
-
-    expect(retryStart).toHaveBeenCalledOnce();
-    expect(watcherStart).not.toHaveBeenCalled();
-    expect(logger.warn).toHaveBeenCalledWith("Cortex file sync: no workspaceDir, skipping");
   });
 
   it("stop logs recall latency summary after recall handler runs", async () => {
@@ -450,7 +414,6 @@ describe("plugin lifecycle contract", () => {
     });
 
     const { api, hooks, services, logger } = makeApi({
-      fileSync: false,
       recallTimeoutMs: 500,
     });
 
@@ -473,7 +436,6 @@ describe("plugin lifecycle contract", () => {
     const { api, hooks, services, logger } = makeApi({
       // baseUrl is invalid (plain http on non-localhost)
       baseUrl: "http://not-allowed.example.com",
-      fileSync: false,
     });
 
     plugin.register(api as any);
@@ -492,9 +454,7 @@ describe("plugin lifecycle contract", () => {
     mockClientKnowledge({ total_memories: 142, total_sessions: 18, maturity: "warming" });
     vi.spyOn(CortexClient.prototype, "stats").mockResolvedValue({ pipeline_tier: 2, pipeline_maturity: "warming" });
 
-    const { api, logger, services } = makeApi({
-      fileSync: false,
-    });
+    const { api, logger, services } = makeApi({});
 
     plugin.register(api as any);
     // Bootstrap runs in start(), not register()
@@ -511,9 +471,7 @@ describe("plugin lifecycle contract", () => {
     mockClientHealth();
     vi.spyOn(CortexClient.prototype, "knowledge").mockRejectedValue(new Error("Not found"));
 
-    const { api, logger } = makeApi({
-      fileSync: false,
-    });
+    const { api, logger } = makeApi({});
 
     plugin.register(api as any);
     await flushMicrotasks();
@@ -525,7 +483,7 @@ describe("plugin lifecycle contract", () => {
   });
 
   it("skips optional registrations when methods are unavailable", async () => {
-    const { api } = makeApi({ fileSync: false });
+    const { api } = makeApi({});
 
     // Remove optional methods to simulate minimal runtime
     const minimalApi = {
@@ -564,7 +522,7 @@ describe("plugin lifecycle contract", () => {
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
-    const { api, cliRegistrars } = makeApi({ fileSync: false });
+    const { api, cliRegistrars } = makeApi({});
     plugin.register(api as any);
     await new Promise((r) => setTimeout(r, 20));
 
@@ -604,7 +562,7 @@ describe("plugin lifecycle contract", () => {
     vi.spyOn(console, "log").mockImplementation(() => {});
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
-    const { api, cliRegistrars } = makeApi({ fileSync: false });
+    const { api, cliRegistrars } = makeApi({});
     plugin.register(api as any);
     await new Promise((r) => setTimeout(r, 20));
 
@@ -626,7 +584,7 @@ describe("plugin lifecycle contract", () => {
       };
       mockReadFileSync.mockReturnValue(JSON.stringify(config));
 
-      const { api } = makeApi({ fileSync: false });
+      const { api } = makeApi({});
       plugin.register(api as any);
 
       // Filter out session stats writes (to cortex-session-stats.json)
@@ -649,7 +607,7 @@ describe("plugin lifecycle contract", () => {
       };
       mockReadFileSync.mockReturnValue(JSON.stringify(config));
 
-      const { api } = makeApi({ fileSync: false });
+      const { api } = makeApi({});
       plugin.register(api as any);
 
       const configWrites = mockWriteFileSync.mock.calls.filter(
@@ -668,7 +626,7 @@ describe("plugin lifecycle contract", () => {
       };
       mockReadFileSync.mockReturnValue(JSON.stringify(config));
 
-      const { api } = makeApi({ fileSync: false });
+      const { api } = makeApi({});
       plugin.register(api as any);
 
       const configWrites = mockWriteFileSync.mock.calls.filter(
@@ -687,7 +645,7 @@ describe("plugin lifecycle contract", () => {
       };
       mockReadFileSync.mockReturnValue(JSON.stringify(config));
 
-      const { api } = makeApi({ fileSync: false });
+      const { api } = makeApi({});
       plugin.register(api as any);
 
       const configWrites = mockWriteFileSync.mock.calls.filter(
@@ -706,7 +664,7 @@ describe("plugin lifecycle contract", () => {
         throw new Error("ENOENT");
       });
 
-      const { api } = makeApi({ fileSync: false });
+      const { api } = makeApi({});
       // Should not throw
       plugin.register(api as any);
 

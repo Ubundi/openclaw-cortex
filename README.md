@@ -16,7 +16,6 @@
 - **Commands** — `/checkpoint` to save session context, `/sleep` to mark a clean end, `/audit` to toggle local logging
 - **CLI Commands** — `openclaw cortex {status,memories,search,config,pair,reset}` for terminal access
 - **Recovery Detection** — detects unclean prior sessions and prepends recovery context at session start
-- **File Sync** — watches `MEMORY.md`, daily logs, and session transcripts for background ingestion
 - **Heartbeat** — periodic health and knowledge state refresh via `gateway:heartbeat`
 - **Gateway RPC** — `cortex.status` method for programmatic health and metrics access
 - **Resilience** — retry queue with exponential backoff, cold-start detection, latency metrics
@@ -94,8 +93,6 @@ Add to your `openclaw.json`:
           recallLimit: 20,
           recallTimeoutMs: 60000,
           toolTimeoutMs: 60000,
-          fileSync: true,
-          transcriptSync: true,
           // userId: "my-team-shared-id",  // override the auto-generated install ID
         },
       },
@@ -121,8 +118,6 @@ Add to your `openclaw.json`:
 | `recallTimeoutMs`        | number  | `60000`      | Auto-recall timeout in ms. Scales with knowledge tier via `deriveEffectiveTimeout`.              |
 | `recallReferenceDate`    | string  | _now_        | Optional fixed ISO 8601 date as temporal anchor for recall. For benchmarks only — leave unset in production. |
 | `toolTimeoutMs`          | number  | `60000`      | Timeout for explicit tool calls (`cortex_search_memory`, `/checkpoint`). Longer than auto-recall since the user is actively waiting. |
-| `fileSync`               | boolean | `true`       | Watch and ingest `MEMORY.md` and daily log files                                                 |
-| `transcriptSync`         | boolean | `true`       | Watch and ingest session transcript files                                                        |
 | `captureMaxPayloadBytes` | number  | `262144`     | Max byte size of capture payloads (256KB default). Oversized transcripts are trimmed from the oldest messages. |
 | `captureFilter`          | boolean | `true`       | Enable built-in filter to drop low-signal content (heartbeat messages, TUI artifacts, token counters) before ingestion. |
 | `auditLog`               | boolean | `false`      | Enable local audit log. Records every payload sent to Cortex at `.cortex/audit/` in the workspace. Also toggleable at runtime via `/audit on`. |
@@ -191,19 +186,9 @@ This lets the agent pick up where it left off without you having to re-explain. 
 
 ### Auto-Capture
 
-After each agent turn completes, the plugin flattens the turn's new messages into a `role: content` transcript and submits it to Cortex's `/v1/jobs/ingest` endpoint (async job queue). The job returns immediately and processes in the background — this avoids Lambda proxy timeouts that occur with synchronous ingestion. A watermark tracks how much of the conversation has already been ingested, so each message is sent exactly once — no overlap between turns. Tool call results (`role: "tool"`) are included alongside `user` and `assistant` messages, since tool output is where the substantive work of an agentic turn lives. A heuristic skips trivial exchanges (short messages, turns without a substantive response).
+After each agent turn completes, the plugin flattens the turn's new `user` and `assistant` messages into a `role: content` transcript and submits it to Cortex's `/v1/jobs/ingest` endpoint (async job queue). The job returns immediately and processes in the background — this avoids Lambda proxy timeouts that occur with synchronous ingestion. A watermark tracks how much of the conversation has already been ingested, so each message is sent exactly once — no overlap between turns. A heuristic skips trivial exchanges (short messages, turns without a substantive response).
 
 Capture is fire-and-forget — it never blocks the agent. Failed ingestions are queued for retry with exponential backoff (up to 5 retries).
-
-### File Sync
-
-The plugin watches OpenClaw's memory files and ingests changes into Cortex:
-
-- **MEMORY.md** — Line-level diff with 2-second debounce. Only added lines are ingested.
-- **memory/\*.md** (daily logs) — Offset-based append detection. New content is ingested as it's written.
-- **sessions/\*.jsonl** (transcripts) — Strips system prompts, tool JSON, and base64 images. Cleans dialogue into conversation format and batch ingests with session-scoped IDs.
-
-Failed file sync operations are queued for retry, so transient network failures don't cause data loss.
 
 ### Agent Tools
 
@@ -261,7 +246,7 @@ The `cortex.status` RPC method exposes plugin health and metrics programmaticall
   "knowledgeState": { "hasMemories": true, "totalSessions": 42, "maturity": "mature", "tier": 3 },
   "recallMetrics": { "count": 120, "p50": 95, "p95": 280, "p99": 450 },
   "retryQueuePending": 0,
-  "config": { "autoRecall": true, "autoCapture": true, "fileSync": true, "transcriptSync": true, "namespace": "myproject-a1b2c3d4" }
+  "config": { "autoRecall": true, "autoCapture": true, "namespace": "myproject-a1b2c3d4" }
 }
 ```
 
@@ -286,21 +271,18 @@ This plugin sends data to the Cortex API to provide memory functionality. Here's
 |------|------|----------------|
 | Conversation messages (user + assistant) | After each agent turn | `autoCapture: false` |
 | Your current prompt | Before each agent turn | `autoRecall: false` |
-| MEMORY.md changes (added lines only) | On file save | `fileSync: false` |
-| Daily log files (`memory/*.md`) | On file save | `fileSync: false` |
-| Session transcripts (`sessions/*.jsonl`) | On file save | `transcriptSync: false` |
 
 Additionally, a randomly generated installation ID (`userId`) and a workspace namespace hash are sent with every request to scope your data. No personally identifiable information is collected.
 
-Before transmission, the plugin strips system prompts, tool call JSON, and base64-encoded images from transcripts. Prior recalled memories are also stripped from captured messages to prevent feedback loops.
+Before transmission, the plugin strips runtime metadata from captured messages and removes prior recalled memories to prevent feedback loops.
 
 All data is transmitted over HTTPS. Each installation's data is isolated server-side by its unique `userId` — no other installation can access your memories. This isolation has been verified via cross-user recall testing.
 
-Capture payloads are capped at 256KB by default (`captureMaxPayloadBytes`) to prevent oversized transmissions from pasted files or long tool outputs.
+Capture payloads are capped at 256KB by default (`captureMaxPayloadBytes`) to prevent oversized transmissions from pasted files or verbose replies.
 
 To see exactly what data leaves your machine, enable the audit log with `/audit on` or `auditLog: true` in your config. This records every payload to `.cortex/audit/` in your workspace.
 
-To disable all network activity, set `autoRecall: false`, `autoCapture: false`, `fileSync: false`, and `transcriptSync: false` in your config.
+To disable all network activity, set `autoRecall: false` and `autoCapture: false` in your config.
 
 ## Compatibility with SKILL.md
 
@@ -312,7 +294,7 @@ If both this plugin and the Cortex SKILL.md are active, the `<cortex_memories>` 
 - Plugin installed but no memory behavior: verify both `"enabled": true` and `"slots.memory": "@ubundi/openclaw-cortex"` in `openclaw.json`.
 - `Cannot find module 'zod'` during plugin load (older installs): run `npm install --prefix ~/.openclaw/extensions/openclaw-cortex --omit=dev zod`.
 - Frequent recall timeouts: increase `recallTimeoutMs` for auto-recall or `toolTimeoutMs` for explicit searches.
-- No useful memories returned: ensure prior sessions were captured (`autoCapture`) or file sync is enabled (`fileSync`, `transcriptSync`).
+- No useful memories returned: ensure prior sessions were captured (`autoCapture`) or saved explicitly with `cortex_save_memory` or `/checkpoint`.
 
 ## Development
 
