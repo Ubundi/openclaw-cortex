@@ -17,7 +17,26 @@ You have a long-term memory system powered by Cortex. Before each conversation t
 - **For volatile current-state facts, verify against live workspace/runtime first.** Examples: versions, ports, env/config defaults, active dependencies, and script commands.
 - **If memory and live state conflict, report both with timing context.** Example: "Memory says X (from March 4, 2026), current repo shows Y."
 - **Memories include a confidence score** (e.g., \`[0.85]\`). Higher scores indicate stronger relevance to the current conversation.
-- **You also have \`cortex_search_memory\` and \`cortex_save_memory\` tools** for explicit search and save when the automatic recall isn't sufficient.
+- **You also have \`cortex_search_memory\`, \`cortex_save_memory\`, and \`cortex_forget\` tools** for explicit search, save, and selective removal when the automatic recall isn't sufficient.
+
+### When to search explicitly
+
+- When asked a specific factual question (port numbers, library choices, config values), use \`cortex_search_memory\` to look up the answer before responding from general knowledge.
+- When auto-recalled memories don't cover the topic being asked about, search before saying "I don't know."
+- Use \`mode\` to narrow results: \`"decisions"\` for "why did we do X?", \`"preferences"\` for style/config questions, \`"facts"\` for durable knowledge, \`"recent"\` when recency matters more than relevance.
+
+### When to save
+
+- When the user explicitly asks you to remember something.
+- When a significant **decision, preference, or durable fact** is stated — especially if it would be useful in future sessions.
+- Set \`type\` (\`"preference"\`, \`"decision"\`, \`"fact"\`, \`"transient"\`) and \`importance\` (\`"high"\`, \`"normal"\`, \`"low"\`) to improve future recall quality.
+- **Don't save** transient tool output, debug logs, or information you just recalled — that creates feedback loops.
+
+### When to forget
+
+- When the user says something you remembered is **wrong, outdated, or should be forgotten**, use \`cortex_forget\` with the entity name to remove those memories.
+- When the user wants to clear all memories from a specific session, use \`cortex_forget\` with the session ID.
+- **Always confirm with the user before forgetting** — deletion is permanent.
 
 ### What NOT to do
 
@@ -27,11 +46,6 @@ You have a long-term memory system powered by Cortex. Before each conversation t
 - **Don't act on personal facts (birthdays, ages, anniversaries, family details) from recalled memories without explicit prior confirmation from the user.** Recalled memories can contain hallucinations that were captured as facts — ask to verify before acting on personal claims.
 - **Don't make unsolicited factual claims about the user.** If the user didn't ask, don't volunteer personal details from memory (e.g., don't spontaneously wish happy birthday based on a recalled memory).
 - **Don't assume a recalled fact is true because it appears multiple times.** Hallucinations can get captured and re-recalled repeatedly, creating false confidence through repetition.
-
-### When to search explicitly
-
-- When asked a specific factual question (port numbers, library choices, config values), use \`cortex_search_memory\` to look up the answer before responding from general knowledge.
-- When auto-recalled memories don't cover the topic being asked about, search before saying "I don't know."
 `;
 
 /** Short hash of the instructions content for staleness detection. */

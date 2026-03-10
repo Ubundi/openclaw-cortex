@@ -203,7 +203,7 @@ function collapseNearDuplicates(
 }
 
 /** Maximum memories to inject into agent context after noise filtering. */
-const DEFAULT_TOP_K = 15;
+const DEFAULT_TOP_K = 10;
 
 export interface FormatMemoriesResult {
   text: string;

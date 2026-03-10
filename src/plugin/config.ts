@@ -30,7 +30,7 @@ export const CortexConfigSchema = z.object({
   autoRecall: z.boolean().default(true),
   autoCapture: z.boolean().default(true),
   recallLimit: z.number().int().min(1).max(50).default(20),
-  recallTopK: z.number().int().min(1).max(50).default(20),
+  recallTopK: z.number().int().min(1).max(50).default(10),
   recallQueryType: z.enum(["factual", "emotional", "combined", "codex"]).default("combined"),
   recallProfile: z.enum(["auto", "default", "factual", "planning", "incident", "handoff"]).default("auto"),
   recallTimeoutMs: z.number().int().min(100).max(120000).default(60000),

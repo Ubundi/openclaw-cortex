@@ -27,7 +27,7 @@ import type {
   Logger,
 } from "./types.js";
 import { registerCliCommands } from "./cli.js";
-import { buildSearchMemoryTool, buildSaveMemoryTool } from "./tools.js";
+import { buildSearchMemoryTool, buildSaveMemoryTool, buildForgetMemoryTool } from "./tools.js";
 import { buildCommands } from "./commands.js";
 
 const version = packageJson.version;
@@ -201,6 +201,22 @@ async function bootstrapClient(
     logger.info(
       `Cortex connected — ${knowledge.total_memories.toLocaleString()} memories, ${knowledge.total_sessions} sessions (${knowledge.maturity}), tier ${knowledgeState.pipelineTier}`,
     );
+
+    // Pre-warm the ECS task when the knowledge store is cold or warming.
+    // This reduces first-recall latency by ensuring the inference container
+    // and embedding models are loaded before the first agent turn.
+    if (knowledgeState.maturity !== "mature") {
+      client.warmup().then(
+        (res) => {
+          if (!res.already_warm) {
+            logger.info("Cortex warmup: ECS task pre-heated");
+          }
+        },
+        () => {
+          logger.debug?.("Cortex warmup failed (non-fatal)");
+        },
+      );
+    }
   } catch {
     // Knowledge endpoint unavailable — health check passed so API is reachable
     logger.info("Cortex connected");
@@ -227,7 +243,7 @@ function registerHookCompat(
 }
 
 /** Tool names that must survive the tools.profile allowlist filter. */
-const CORTEX_TOOL_NAMES = ["cortex_search_memory", "cortex_save_memory"] as const;
+const CORTEX_TOOL_NAMES = ["cortex_search_memory", "cortex_save_memory", "cortex_forget"] as const;
 
 const PLUGIN_ID = "openclaw-cortex";
 
@@ -556,8 +572,9 @@ const plugin = {
 
       api.registerTool(buildSearchMemoryTool(toolsDeps));
       api.registerTool(buildSaveMemoryTool(toolsDeps));
+      api.registerTool(buildForgetMemoryTool(toolsDeps));
 
-      api.logger.debug?.("Cortex tools registered: cortex_search_memory, cortex_save_memory");
+      api.logger.debug?.("Cortex tools registered: cortex_search_memory, cortex_save_memory, cortex_forget");
     }
 
     // --- Auto-Reply Commands ---

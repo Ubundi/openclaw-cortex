@@ -1,4 +1,4 @@
-import type { CortexClient } from "../cortex/client.js";
+import type { CortexClient, ForgetResponse } from "../cortex/client.js";
 import type { CortexConfig } from "./config.js";
 import type { ToolDefinition, Logger } from "./types.js";
 import type { AuditLogger } from "../internal/audit-logger.js";
@@ -294,6 +294,90 @@ export function buildSaveMemoryTool(deps: ToolsDeps): ToolDefinition {
           return { content: [{ type: "text", text: `Failed to save memory: ${String(err)}` }] };
         }
       }
+    },
+  };
+}
+
+export function buildForgetMemoryTool(deps: ToolsDeps): ToolDefinition {
+  const {
+    client,
+    config,
+    logger,
+    getUserId,
+    userIdReady,
+    auditLoggerProxy,
+  } = deps;
+
+  return {
+    name: "cortex_forget",
+    description: "Selectively remove memories from long-term storage. Use when the user says something is wrong, outdated, or should be forgotten. Target by entity name (a person, project, or concept) or by session ID.",
+    parameters: {
+      type: "object",
+      properties: {
+        entity: {
+          type: "string",
+          description: "Name of the entity whose memories should be removed (e.g. a person, project, technology). Removes all memories referencing this entity.",
+        },
+        session: {
+          type: "string",
+          description: "Session ID whose memories should be removed. Removes all memories from that session.",
+        },
+      },
+    },
+    async execute(_id, params) {
+      const entity = typeof params.entity === "string" ? params.entity.trim() : undefined;
+      const session = typeof params.session === "string" ? params.session.trim() : undefined;
+
+      if (!entity && !session) {
+        return {
+          content: [{ type: "text", text: "Please specify either an 'entity' name or a 'session' ID to forget." }],
+        };
+      }
+
+      await userIdReady;
+      const userId = getUserId();
+
+      const results: string[] = [];
+
+      if (entity) {
+        void auditLoggerProxy.log({
+          feature: "tool-forget-memory",
+          method: "DELETE",
+          endpoint: `/v1/forget/entity/${entity}`,
+          payload: entity,
+          userId,
+        });
+
+        try {
+          const response: ForgetResponse = await client.forgetEntity(entity, config.toolTimeoutMs);
+          results.push(`Removed ${response.memories_removed} memor${response.memories_removed === 1 ? "y" : "ies"} referencing "${entity}".`);
+          logger.info(`Cortex forget: removed ${response.memories_removed} memories for entity "${entity}"`);
+        } catch (err) {
+          logger.warn(`Cortex forget entity failed: ${String(err)}`);
+          results.push(`Failed to forget entity "${entity}": ${String(err)}`);
+        }
+      }
+
+      if (session) {
+        void auditLoggerProxy.log({
+          feature: "tool-forget-memory",
+          method: "DELETE",
+          endpoint: `/v1/forget/session/${session}`,
+          payload: session,
+          userId,
+        });
+
+        try {
+          const response: ForgetResponse = await client.forgetSession(session, config.toolTimeoutMs);
+          results.push(`Removed ${response.memories_removed} memor${response.memories_removed === 1 ? "y" : "ies"} from session "${session}".`);
+          logger.info(`Cortex forget: removed ${response.memories_removed} memories for session "${session}"`);
+        } catch (err) {
+          logger.warn(`Cortex forget session failed: ${String(err)}`);
+          results.push(`Failed to forget session "${session}": ${String(err)}`);
+        }
+      }
+
+      return { content: [{ type: "text", text: results.join("\n") }] };
     },
   };
 }

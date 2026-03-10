@@ -478,16 +478,19 @@ describe("CortexClient", () => {
   });
 
   describe("reflect", () => {
-    it("sends empty body", async () => {
+    it("sends empty body to jobs/reflect", async () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,
-        json: async () => ({ nodes_created: 1, edges_created: 2, entities_processed: 3, entities_skipped: 0 }),
+        json: async () => ({ job_id: "reflect-1", status: "pending" }),
       });
 
-      await client.reflect();
+      const result = await client.reflect();
 
+      const url = mockFetch.mock.calls[0][0];
+      expect(url).toContain("/v1/jobs/reflect");
       const body = JSON.parse(mockFetch.mock.calls[0][1].body);
       expect(body).toEqual({});
+      expect(result.job_id).toBe("reflect-1");
     });
   });
 });

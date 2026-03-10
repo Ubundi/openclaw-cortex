@@ -12,6 +12,9 @@ type Logger = {
 /** Minimum interval between knowledge refreshes triggered by heartbeat */
 const MIN_REFRESH_INTERVAL_MS = 5 * 60_000; // 5 minutes
 
+/** Minimum interval between reflect calls — consolidation is expensive */
+const MIN_REFLECT_INTERVAL_MS = 15 * 60_000; // 15 minutes
+
 export function createHeartbeatHandler(
   client: CortexClient,
   logger: Logger,
@@ -20,6 +23,7 @@ export function createHeartbeatHandler(
   getUserId: () => string | undefined,
 ): () => Promise<void> {
   let refreshing = false;
+  let lastReflectAt = 0;
 
   return async () => {
     // Log retry queue status on each heartbeat for observability
@@ -65,6 +69,23 @@ export function createHeartbeatHandler(
 
       if (stats.status === "fulfilled") {
         knowledgeState.pipelineTier = stats.value.pipeline_tier;
+      }
+
+      // Periodically trigger reflect to consolidate the knowledge graph.
+      // Reflect deduplicates entities, infers relationships, and strengthens
+      // connections — improving recall quality over time.
+      if (knowledgeState.hasMemories && Date.now() - lastReflectAt >= MIN_REFLECT_INTERVAL_MS) {
+        lastReflectAt = Date.now();
+        client.reflect().then(
+          (result) => {
+            logger.info(
+              `Cortex reflect: job ${result.job_id} submitted (status=${result.status})`,
+            );
+          },
+          () => {
+            logger.debug?.("Cortex heartbeat: reflect failed");
+          },
+        );
       }
     } catch {
       logger.debug?.("Cortex heartbeat: knowledge refresh failed");

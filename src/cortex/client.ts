@@ -101,10 +101,8 @@ export interface IngestResponse {
 }
 
 export interface ReflectResponse {
-  nodes_created: number;
-  edges_created: number;
-  entities_processed: number;
-  entities_skipped: number;
+  job_id: string;
+  status: string;
 }
 
 export interface WarmupResponse {
@@ -524,7 +522,7 @@ export class CortexClient {
     timeoutMs = DEFAULT_REFLECT_TIMEOUT_MS,
   ): Promise<ReflectResponse> {
     return this.fetchJsonWithTimeout<ReflectResponse>(
-      `${this.baseUrl}/v1/reflect`,
+      `${this.baseUrl}/v1/jobs/reflect`,
       {},
       timeoutMs,
       "reflect",

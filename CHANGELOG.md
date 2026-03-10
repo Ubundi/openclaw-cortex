@@ -8,6 +8,19 @@ All notable changes to this project will be documented in this file.
 
 - **Tools profile documentation**: Added Quick Start step and troubleshooting entry for `tools.profile` configuration. OpenClaw defaults to the `messaging` profile which excludes memory tools — users must set `tools.profile: "full"` after installation and after any reconfiguration.
 
+## [2.3.0] - 2026-03-10
+
+### Removed
+
+- **File sync feature**: Removed background file watchers for `MEMORY.md`, daily logs (`memory/*.md`), and session transcripts (`sessions/*.jsonl`). Auto-capture already ingests everything meaningful from conversations — file sync was double-ingesting the same information through a more fragile path, adding complexity and attack surface without clear benefit.
+- **`fileSync` config option**: No longer needed. Previously controlled `MEMORY.md` and daily log watching.
+- **`transcriptSync` config option**: No longer needed. Previously controlled session transcript watching.
+
+### Changed
+
+- **Capture narrows to user/assistant only**: Tool messages (`role: "tool"`) are no longer captured or used for turn fingerprinting. Conversation content between user and assistant is what matters for memory; tool output was adding noise.
+- **Simpler plugin lifecycle**: Service start/stop no longer manages file watchers — only retry queue, audit logging, and namespace derivation.
+
 ## [1.7.5] - 2026-03-05
 
 ### Added

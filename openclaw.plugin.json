@@ -33,7 +33,7 @@
       "recallTopK": {
         "type": "number",
         "description": "Max memories returned after scoring (applied after recallLimit)",
-        "default": 20
+        "default": 10
       },
       "recallQueryType": {
         "type": "string",

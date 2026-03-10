@@ -113,7 +113,7 @@ describe("CortexConfigSchema", () => {
         expect(result.data.autoRecall).toBe(true);
         expect(result.data.autoCapture).toBe(true);
         expect(result.data.recallLimit).toBe(20);
-        expect(result.data.recallTopK).toBe(20);
+        expect(result.data.recallTopK).toBe(10);
         expect(result.data.recallQueryType).toBe("combined");
         expect(result.data.recallTimeoutMs).toBe(60000);
         expect(result.data.namespace).toBe("openclaw");
