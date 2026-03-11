@@ -59,6 +59,38 @@ describe("session recovery helpers", () => {
     expect(summary).toContain("auth migration rollout");
   });
 
+  it("buildSessionSummaryFromMessages strips injected context and metadata", () => {
+    const summary = buildSessionSummaryFromMessages([
+      {
+        role: "user",
+        content: "<cortex_recovery>\nWarning\n</cortex_recovery>\n\nTelegram (untrusted metadata):\n```json\n{\"chat_id\":\"1\"}\n```\n\nWhat is an apple?",
+      },
+      { role: "assistant", content: "An apple is a fruit with seeds." },
+    ]);
+
+    expect(summary).toBe("An apple is a fruit with seeds.");
+  });
+
+  it("buildSessionSummaryFromMessages ignores synthetic user provenance", () => {
+    const summary = buildSessionSummaryFromMessages([
+      { role: "user", content: "Synthetic bridge text", provenance: { kind: "inter_session" } },
+      { role: "assistant", content: "Real assistant text that should be considered as the latest substantive content." },
+    ]);
+
+    expect(summary).toBeUndefined();
+  });
+
+  it("buildSessionSummaryFromMessages falls back to the latest real turn when a synthetic pair is last", () => {
+    const summary = buildSessionSummaryFromMessages([
+      { role: "user", content: "What database stack are we using in production for vector search?", provenance: { kind: "external_user" } },
+      { role: "assistant", content: "We use PostgreSQL with pgvector in production for vector search and persistence." },
+      { role: "user", content: "Synthetic bridge text", provenance: { kind: "inter_session" } },
+      { role: "assistant", content: "Session summary: provenance filtering rollout." },
+    ]);
+
+    expect(summary).toBe("We use PostgreSQL with pgvector in production for vector search and persistence.");
+  });
+
   it("formats a recovery block with session metadata", () => {
     const text = formatRecoveryContext({
       dirty: true,

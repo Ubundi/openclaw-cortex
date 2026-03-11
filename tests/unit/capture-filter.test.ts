@@ -1,5 +1,12 @@
 import { describe, it, expect } from "vitest";
-import { isLowSignal, filterLowSignalMessages, filterLowSignalLines, stripRuntimeMetadata } from "../../src/features/capture/filter.js";
+import {
+  isLowSignal,
+  filterLowSignalMessages,
+  filterLowSignalLines,
+  sanitizeConversationText,
+  stripPlaintextMetadataArtifacts,
+  stripRuntimeMetadata,
+} from "../../src/features/capture/filter.js";
 
 describe("isLowSignal", () => {
   it.each([
@@ -133,6 +140,85 @@ describe("stripRuntimeMetadata", () => {
     expect(result).toContain("First line of actual content.");
     expect(result).toContain("Second line of actual content.");
     expect(result).not.toContain("message_id");
+  });
+});
+
+describe("stripPlaintextMetadataArtifacts", () => {
+  it("strips channel envelope headers and inline prefixes", () => {
+    const input = [
+      "[Telegram group chat with 4 participants]",
+      "[Forwarded from Alex]",
+      "What is an apple?",
+      "[WhatsApp DM] Explain it simply",
+    ].join("\n");
+
+    expect(stripPlaintextMetadataArtifacts(input)).toBe("What is an apple?\nExplain it simply");
+  });
+
+  it("strips replying block content and preserves the live user message", () => {
+    const input = [
+      "[Replying to Matthew]",
+      "What database do we use?",
+      "[/Replying]",
+      "How is it configured now?",
+    ].join("\n");
+
+    expect(stripPlaintextMetadataArtifacts(input)).toBe("How is it configured now?");
+  });
+
+  it("strips quoting block content and preserves the actual message body", () => {
+    const input = [
+      "[Quoting prior message]",
+      "Old quoted text that should not become memory",
+      "[/Quoting]",
+      "What auth flow did we settle on?",
+    ].join("\n");
+
+    expect(stripPlaintextMetadataArtifacts(input)).toBe("What auth flow did we settle on?");
+  });
+
+  it("preserves literal bracketed content that is not a channel envelope", () => {
+    const input = [
+      "[Slack]",
+      "webhook_url=https://example.com",
+      "[Email] SMTP relay settings",
+    ].join("\n");
+
+    expect(stripPlaintextMetadataArtifacts(input)).toBe(input);
+  });
+});
+
+describe("sanitizeConversationText", () => {
+  it("strips mixed channel metadata, cortex blocks, and envelope artifacts together", () => {
+    const input = [
+      "<cortex_recovery>",
+      "Warning",
+      "</cortex_recovery>",
+      "",
+      "Sender (untrusted metadata):",
+      "```json",
+      '{ "id": "123" }',
+      "```",
+      "",
+      "[Replying to Alex]",
+      "Prior quoted content",
+      "[/Replying]",
+      "[Telegram group chat]",
+      "What is an apple?",
+    ].join("\n");
+
+    expect(sanitizeConversationText(input)).toBe("What is an apple?");
+  });
+
+  it("preserves literal cortex tags when they are part of the user-authored body", () => {
+    const input = [
+      "Example markup to keep:",
+      "<cortex_recovery>",
+      "Warning",
+      "</cortex_recovery>",
+    ].join("\n");
+
+    expect(sanitizeConversationText(input)).toBe(input);
   });
 });
 

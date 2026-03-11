@@ -421,6 +421,77 @@ it("strips [cortex-date] marker from query and uses it as referenceDate", async 
     expect(calledOptions.referenceDate).toBe("2024-11-18");
   });
 
+  it("strips injected cortex blocks and runtime metadata from latest user message", async () => {
+    const client = {
+      retrieve: vi.fn().mockResolvedValue({ results: [] }),
+    } as unknown as CortexClient;
+
+    const handler = createRecallHandler(client, makeConfig(), logger);
+    await handler(
+      {
+        prompt: "system preamble",
+        messages: [
+          {
+            role: "user",
+            content: [
+              { type: "text", text: "<cortex_recovery>\nWarning\n</cortex_recovery>\n\nTelegram (untrusted metadata):\n```json\n{\"chat_id\":\"1\"}\n```\n\nWhat is an apple?" },
+            ],
+          },
+        ],
+      },
+      {},
+    );
+
+    const [calledQuery] = (client.retrieve as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(calledQuery).toBe("What is an apple?");
+  });
+
+  it("ignores non-external user provenance when selecting the recall query", async () => {
+    const client = {
+      retrieve: vi.fn().mockResolvedValue({ results: [] }),
+    } as unknown as CortexClient;
+
+    const handler = createRecallHandler(client, makeConfig(), logger);
+    await handler(
+      {
+        prompt: "system preamble",
+        messages: [
+          { role: "user", content: "What database do we use?", provenance: { kind: "external_user" } },
+          { role: "user", content: "Synthetic routing hint", provenance: { kind: "internal_system" } },
+        ],
+      },
+      {},
+    );
+
+    const [calledQuery] = (client.retrieve as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(calledQuery).toBe("What database do we use?");
+  });
+
+  it("drops assistant context that belongs to synthetic user turns", async () => {
+    const client = {
+      retrieve: vi.fn().mockResolvedValue({ results: [] }),
+    } as unknown as CortexClient;
+
+    const handler = createRecallHandler(client, makeConfig(), logger);
+    await handler(
+      {
+        prompt: "system preamble",
+        messages: [
+          { role: "user", content: "What is the auth flow we settled on?", provenance: { kind: "external_user" } },
+          { role: "assistant", content: "We switched auth to OAuth 2.1 with PKCE and removed legacy tokens." },
+          { role: "user", content: "Synthetic routing hint", provenance: { kind: "internal_system" } },
+          { role: "assistant", content: "Session summary: provenance filtering rollout." },
+        ],
+      },
+      {},
+    );
+
+    const [calledQuery] = (client.retrieve as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(calledQuery).toContain("What is the auth flow we settled on?");
+    expect(calledQuery).toContain("assistant: We switched auth to OAuth 2.1 with PKCE and removed legacy tokens.");
+    expect(calledQuery).not.toContain("Session summary:");
+  });
+
 describe("deriveEffectiveTimeout", () => {
   it("returns config value for Tier 1", () => {
     expect(deriveEffectiveTimeout(500, 1)).toBe(500);

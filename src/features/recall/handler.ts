@@ -6,9 +6,13 @@ import { formatMemoriesWithStats } from "./formatter.js";
 import { inferRecallProfile, getProfileParams } from "./context-profile.js";
 import type { RecallProfile } from "./context-profile.js";
 import { LatencyMetrics } from "../../internal/latency-metrics.js";
-import { stripRuntimeMetadata } from "../capture/filter.js";
+import { sanitizeConversationText, stripInjectedCortexBlocks } from "../capture/filter.js";
 import type { RecallEchoStore } from "../../internal/recall-echo-store.js";
 import { isHeartbeatTurn } from "../../internal/heartbeat-detect.js";
+import {
+  filterConversationMessagesForMemory,
+  shouldUseUserMessageForMemory,
+} from "../../internal/message-provenance.js";
 
 interface BeforeAgentStartEvent {
   prompt: string;
@@ -50,13 +54,6 @@ const MAX_QUERY_LENGTH = 2000;
  * plugin instance ingested memories or the initial check failed.
  */
 const KNOWLEDGE_RECHECK_INTERVAL_MS = 5 * 60_000; // 5 minutes
-
-/** Strip injected recall block so prior recalls don't pollute future recall queries. */
-const RECALL_BLOCK_RE = /\s*<cortex_memories>[\s\S]*?<\/cortex_memories>\s*/g;
-
-function stripRecallBlock(text: string): string {
-  return text.replace(RECALL_BLOCK_RE, "\n").trim();
-}
 
 /**
  * Parses a machine-readable [cortex-date: YYYY-MM-DD] marker from the start of
@@ -103,8 +100,8 @@ function getLatestUserQuery(messages: unknown[] | undefined): string | undefined
     const msg = messages[i];
     if (typeof msg !== "object" || msg === null) continue;
     const m = msg as Record<string, unknown>;
-    if (String(m.role) !== "user") continue;
-    const text = stripRuntimeMetadata(stripRecallBlock(extractText(m.content)));
+    if (!shouldUseUserMessageForMemory(m)) continue;
+    const text = sanitizeConversationText(extractText(m.content));
     if (text) return text;
   }
   return undefined;
@@ -114,7 +111,7 @@ function selectRecallQuery(event: BeforeAgentStartEvent): { source: "messages" |
   const fromMessages = getLatestUserQuery(event.messages);
   if (fromMessages) return { source: "messages", query: fromMessages };
 
-  const fromPrompt = stripRecallBlock(event.prompt ?? "");
+  const fromPrompt = stripInjectedCortexBlocks(event.prompt ?? "");
   return { source: "prompt", query: fromPrompt };
 }
 
@@ -129,12 +126,14 @@ function buildRecentConversationContext(
   if (!Array.isArray(messages) || messages.length === 0) return undefined;
 
   const lines: string[] = [];
-  for (const msg of messages) {
+  for (const msg of filterConversationMessagesForMemory(
+    messages.filter((message): message is Record<string, unknown> => typeof message === "object" && message !== null),
+  )) {
     if (typeof msg !== "object" || msg === null) continue;
     const m = msg as Record<string, unknown>;
     const role = typeof m.role === "string" ? m.role : "unknown";
     if (role === "system") continue;
-    const text = stripRecallBlock(extractText(m.content)).replace(/\s+/g, " ").trim();
+    const text = sanitizeConversationText(extractText(m.content)).replace(/\s+/g, " ").trim();
     if (!text) continue;
     lines.push(`${role}: ${text}`);
   }

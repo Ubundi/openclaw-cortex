@@ -242,6 +242,34 @@ describe("createCaptureHandler", () => {
     expect(transcript).toContain("The project uses PostgreSQL with pgvector for embedding storage.");
   });
 
+  it("strips injected recovery block and runtime metadata from captured messages", async () => {
+    const submitPromise = Promise.resolve({ job_id: "job-strip-recovery", status: "pending" });
+    const submitMock = vi.fn().mockReturnValue(submitPromise);
+    const client = { submitIngestConversation: submitMock } as unknown as CortexClient;
+
+    const handler = createCaptureHandler(client, makeConfig(), logger);
+
+    await handler({
+      messages: [
+        {
+          role: "user",
+          content: "<cortex_recovery>\nWarning\n</cortex_recovery>\n\nWhatsApp (untrusted metadata):\n```json\n{\"from\":\"123\"}\n```\n\nWhat is an apple, and how would you describe it in a simple way for a child learning about fruit?",
+        },
+        { role: "assistant", content: "An apple is a sweet fruit that grows on trees, usually has crisp flesh, and contains seeds in the middle." },
+      ],
+      aborted: false,
+    });
+
+    await submitPromise;
+
+    const transcript = submittedTranscript(submitMock);
+    expect(transcript).toContain("What is an apple, and how would you describe it in a simple way for a child learning about fruit?");
+    expect(transcript).toContain("An apple is a sweet fruit that grows on trees");
+    expect(transcript).not.toContain("cortex_recovery");
+    expect(transcript).not.toContain("WhatsApp");
+    expect(transcript).not.toContain("untrusted metadata");
+  });
+
   it("trims oldest messages when payload exceeds captureMaxPayloadBytes", async () => {
     const submitPromise = Promise.resolve({ job_id: "job-cap", status: "pending" });
     const submitMock = vi.fn().mockReturnValue(submitPromise);
@@ -524,5 +552,45 @@ describe("createCaptureHandler", () => {
     expect(submitMock).not.toHaveBeenCalled();
     await vi.waitFor(() => expect(enqueueMock).toHaveBeenCalledTimes(1));
     expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining("missing user_id"));
+  });
+
+  it("ignores non-external user provenance during capture", async () => {
+    const submitMock = vi.fn().mockResolvedValue({ job_id: "job-provenance", status: "pending" });
+    const client = { submitIngestConversation: submitMock } as unknown as CortexClient;
+    const handler = createCaptureHandler(client, makeConfig(), logger);
+
+    await handler({
+      messages: [
+        { role: "user", content: "Synthetic session bridge text that should not become memory.", provenance: { kind: "inter_session" } },
+        { role: "assistant", content: "This assistant response should also not be captured without a real external user message present." },
+      ],
+      aborted: false,
+    });
+
+    expect(submitMock).not.toHaveBeenCalled();
+  });
+
+  it("drops assistant replies that belong to synthetic user turns", async () => {
+    const submitPromise = Promise.resolve({ job_id: "job-mixed-provenance", status: "pending" });
+    const submitMock = vi.fn().mockReturnValue(submitPromise);
+    const client = { submitIngestConversation: submitMock } as unknown as CortexClient;
+    const handler = createCaptureHandler(client, makeConfig(), logger);
+
+    await handler({
+      messages: [
+        { role: "user", content: "What database stack are we using in production right now for vector search and persistence?", provenance: { kind: "external_user" } },
+        { role: "assistant", content: "We use PostgreSQL with pgvector for persistence and vector similarity search in production." },
+        { role: "user", content: "Synthetic routing hint", provenance: { kind: "internal_system" } },
+        { role: "assistant", content: "Session summary: working on provenance-aware sanitization." },
+      ],
+      aborted: false,
+    });
+
+    await submitPromise;
+
+    const transcript = submittedTranscript(submitMock);
+    expect(transcript).toContain("What database stack are we using");
+    expect(transcript).toContain("We use PostgreSQL with pgvector");
+    expect(transcript).not.toContain("Session summary:");
   });
 });

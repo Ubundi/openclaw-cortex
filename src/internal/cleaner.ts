@@ -1,4 +1,5 @@
 import type { ConversationMessage } from "../cortex/client.js";
+import { sanitizeConversationText } from "../features/capture/filter.js";
 
 /**
  * JSONL event shape from OpenClaw's sessions/*.jsonl files.
@@ -97,7 +98,7 @@ export function cleanTranscript(jsonlText: string): ConversationMessage[] {
     const text = extractText(event.content);
     if (!text.trim()) continue;
 
-    const cleaned = stripBase64(text).trim();
+    const cleaned = sanitizeConversationText(stripBase64(text)).trim();
     if (!cleaned || cleaned === "[base64 image]") continue;
 
     messages.push({ role, content: cleaned });

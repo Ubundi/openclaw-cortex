@@ -22,6 +22,7 @@ import {
   formatRecoveryContext,
   SessionStateStore,
 } from "../internal/session-state.js";
+import { sanitizeMessageForTranscript } from "../internal/message-sanitizer.js";
 import type {
   HookMetadata,
   PluginApi,
@@ -527,6 +528,21 @@ const plugin = {
       {
         name: "openclaw-cortex.capture",
         description: "Extract and store facts from conversation after agent turn",
+      },
+    );
+
+    registerHookCompat(
+      api,
+      "before_message_write",
+      (event: { message?: unknown }) => {
+        if (!event || typeof event !== "object" || !("message" in event)) return;
+        const message = event.message;
+        if (typeof message !== "object" || message === null) return;
+        return { message: sanitizeMessageForTranscript(message as Record<string, unknown>) };
+      },
+      {
+        name: "openclaw-cortex.sanitize",
+        description: "Strip channel and runtime metadata from transcript messages before they are written",
       },
     );
 

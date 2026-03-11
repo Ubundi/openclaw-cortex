@@ -76,6 +76,22 @@ describe("cleanTranscript", () => {
     expect(result[0].content).toBe("Here is the answer.\nMore details.");
   });
 
+  it("sanitizes OpenClaw channel metadata artifacts from extracted text", () => {
+    const jsonl = JSON.stringify({
+      role: "user",
+      content: [
+        { type: "text", text: "[Replying to Alex]" },
+        { type: "text", text: "Old quoted text" },
+        { type: "text", text: "[/Replying]" },
+        { type: "text", text: "[Telegram group chat]" },
+        { type: "text", text: "What is an apple?" },
+      ],
+    });
+
+    const result = cleanTranscript(jsonl);
+    expect(result).toEqual([{ role: "user", content: "What is an apple?" }]);
+  });
+
   it("skips malformed JSONL lines", () => {
     const jsonl = [
       "not json at all",

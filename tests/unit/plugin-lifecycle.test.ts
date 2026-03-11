@@ -228,9 +228,15 @@ describe("plugin lifecycle contract", () => {
       expect.any(Function),
       { name: "openclaw-cortex.heartbeat", description: expect.any(String) },
     );
+    expect(api.registerHook).toHaveBeenCalledWith(
+      "before_message_write",
+      expect.any(Function),
+      { name: "openclaw-cortex.sanitize", description: expect.any(String) },
+    );
     expect(hooks.before_agent_start).toHaveLength(1);
     expect(hooks.agent_end).toHaveLength(1);
     expect(hooks["gateway:heartbeat"]).toHaveLength(1);
+    expect(hooks.before_message_write).toHaveLength(1);
   });
 
   it("registers agent tools", async () => {
@@ -499,7 +505,7 @@ describe("plugin lifecycle contract", () => {
     await flushMicrotasks();
 
     // Should still register hooks and service without errors
-    expect(api.registerHook).toHaveBeenCalledTimes(3);
+    expect(api.registerHook).toHaveBeenCalledTimes(4);
     expect(api.registerService).toHaveBeenCalledTimes(1);
   });
 

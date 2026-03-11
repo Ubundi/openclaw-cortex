@@ -4,10 +4,11 @@ import type { CortexConfig } from "../../plugin/config.js";
 import type { KnowledgeState } from "../../plugin/index.js";
 import type { RetryQueue } from "../../internal/retry-queue.js";
 import type { AuditLogger } from "../../internal/audit-logger.js";
-import { filterLowSignalMessages, stripRuntimeMetadata } from "./filter.js";
+import { filterLowSignalMessages, sanitizeConversationText } from "./filter.js";
 import type { RecallEchoStore } from "../../internal/recall-echo-store.js";
 import { containsHeartbeatPrompt } from "../../internal/heartbeat-detect.js";
 import type { CaptureWatermarkStore } from "../../internal/capture-watermark-store.js";
+import { filterConversationMessagesForMemory } from "../../internal/message-provenance.js";
 
 interface AgentEndEvent {
   runId?: string;
@@ -39,13 +40,6 @@ const TURN_DEDUP_TTL_MS = 24 * 60 * 60 * 1000; // 24h
 const TURN_DEDUP_MAX_FINGERPRINTS = 1000;
 const CAPTURE_DERIVATION_MODE = "inferred";
 const BENCHMARK_SEED_SESSION_PREFIX = "benchmark-seed-";
-
-/** Strip injected recall block so we don't re-ingest recalled memories as new content */
-const RECALL_BLOCK_RE = /\s*<cortex_memories>[\s\S]*?<\/cortex_memories>\s*/g;
-
-function stripRecallBlock(text: string): string {
-  return text.replace(RECALL_BLOCK_RE, "").trim();
-}
 
 function extractContent(content: unknown): string {
   if (typeof content === "string") return content;
@@ -160,18 +154,21 @@ export function createCaptureHandler(
         watermarkStore?.set(watermarkKey, event.messages.length);
       };
 
-      const normalized: ConversationMessage[] = delta
-        .filter(
-          (msg): msg is { role: string; content: unknown } =>
+      const candidates = filterConversationMessagesForMemory(
+        delta.filter(
+          (msg): msg is { role: string; content: unknown; provenance?: unknown } =>
             typeof msg === "object" &&
             msg !== null &&
             "role" in msg &&
             "content" in msg &&
-            (msg.role === "user" || msg.role === "assistant"),
-        )
+            (msg.role === "assistant" || msg.role === "user"),
+        ),
+      );
+
+      const normalized: ConversationMessage[] = candidates
         .map((msg) => ({
           role: String(msg.role),
-          content: stripRuntimeMetadata(stripRecallBlock(extractContent(msg.content))),
+          content: sanitizeConversationText(extractContent(msg.content)),
         }))
         .filter((msg) => msg.content.length > 0);
 

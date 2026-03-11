@@ -1,6 +1,8 @@
 import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { homedir } from "node:os";
+import { sanitizeConversationText } from "../features/capture/filter.js";
+import { filterConversationMessagesForMemory } from "./message-provenance.js";
 
 const DEFAULT_STATE_FILE = join(homedir(), ".openclaw", "cortex-session-state.json");
 const MAX_SUMMARY_CHARS = 240;
@@ -39,19 +41,21 @@ function extractContent(content: unknown): string {
 }
 
 export function buildSessionSummaryFromMessages(messages: unknown[]): string | undefined {
-  const candidates = messages
-    .filter(
-      (msg): msg is { role: string; content: unknown } =>
-        typeof msg === "object" &&
-        msg !== null &&
-        "role" in msg &&
-        "content" in msg &&
-        ((msg as Record<string, unknown>).role === "user" || (msg as Record<string, unknown>).role === "assistant"),
-    )
+  const candidates = filterConversationMessagesForMemory(
+    messages
+      .filter(
+        (msg): msg is { role: string; content: unknown; provenance?: unknown } =>
+          typeof msg === "object" &&
+          msg !== null &&
+          "role" in msg &&
+          "content" in msg &&
+          ((msg as Record<string, unknown>).role === "user" || (msg as Record<string, unknown>).role === "assistant"),
+      ),
+  )
     .slice(-4);
 
   for (let i = candidates.length - 1; i >= 0; i--) {
-    const text = extractContent(candidates[i].content).replace(/\s+/g, " ").trim();
+    const text = sanitizeConversationText(extractContent(candidates[i].content)).replace(/\s+/g, " ").trim();
     if (text.length < 20) continue;
     return text.length > MAX_SUMMARY_CHARS
       ? text.slice(0, MAX_SUMMARY_CHARS) + "..."
