@@ -317,17 +317,16 @@ export class CortexClient {
     sourceOrigin = DEFAULT_SOURCE_ORIGIN,
     derivationMode = DEFAULT_DERIVATION_MODE,
     sourceApp = DEFAULT_SOURCE_APP,
-  ): {
-    user_id: string;
-    source_origin: string;
-    derivation_mode: string;
-    source_app: string;
-  } {
+    sourceChannel?: string,
+    originSessionId?: string,
+  ): Record<string, unknown> {
     return {
       user_id: this.requireIngestUserId(userId),
       source_origin: sourceOrigin,
       derivation_mode: derivationMode,
       source_app: sourceApp,
+      ...(sourceChannel ? { source_channel: sourceChannel } : {}),
+      ...(originSessionId ? { origin_session_id: originSessionId } : {}),
     };
   }
 
@@ -481,6 +480,8 @@ export class CortexClient {
     sourceOrigin = DEFAULT_SOURCE_ORIGIN,
     sourceApp = DEFAULT_SOURCE_APP,
     derivationMode = DEFAULT_DERIVATION_MODE,
+    sourceChannel?: string,
+    originSessionId?: string,
   ): Promise<JobSubmitResponse> {
     return this.fetchJsonWithTimeout<JobSubmitResponse>(
       `${this.baseUrl}/v1/jobs/ingest/conversation`,
@@ -488,7 +489,7 @@ export class CortexClient {
         messages,
         session_id: sessionId,
         reference_date: referenceDate ?? null,
-        ...this.buildIngestProvenance(userId, sourceOrigin, derivationMode, sourceApp),
+        ...this.buildIngestProvenance(userId, sourceOrigin, derivationMode, sourceApp, sourceChannel, originSessionId),
       },
       DEFAULT_SUBMIT_TIMEOUT_MS,
       "jobs/ingest/conversation",

@@ -69,6 +69,8 @@ describe("createCaptureHandler", () => {
       "openclaw",
       "OpenClaw",
       "inferred",
+      undefined,
+      undefined,
     );
   });
 
@@ -522,6 +524,8 @@ describe("createCaptureHandler", () => {
       "openclaw",
       "OpenClaw",
       "inferred",
+      undefined,
+      undefined,
     );
   });
 
@@ -592,5 +596,134 @@ describe("createCaptureHandler", () => {
     expect(transcript).toContain("What database stack are we using");
     expect(transcript).toContain("We use PostgreSQL with pgvector");
     expect(transcript).not.toContain("Session summary:");
+  });
+
+  it("forwards inputProvenance sourceChannel and originSessionId to ingest", async () => {
+    const submitPromise = Promise.resolve({ job_id: "job-provenance-forward", status: "pending" });
+    const submitMock = vi.fn().mockReturnValue(submitPromise);
+    const client = { submitIngestConversation: submitMock } as unknown as CortexClient;
+    const handler = createCaptureHandler(client, makeConfig(), logger);
+
+    await handler({
+      messages: [
+        { role: "user", content: "What is the deployment strategy for our backend services in production right now?" },
+        { role: "assistant", content: "The backend uses blue-green deployment on ECS Fargate with ALB routing and health checks." },
+      ],
+      aborted: false,
+      sessionKey: "sess-prov",
+      inputProvenance: {
+        kind: "external_user",
+        originSessionId: "acp-session-42",
+        sourceChannel: "acp",
+        sourceTool: "openclaw_acp",
+      },
+    });
+
+    await submitPromise;
+
+    expect(submitMock).toHaveBeenCalledWith(
+      expect.any(Array),
+      "sess-prov",
+      expect.any(String),
+      undefined,
+      "openclaw",
+      "OpenClaw",
+      "inferred",
+      "acp",
+      "acp-session-42",
+    );
+  });
+
+  it("omits event-level provenance when replayed history spans multiple user turns", async () => {
+    const submitPromise = Promise.resolve({ job_id: "job-provenance-replay", status: "pending" });
+    const submitMock = vi.fn().mockReturnValue(submitPromise);
+    const client = { submitIngestConversation: submitMock } as unknown as CortexClient;
+    const handler = createCaptureHandler(client, makeConfig(), logger);
+
+    await handler({
+      messages: [
+        { role: "user", content: "What deployment strategy did we settle on for our backend services last quarter?" },
+        { role: "assistant", content: "We settled on blue-green deployment with ECS and ALB target group swaps." },
+        { role: "user", content: "What health checks protect the cutover in production right now?" },
+        { role: "assistant", content: "ALB waits for healthy targets on the new task set before shifting traffic." },
+      ],
+      aborted: false,
+      sessionKey: "sess-prov-replay",
+      inputProvenance: {
+        kind: "external_user",
+        originSessionId: "acp-session-42",
+        sourceChannel: "acp",
+        sourceTool: "openclaw_acp",
+      },
+    });
+
+    await submitPromise;
+
+    expect(submitMock).toHaveBeenCalledWith(
+      expect.any(Array),
+      "sess-prov-replay",
+      expect.any(String),
+      undefined,
+      "openclaw",
+      "OpenClaw",
+      "inferred",
+      undefined,
+      undefined,
+    );
+  });
+
+  it("omits sourceChannel and originSessionId when inputProvenance is absent", async () => {
+    const submitPromise = Promise.resolve({ job_id: "job-no-provenance", status: "pending" });
+    const submitMock = vi.fn().mockReturnValue(submitPromise);
+    const client = { submitIngestConversation: submitMock } as unknown as CortexClient;
+    const handler = createCaptureHandler(client, makeConfig(), logger);
+
+    await handler({
+      messages: [
+        { role: "user", content: "What is the deployment strategy for our backend services in production right now?" },
+        { role: "assistant", content: "The backend uses blue-green deployment on ECS Fargate with ALB routing and health checks." },
+      ],
+      aborted: false,
+      sessionKey: "sess-no-prov",
+    });
+
+    await submitPromise;
+
+    expect(submitMock).toHaveBeenCalledWith(
+      expect.any(Array),
+      "sess-no-prov",
+      expect.any(String),
+      undefined,
+      "openclaw",
+      "OpenClaw",
+      "inferred",
+      undefined,
+      undefined,
+    );
+  });
+
+  it("strips Source Receipt blocks from captured messages", async () => {
+    const submitPromise = Promise.resolve({ job_id: "job-receipt-strip", status: "pending" });
+    const submitMock = vi.fn().mockReturnValue(submitPromise);
+    const client = { submitIngestConversation: submitMock } as unknown as CortexClient;
+    const handler = createCaptureHandler(client, makeConfig(), logger);
+
+    await handler({
+      messages: [
+        {
+          role: "user",
+          content: "[Source Receipt]\nbridge=openclaw-acp\noriginSessionId=acp-session-1\n[/Source Receipt]\n\nWhat is the deployment strategy for our backend services in production right now?",
+        },
+        { role: "assistant", content: "The backend uses blue-green deployment on ECS Fargate with ALB routing and health checks." },
+      ],
+      aborted: false,
+    });
+
+    await submitPromise;
+
+    const transcript = submittedTranscript(submitMock);
+    expect(transcript).toContain("What is the deployment strategy");
+    expect(transcript).not.toContain("Source Receipt");
+    expect(transcript).not.toContain("bridge=openclaw-acp");
   });
 });

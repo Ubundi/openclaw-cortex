@@ -492,6 +492,29 @@ it("strips [cortex-date] marker from query and uses it as referenceDate", async 
     expect(calledQuery).not.toContain("Session summary:");
   });
 
+  it("strips Source Receipt blocks from latest user message for recall query", async () => {
+    const client = {
+      retrieve: vi.fn().mockResolvedValue({ results: [] }),
+    } as unknown as CortexClient;
+
+    const handler = createRecallHandler(client, makeConfig(), logger);
+    await handler(
+      {
+        prompt: "system preamble",
+        messages: [
+          {
+            role: "user",
+            content: "[Source Receipt]\nbridge=openclaw-acp\noriginSessionId=acp-session-1\n[/Source Receipt]\n\nWhat is an apple?",
+          },
+        ],
+      },
+      {},
+    );
+
+    const [calledQuery] = (client.retrieve as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(calledQuery).toBe("What is an apple?");
+  });
+
 describe("deriveEffectiveTimeout", () => {
   it("returns config value for Tier 1", () => {
     expect(deriveEffectiveTimeout(500, 1)).toBe(500);

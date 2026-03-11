@@ -220,6 +220,50 @@ describe("sanitizeConversationText", () => {
 
     expect(sanitizeConversationText(input)).toBe(input);
   });
+
+  it("strips ACP Source Receipt blocks prepended to user messages", () => {
+    const input = [
+      "[Source Receipt]",
+      "bridge=openclaw-acp",
+      "originHost=my-server",
+      "originCwd=~/project",
+      "acpSessionId=acp-session-1",
+      "originSessionId=acp-session-1",
+      "targetSession=agent:main:main",
+      "[/Source Receipt]",
+      "",
+      "What is an apple?",
+    ].join("\n");
+
+    expect(sanitizeConversationText(input)).toBe("What is an apple?");
+  });
+
+  it("strips Source Receipt combined with cortex blocks and runtime metadata", () => {
+    const input = [
+      "<cortex_memories>",
+      "Prior memory",
+      "</cortex_memories>",
+      "",
+      "[Source Receipt]",
+      "bridge=openclaw-acp",
+      "[/Source Receipt]",
+      "",
+      "What is an apple?",
+    ].join("\n");
+
+    expect(sanitizeConversationText(input)).toBe("What is an apple?");
+  });
+
+  it("preserves Source Receipt text when it appears mid-body (not leading)", () => {
+    const input = [
+      "Here is an example receipt:",
+      "[Source Receipt]",
+      "bridge=openclaw-acp",
+      "[/Source Receipt]",
+    ].join("\n");
+
+    expect(sanitizeConversationText(input)).toBe(input);
+  });
 });
 
 describe("filterLowSignalLines", () => {

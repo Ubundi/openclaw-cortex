@@ -507,7 +507,7 @@ const plugin = {
     registerHookCompat(
       api,
       "agent_end",
-      async (event: { messages?: unknown[]; [key: string]: unknown }) => {
+      async (event: { messages?: unknown[]; inputProvenance?: Record<string, unknown>; [key: string]: unknown }) => {
         if (event.messages?.length) {
           lastMessages = event.messages;
           const activeSessionKey = resolveSessionKey(event, sessionId);

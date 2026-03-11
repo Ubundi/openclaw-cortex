@@ -10,6 +10,13 @@ import { containsHeartbeatPrompt } from "../../internal/heartbeat-detect.js";
 import type { CaptureWatermarkStore } from "../../internal/capture-watermark-store.js";
 import { filterConversationMessagesForMemory } from "../../internal/message-provenance.js";
 
+interface InputProvenance {
+  kind?: string;
+  originSessionId?: string;
+  sourceChannel?: string;
+  sourceTool?: string;
+}
+
 interface AgentEndEvent {
   runId?: string;
   sessionKey?: string;
@@ -17,6 +24,7 @@ interface AgentEndEvent {
   messages: unknown[];
   aborted: boolean;
   error?: string;
+  inputProvenance?: InputProvenance;
   usageTotals?: {
     inputTokens: number;
     outputTokens: number;
@@ -117,6 +125,25 @@ function buildTurnFingerprint(messages: ConversationMessage[]): string | undefin
   const normalizedAssistant = normalizeFingerprintText(assistant);
   if (!normalizedUser || !normalizedAssistant) return undefined;
   return createHash("sha1").update(`${normalizedUser}||${normalizedAssistant}`).digest("hex");
+}
+
+function extractBatchProvenance(
+  messages: ConversationMessage[],
+  inputProvenance: InputProvenance | undefined,
+): { sourceChannel?: string; originSessionId?: string } {
+  if (!inputProvenance) return {};
+
+  // Event-level provenance is only safe to apply when the captured batch is a
+  // single user-led turn. Replayed history can span multiple turns and would
+  // otherwise inherit the current turn's ACP metadata incorrectly.
+  const firstUserIndex = messages.findIndex((msg) => msg.role === "user");
+  const userCount = messages.filter((msg) => msg.role === "user").length;
+  if (firstUserIndex !== 0 || userCount !== 1) return {};
+
+  return {
+    sourceChannel: inputProvenance.sourceChannel,
+    originSessionId: inputProvenance.originSessionId,
+  };
 }
 
 
@@ -318,6 +345,7 @@ export function createCaptureHandler(
           throw new Error("Cortex ingest requires user_id");
         }
         const referenceDate = new Date().toISOString();
+        const { sourceChannel, originSessionId } = extractBatchProvenance(trimmed, event.inputProvenance);
         // Use async conversation ingest so role attribution is preserved for RESONATE.
         const job = await client.submitIngestConversation(
           trimmed,
@@ -327,6 +355,8 @@ export function createCaptureHandler(
           "openclaw",
           "OpenClaw",
           CAPTURE_DERIVATION_MODE,
+          sourceChannel,
+          originSessionId,
         );
         logger.info(`Cortex capture: submitted job ${job.job_id} (status=${job.status})`);
         // Mark that we have memories — heartbeat handler owns full knowledge refresh

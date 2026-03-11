@@ -44,6 +44,7 @@ const LOW_SIGNAL_PATTERNS: RegExp[] = [
 const RUNTIME_METADATA_RE = /^\s*[\w ]+\(untrusted metadata\):\s*```json\s*\{[\s\S]*?\}\s*```[ \t]*/i;
 const GENERIC_METADATA_FENCE_RE = /^\s*(?:conversation info|sender|chat info|thread info|message info|context info):\s*```json\s*\{[\s\S]*?\}\s*```[ \t]*/i;
 const INJECTED_CORTEX_BLOCK_RE = /^\s*<(?:cortex_memories|cortex_recovery)>[\s\S]*?<\/(?:cortex_memories|cortex_recovery)>\s*/i;
+const SOURCE_RECEIPT_BLOCK_RE = /^\s*\[Source Receipt\][\s\S]*?\[\/Source Receipt\]\s*/i;
 const BLOCK_WRAPPER_START_RE = /^\[(replying to|quoting)\b[^\]]*\]$/i;
 const BLOCK_WRAPPER_END_RE = /^\[\/(replying|quoting)\]$/i;
 const CHANNEL_ENVELOPE_RE = String.raw`(?:telegram|whatsapp|signal|discord|slack|email|sms)\s+(?:group(?:\s+chat)?|dm|direct message|private chat|thread|channel|server|workspace|conversation|message|chat)\b`;
@@ -77,7 +78,10 @@ export function stripRuntimeMetadata(text: string): string {
  * is used for recall queries, capture payloads, and recovery summaries.
  */
 export function stripInjectedCortexBlocks(text: string): string {
-  return stripLeadingPattern(text, INJECTED_CORTEX_BLOCK_RE).trim();
+  return stripLeadingPattern(
+    stripLeadingPattern(text, INJECTED_CORTEX_BLOCK_RE),
+    SOURCE_RECEIPT_BLOCK_RE,
+  ).trim();
 }
 
 export function stripPlaintextMetadataArtifacts(text: string): string {
