@@ -56,6 +56,11 @@ export function registerCliCommands(
         .action(async () => {
           await userIdReady;
           const userId = getUserId();
+          if (!userId) {
+            console.error("Cannot check status: user ID not available.");
+            process.exitCode = 1;
+            return;
+          }
 
           console.log("Cortex Status Check");
           console.log("=".repeat(50));
@@ -94,7 +99,7 @@ export function registerCliCommands(
           // Knowledge
           try {
             const startKnowledge = Date.now();
-            const knowledge = await client.knowledge(undefined, userId);
+            const knowledge = await client.knowledge(userId);
             const ms = Date.now() - startKnowledge;
             console.log(`  Knowledge:      OK (${ms}ms)`);
             console.log(`    Memories:     ${knowledge.total_memories.toLocaleString()}`);
@@ -107,7 +112,7 @@ export function registerCliCommands(
           // Stats
           try {
             const startStats = Date.now();
-            const stats = await client.stats(undefined, userId);
+            const stats = await client.stats(userId);
             const ms = Date.now() - startStats;
             console.log(`  Stats:          OK (${ms}ms)`);
             console.log(`    Pipeline:     tier ${stats.pipeline_tier}`);
@@ -172,9 +177,14 @@ export function registerCliCommands(
         .action(async () => {
           await userIdReady;
           const userId = getUserId();
+          if (!userId) {
+            console.error("Cannot inspect memories: user ID not available.");
+            process.exitCode = 1;
+            return;
+          }
 
           try {
-            const knowledge = await client.knowledge(undefined, userId);
+            const knowledge = await client.knowledge(userId);
             console.log(`Memories:  ${knowledge.total_memories.toLocaleString()}`);
             console.log(`Sessions:  ${knowledge.total_sessions}`);
             console.log(`Maturity:  ${knowledge.maturity}`);
@@ -378,7 +388,7 @@ export function registerCliCommands(
           let memoryCount = 0;
           let sessionCount = 0;
           try {
-            const knowledge = await client.knowledge(undefined, userId);
+            const knowledge = await client.knowledge(userId);
             memoryCount = knowledge.total_memories;
             sessionCount = knowledge.total_sessions;
           } catch {

@@ -92,7 +92,7 @@ describeIf(!!API_KEY)("CortexClient integration", () => {
   });
 
   it("knowledge returns summary with expected shape", async () => {
-    const result = await client.knowledge();
+    const result = await client.knowledge(TEST_USER_ID);
 
     expect(result).toBeDefined();
     expect(typeof result.total_memories).toBe("number");

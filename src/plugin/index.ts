@@ -117,7 +117,7 @@ async function resetCompletedAfterAbort(
   userId: string,
 ): Promise<boolean> {
   try {
-    const knowledge = await client.knowledge(undefined, userId);
+    const knowledge = await client.knowledge(userId);
     return knowledge.total_memories === 0 && knowledge.total_sessions === 0;
   } catch {
     return false;
@@ -173,7 +173,7 @@ async function bootstrapClient(
   client: CortexClient,
   logger: Logger,
   knowledgeState: KnowledgeState,
-  userId: string | undefined,
+  userId: string,
 ): Promise<void> {
   try {
     const healthy = await client.healthCheck();
@@ -188,8 +188,8 @@ async function bootstrapClient(
 
   try {
     const [knowledge, stats] = await Promise.all([
-      client.knowledge(undefined, userId),
-      client.stats(undefined, userId).catch(() => null),
+      client.knowledge(userId),
+      client.stats(userId).catch(() => null),
     ]);
     knowledgeState.hasMemories = knowledge.total_memories > 0;
     knowledgeState.totalSessions = knowledge.total_sessions;
@@ -418,7 +418,7 @@ const plugin = {
     // async log races with command output and CLI commands fetch their own data.
     const isCliInvocation = process.argv.some((a) => a === "cortex");
     if (!isCliInvocation) {
-      void userIdReady.then(() => bootstrapClient(client, api.logger, knowledgeState, userId));
+      void userIdReady.then(() => bootstrapClient(client, api.logger, knowledgeState, userId!));
       void checkForUpdate(api.logger);
     }
 

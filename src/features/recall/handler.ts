@@ -249,7 +249,11 @@ export function createRecallHandler(
       // Pipeline tier is refreshed by the heartbeat handler separately.
       try {
         const userId = getUserId?.();
-        const knowledge = await client.knowledge(undefined, userId);
+        if (!userId) {
+          logger.warn("Cortex recall: skipped knowledge re-check (user ID unavailable)");
+          return;
+        }
+        const knowledge = await client.knowledge(userId);
         knowledgeState.hasMemories = knowledge.total_memories > 0;
         knowledgeState.totalSessions = knowledge.total_sessions;
         knowledgeState.maturity = knowledge.maturity;

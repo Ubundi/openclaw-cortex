@@ -209,14 +209,19 @@ describe("CortexClient", () => {
         json: async () => ({ total_memories: 100, total_sessions: 10, maturity: "mature", entities: [] }),
       });
 
-      const result = await client.knowledge();
+      const result = await client.knowledge("user-123");
 
       expect(mockFetch).toHaveBeenCalledWith(
-        "https://api.example.com/v1/knowledge",
+        "https://api.example.com/v1/knowledge?user_id=user-123",
         expect.objectContaining({ method: "GET" }),
       );
       expect(result.total_memories).toBe(100);
       expect(result.maturity).toBe("mature");
+    });
+
+    it("throws before sending request when user id is missing", async () => {
+      await expect(client.knowledge("" as string)).rejects.toThrow("Cortex inspect requires user_id");
+      expect(mockFetch).not.toHaveBeenCalled();
     });
   });
 

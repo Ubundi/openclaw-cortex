@@ -222,7 +222,7 @@ describe("createRecallHandler", () => {
     const client = { retrieve: vi.fn(), knowledge: vi.fn() } as unknown as CortexClient;
     const ks: KnowledgeState = { hasMemories: false, totalSessions: 0, pipelineTier: 1, maturity: "cold", lastChecked: Date.now() };
 
-    const handler = createRecallHandler(client, makeConfig(), logger, undefined, ks);
+    const handler = createRecallHandler(client, makeConfig(), logger, undefined, ks, () => "user-1");
     const result = await handler({ prompt: "some longer query" }, {});
 
     expect(result).toBeUndefined();
@@ -246,7 +246,7 @@ describe("createRecallHandler", () => {
       lastChecked: Date.now() - 6 * 60_000, // 6 minutes ago — past the 5-min re-check interval
     };
 
-    const handler = createRecallHandler(client, makeConfig(), logger, undefined, ks);
+    const handler = createRecallHandler(client, makeConfig(), logger, undefined, ks, () => "user-1");
     const result = await handler({ prompt: "some longer query" }, {});
 
     expect(client.knowledge).toHaveBeenCalled();
@@ -270,7 +270,7 @@ describe("createRecallHandler", () => {
       lastChecked: Date.now() - 6 * 60_000,
     };
 
-    const handler = createRecallHandler(client, makeConfig(), logger, undefined, ks);
+    const handler = createRecallHandler(client, makeConfig(), logger, undefined, ks, () => "user-1");
     const result = await handler({ prompt: "some longer query" }, {});
 
     expect(client.knowledge).toHaveBeenCalled();
@@ -292,7 +292,7 @@ describe("createRecallHandler", () => {
       lastChecked: Date.now() - 6 * 60_000,
     };
 
-    const handler = createRecallHandler(client, makeConfig(), logger, undefined, ks);
+    const handler = createRecallHandler(client, makeConfig(), logger, undefined, ks, () => "user-1");
     const result = await handler({ prompt: "some longer query" }, {});
 
     expect(client.knowledge).toHaveBeenCalled();

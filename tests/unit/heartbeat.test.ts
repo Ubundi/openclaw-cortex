@@ -48,7 +48,7 @@ describe("createHeartbeatHandler", () => {
     // Stats are only fetched every 3rd heartbeat refresh to reduce API load.
     // Run 3 heartbeats with stale timestamps to trigger a stats fetch.
     await handler();
-    expect(client.knowledge).toHaveBeenCalledWith(undefined, "user-1");
+    expect(client.knowledge).toHaveBeenCalledWith("user-1");
     expect(state.hasMemories).toBe(true);
     expect(state.totalSessions).toBe(8);
     expect(state.maturity).toBe("warming");
@@ -64,7 +64,7 @@ describe("createHeartbeatHandler", () => {
     await handler();
 
     // Now stats should have been fetched (every 3rd refresh)
-    expect(client.stats).toHaveBeenCalledWith(undefined, "user-1");
+    expect(client.stats).toHaveBeenCalledWith("user-1");
     expect(state.pipelineTier).toBe(2);
   });
 

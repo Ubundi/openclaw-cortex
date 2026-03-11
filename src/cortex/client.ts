@@ -305,6 +305,13 @@ export class CortexClient {
     return userId;
   }
 
+  private requireInspectUserId(userId?: string): string {
+    if (typeof userId !== "string" || userId.trim().length === 0) {
+      throw new Error("Cortex inspect requires user_id");
+    }
+    return userId;
+  }
+
   private buildIngestProvenance(
     userId?: string,
     sourceOrigin = DEFAULT_SOURCE_ORIGIN,
@@ -653,12 +660,11 @@ export class CortexClient {
   }
 
   async knowledge(
+    userId: string,
     timeoutMs = DEFAULT_INSPECT_TIMEOUT_MS,
-    userId?: string,
   ): Promise<KnowledgeResponse> {
-    const url = userId
-      ? `${this.baseUrl}/v1/knowledge?user_id=${encodeURIComponent(userId)}`
-      : `${this.baseUrl}/v1/knowledge`;
+    const resolvedUserId = this.requireInspectUserId(userId);
+    const url = `${this.baseUrl}/v1/knowledge?user_id=${encodeURIComponent(resolvedUserId)}`;
     return this.fetchRequest<KnowledgeResponse>(
       url,
       { method: "GET" },
@@ -692,12 +698,11 @@ export class CortexClient {
   }
 
   async stats(
+    userId: string,
     timeoutMs = DEFAULT_INSPECT_TIMEOUT_MS,
-    userId?: string,
   ): Promise<StatsResponse> {
-    const url = userId
-      ? `${this.baseUrl}/v1/stats?user_id=${encodeURIComponent(userId)}`
-      : `${this.baseUrl}/v1/stats`;
+    const resolvedUserId = this.requireInspectUserId(userId);
+    const url = `${this.baseUrl}/v1/stats?user_id=${encodeURIComponent(resolvedUserId)}`;
     return this.fetchRequest<StatsResponse>(
       url,
       { method: "GET" },

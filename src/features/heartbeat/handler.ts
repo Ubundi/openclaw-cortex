@@ -49,15 +49,19 @@ export function createHeartbeatHandler(
 
     try {
       const userId = getUserId();
+      if (!userId) {
+        logger.debug?.("Cortex heartbeat: skipped refresh (user ID unavailable)");
+        return;
+      }
       refreshCount++;
 
       // Always fetch knowledge; only fetch stats every Nth refresh
       // since pipeline tier changes very rarely (session count thresholds).
       const shouldFetchStats = refreshCount % STATS_FETCH_EVERY_N === 0;
       const [knowledge, stats] = await Promise.allSettled([
-        client.knowledge(undefined, userId),
+        client.knowledge(userId),
         shouldFetchStats
-          ? client.stats(undefined, userId)
+          ? client.stats(userId)
           : Promise.reject("skipped"),
       ]);
 
