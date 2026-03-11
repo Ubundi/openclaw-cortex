@@ -242,6 +242,7 @@ const DEFAULT_WARMUP_TIMEOUT_MS = 60_000;
 // --- Agent API Defaults ---
 const DEFAULT_REMEMBER_TIMEOUT_MS = 45_000;
 const DEFAULT_RECALL_TIMEOUT_MS = 10_000;
+const DEFAULT_INSPECT_TIMEOUT_MS = 30_000;
 const DEFAULT_RESET_TIMEOUT_MS = 60_000;
 const DEFAULT_SOURCE_ORIGIN = "openclaw";
 const DEFAULT_DERIVATION_MODE = "inferred";
@@ -652,7 +653,7 @@ export class CortexClient {
   }
 
   async knowledge(
-    timeoutMs = DEFAULT_RECALL_TIMEOUT_MS,
+    timeoutMs = DEFAULT_INSPECT_TIMEOUT_MS,
     userId?: string,
   ): Promise<KnowledgeResponse> {
     const url = userId
@@ -691,7 +692,7 @@ export class CortexClient {
   }
 
   async stats(
-    timeoutMs = DEFAULT_RECALL_TIMEOUT_MS,
+    timeoutMs = DEFAULT_INSPECT_TIMEOUT_MS,
     userId?: string,
   ): Promise<StatsResponse> {
     const url = userId

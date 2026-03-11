@@ -21,9 +21,16 @@ export function createHeartbeatHandler(
   knowledgeState: KnowledgeState,
   retryQueue: RetryQueue,
   getUserId: () => string | undefined,
+  getCapturesSinceReflect?: () => number,
+  resetCapturesSinceReflect?: () => void,
 ): () => Promise<void> {
   let refreshing = false;
   let lastReflectAt = 0;
+  let refreshCount = 0;
+  /** Minimum captures since last reflect before triggering a new one */
+  const MIN_CAPTURES_FOR_REFLECT = 3;
+  /** Only fetch /v1/stats every Nth heartbeat refresh (tier changes rarely) */
+  const STATS_FETCH_EVERY_N = 3;
 
   return async () => {
     // Log retry queue status on each heartbeat for observability
@@ -42,9 +49,16 @@ export function createHeartbeatHandler(
 
     try {
       const userId = getUserId();
+      refreshCount++;
+
+      // Always fetch knowledge; only fetch stats every Nth refresh
+      // since pipeline tier changes very rarely (session count thresholds).
+      const shouldFetchStats = refreshCount % STATS_FETCH_EVERY_N === 0;
       const [knowledge, stats] = await Promise.allSettled([
         client.knowledge(undefined, userId),
-        client.stats(undefined, userId),
+        shouldFetchStats
+          ? client.stats(undefined, userId)
+          : Promise.reject("skipped"),
       ]);
 
       if (knowledge.status === "fulfilled") {
@@ -74,8 +88,15 @@ export function createHeartbeatHandler(
       // Periodically trigger reflect to consolidate the knowledge graph.
       // Reflect deduplicates entities, infers relationships, and strengthens
       // connections — improving recall quality over time.
-      if (knowledgeState.hasMemories && Date.now() - lastReflectAt >= MIN_REFLECT_INTERVAL_MS) {
+      // Only reflect if new memories were ingested since the last one.
+      const capturesSince = getCapturesSinceReflect?.() ?? MIN_CAPTURES_FOR_REFLECT;
+      if (
+        knowledgeState.hasMemories &&
+        capturesSince >= MIN_CAPTURES_FOR_REFLECT &&
+        Date.now() - lastReflectAt >= MIN_REFLECT_INTERVAL_MS
+      ) {
         lastReflectAt = Date.now();
+        resetCapturesSinceReflect?.();
         client.reflect().then(
           (result) => {
             logger.info(

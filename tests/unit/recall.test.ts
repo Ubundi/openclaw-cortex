@@ -46,7 +46,7 @@ describe("createRecallHandler", () => {
     expect(client.retrieve).toHaveBeenCalledWith(
       "What is the default Redis cache TTL we use?",
       10,
-      "full",
+      "fast",
       500,
       "factual",
       { referenceDate: expect.any(String), userId: undefined },
@@ -393,7 +393,7 @@ it("strips [cortex-date] marker from query and uses it as referenceDate", async 
     expect(client.retrieve).toHaveBeenCalledWith(
       "What is the default Redis cache TTL we use?",
       10,
-      "full",
+      "fast",
       500,
       "factual",
       { referenceDate: "2024-11-18", userId: undefined },

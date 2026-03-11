@@ -45,15 +45,27 @@ describe("createHeartbeatHandler", () => {
     const state = makeKnowledgeState({ lastChecked: 0 });
     const handler = createHeartbeatHandler(client, logger, state, makeRetryQueue(), () => "user-1");
 
+    // Stats are only fetched every 3rd heartbeat refresh to reduce API load.
+    // Run 3 heartbeats with stale timestamps to trigger a stats fetch.
     await handler();
-
     expect(client.knowledge).toHaveBeenCalledWith(undefined, "user-1");
-    expect(client.stats).toHaveBeenCalledWith(undefined, "user-1");
     expect(state.hasMemories).toBe(true);
     expect(state.totalSessions).toBe(8);
     expect(state.maturity).toBe("warming");
-    expect(state.pipelineTier).toBe(2);
     expect(state.lastChecked).toBeGreaterThan(0);
+
+    // Stats not fetched on 1st refresh
+    expect(client.stats).not.toHaveBeenCalled();
+
+    // Force stale again and trigger 2nd + 3rd heartbeats
+    state.lastChecked = 0;
+    await handler();
+    state.lastChecked = 0;
+    await handler();
+
+    // Now stats should have been fetched (every 3rd refresh)
+    expect(client.stats).toHaveBeenCalledWith(undefined, "user-1");
+    expect(state.pipelineTier).toBe(2);
   });
 
   it("skips refresh when checked recently", async () => {
@@ -189,6 +201,12 @@ describe("createHeartbeatHandler", () => {
     const state = makeKnowledgeState({ lastChecked: 0, pipelineTier: 1 });
     const handler = createHeartbeatHandler(client, logger, state, makeRetryQueue(), () => "user-1");
 
+    // Stats are only fetched every 3rd heartbeat refresh. Run 3 refreshes
+    // (knowledge always fails, but stats should still be consumed on the 3rd).
+    await handler();
+    state.lastChecked = 0;
+    await handler();
+    state.lastChecked = 0;
     await handler();
 
     expect(state.pipelineTier).toBe(3);

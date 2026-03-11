@@ -495,6 +495,10 @@ const plugin = {
       },
     );
 
+    // Shared counter: captures since last reflect (heartbeat uses this to
+    // skip reflect when no new memories were ingested).
+    let capturesSinceReflect = 0;
+
     // Auto-Capture: extract facts after agent responses
     const watermarkStore = new CaptureWatermarkStore();
     void watermarkStore.load().catch((err) => api.logger.debug?.(`Cortex watermark load failed: ${String(err)}`));
@@ -517,7 +521,8 @@ const plugin = {
             api.logger.debug?.(`Cortex session state update failed: ${String(err)}`);
           }
         }
-        return captureHandler(event as any);
+        const ingested = await captureHandler(event as any);
+        if (ingested) capturesSinceReflect++;
       },
       {
         name: "openclaw-cortex.capture",
@@ -529,7 +534,11 @@ const plugin = {
     registerHookCompat(
       api,
       "gateway:heartbeat",
-      createHeartbeatHandler(client, api.logger, knowledgeState, retryQueue, () => userId),
+      createHeartbeatHandler(
+        client, api.logger, knowledgeState, retryQueue, () => userId,
+        () => capturesSinceReflect,
+        () => { capturesSinceReflect = 0; },
+      ),
       {
         name: "openclaw-cortex.heartbeat",
         description: "Periodic health check and knowledge state refresh",
@@ -650,8 +659,8 @@ const plugin = {
 
     // --- Services: retry queue, audit, workspace metadata ---
 
-    const WARMUP_INTERVAL_MS = 5 * 60_000; // 5 minutes
-    let warmupTimer: ReturnType<typeof setInterval> | null = null;
+    const WARMUP_INITIAL_INTERVAL_MS = 5 * 60_000; // 5 minutes
+    let warmupTimer: ReturnType<typeof setTimeout> | null = null;
 
     api.registerService({
       id: "cortex-services",
@@ -664,15 +673,44 @@ const plugin = {
 
         retryQueue.start();
 
-        // Periodic warmup ping to keep the Cortex tenant in the LRU cache
-        // and avoid cold-start latency when the ECS worker recycles.
+        // Periodic warmup ping with exponential backoff. Stops once the
+        // tenant reports already_warm or maturity reaches "mature".
         if (config.autoCapture || config.autoRecall) {
-          warmupTimer = setInterval(() => {
-            client.warmup().then(
-              () => api.logger.debug?.("Cortex warmup ping OK"),
-              (err) => api.logger.debug?.(`Cortex warmup ping failed: ${String(err)}`),
-            );
-          }, WARMUP_INTERVAL_MS);
+          let warmupDelay = WARMUP_INITIAL_INTERVAL_MS;
+          const MAX_WARMUP_DELAY = 30 * 60_000; // 30 minutes cap
+
+          const scheduleWarmup = () => {
+            warmupTimer = setTimeout(() => {
+              // Skip if tenant is already mature — no point pinging
+              if (knowledgeState.maturity === "mature") {
+                api.logger.debug?.("Cortex warmup: tenant mature, stopping pings");
+                warmupTimer = null;
+                return;
+              }
+
+              client.warmup().then(
+                (res) => {
+                  if (res.already_warm) {
+                    api.logger.debug?.("Cortex warmup: already warm, backing off");
+                    // Don't stop — the worker can be evicted from cache.
+                    // Use max delay so we keep a slow heartbeat alive.
+                    warmupDelay = MAX_WARMUP_DELAY;
+                  } else {
+                    api.logger.debug?.("Cortex warmup ping OK");
+                    // Exponential backoff: 5m → 10m → 20m → 30m (cap)
+                    warmupDelay = Math.min(warmupDelay * 2, MAX_WARMUP_DELAY);
+                  }
+                  scheduleWarmup();
+                },
+                (err) => {
+                  api.logger.debug?.(`Cortex warmup ping failed: ${String(err)}`);
+                  scheduleWarmup();
+                },
+              );
+            }, warmupDelay);
+          };
+
+          scheduleWarmup();
         }
 
         // Capture workspaceDir for runtime audit toggle via /audit command
@@ -704,7 +742,7 @@ const plugin = {
         retryQueue.stop();
 
         if (warmupTimer) {
-          clearInterval(warmupTimer);
+          clearTimeout(warmupTimer);
           warmupTimer = null;
         }
 

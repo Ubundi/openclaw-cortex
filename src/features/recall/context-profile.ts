@@ -7,6 +7,8 @@ export interface RecallProfileParams {
   limit: number;
   context?: string;
   minConfidence?: number;
+  /** Retrieve mode: "fast" skips reranking/graph, "full" uses full pipeline */
+  mode?: "fast" | "full";
 }
 
 const INCIDENT_RE = /\b(outage|incident|sev[1-4]|broken|failure|urgent|rollback|hotfix|degraded|bug|crash|error)\b/i;
@@ -52,6 +54,7 @@ export function getProfileParams(
         limit: config.recallLimit,
         minConfidence: 0.3,
         context: factualContext,
+        mode: "fast",
       };
     case "default":
       return {

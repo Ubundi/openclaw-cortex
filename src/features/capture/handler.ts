@@ -125,10 +125,6 @@ function buildTurnFingerprint(messages: ConversationMessage[]): string | undefin
   return createHash("sha1").update(`${normalizedUser}||${normalizedAssistant}`).digest("hex");
 }
 
-/** How often (in captures) to re-probe /v1/knowledge for tier changes */
-const KNOWLEDGE_REFRESH_EVERY_N = 5;
-/** Minimum interval between knowledge refreshes */
-const KNOWLEDGE_REFRESH_MIN_INTERVAL_MS = 5 * 60_000; // 5 minutes
 
 export function createCaptureHandler(
   client: CortexClient,
@@ -145,14 +141,13 @@ export function createCaptureHandler(
 ) {
   let captureCounter = 0;
   const seenTurnFingerprints = new Map<string, number>();
-  let capturesSinceRefresh = 0;
 
-  return async (event: AgentEndEvent): Promise<void> => {
+  return async (event: AgentEndEvent): Promise<boolean> => {
     logger.info("Cortex capture: hook fired");
 
-    if (!config.autoCapture) return;
-    if (event.aborted) return;
-    if (!event.messages?.length) return;
+    if (!config.autoCapture) return false;
+    if (event.aborted) return false;
+    if (!event.messages?.length) return false;
 
     try {
       const sessionId = event.sessionKey ?? event.sessionId ?? pluginSessionId;
@@ -194,7 +189,7 @@ export function createCaptureHandler(
       if (containsHeartbeatPrompt(normalized)) {
         markCapturedWatermark();
         logger.info("Cortex capture: skipping — heartbeat turn");
-        return;
+        return false;
       }
 
       // Drop low-signal messages (heartbeats, status lines, TUI artifacts)
@@ -222,7 +217,7 @@ export function createCaptureHandler(
       if (!isWorthCapturing(echoFiltered)) {
         markCapturedWatermark();
         logger.info("Cortex capture: skipping — not enough substantive content");
-        return;
+        return false;
       }
 
       // API caps at 200 messages — take the most recent to stay within the limit
@@ -254,7 +249,7 @@ export function createCaptureHandler(
       if (shouldFilterProbeLookup && isProbeLookupTurn(trimmed)) {
         markCapturedWatermark();
         logger.info("Cortex capture: skipping — probe lookup turn");
-        return;
+        return false;
       }
 
       // In-memory duplicate suppression to avoid repeated benchmark/probe churn.
@@ -268,7 +263,7 @@ export function createCaptureHandler(
         if (seenAt && now - seenAt <= TURN_DEDUP_TTL_MS) {
           markCapturedWatermark();
           logger.info("Cortex capture: skipping — duplicate turn fingerprint");
-          return;
+          return false;
         }
         seenTurnFingerprints.set(fingerprint, now);
         if (seenTurnFingerprints.size > TURN_DEDUP_MAX_FINGERPRINTS) {
@@ -337,35 +332,9 @@ export function createCaptureHandler(
           CAPTURE_DERIVATION_MODE,
         );
         logger.info(`Cortex capture: submitted job ${job.job_id} (status=${job.status})`);
+        // Mark that we have memories — heartbeat handler owns full knowledge refresh
         if (knowledgeState) {
           knowledgeState.hasMemories = true;
-        }
-
-        // Periodically refresh knowledge state so totalSessions (and thus
-        // the tier / effective timeout) stays current as memories accumulate.
-        if (knowledgeState) {
-          capturesSinceRefresh++;
-          const elapsed = Date.now() - knowledgeState.lastChecked;
-          if (
-            capturesSinceRefresh >= KNOWLEDGE_REFRESH_EVERY_N &&
-            elapsed >= KNOWLEDGE_REFRESH_MIN_INTERVAL_MS
-          ) {
-            capturesSinceRefresh = 0;
-            try {
-              const knowledge = await client.knowledge(undefined, userId);
-              const prevSessions = knowledgeState.totalSessions;
-              knowledgeState.totalSessions = knowledge.total_sessions;
-              knowledgeState.maturity = knowledge.maturity;
-              knowledgeState.lastChecked = Date.now();
-              if (knowledge.total_sessions !== prevSessions) {
-                logger.info(
-                  `Cortex knowledge refreshed: sessions ${prevSessions} → ${knowledge.total_sessions}`,
-                );
-              }
-            } catch {
-              logger.debug?.("Cortex knowledge refresh failed, will retry later");
-            }
-          }
         }
       };
 
@@ -376,8 +345,11 @@ export function createCaptureHandler(
           retryQueue.enqueue(doRemember, `capture-${++captureCounter}`);
         }
       });
+
+      return true; // ingestion was queued
     } catch (err) {
       logger.warn(`Cortex capture error: ${String(err)}`);
+      return false;
     }
   };
 }

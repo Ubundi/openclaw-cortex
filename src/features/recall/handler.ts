@@ -245,19 +245,14 @@ export function createRecallHandler(
         logger.info("Cortex recall: skipped (no memories yet)");
         return;
       }
-      // Re-check knowledge state in the background (non-blocking)
+      // Re-check knowledge state — only fetch /v1/knowledge (lightweight).
+      // Pipeline tier is refreshed by the heartbeat handler separately.
       try {
         const userId = getUserId?.();
-        const [knowledge, stats] = await Promise.all([
-          client.knowledge(undefined, userId),
-          client.stats(undefined, userId).catch(() => null),
-        ]);
+        const knowledge = await client.knowledge(undefined, userId);
         knowledgeState.hasMemories = knowledge.total_memories > 0;
         knowledgeState.totalSessions = knowledge.total_sessions;
         knowledgeState.maturity = knowledge.maturity;
-        if (stats) {
-          knowledgeState.pipelineTier = stats.pipeline_tier;
-        }
         knowledgeState.lastChecked = Date.now();
         if (!knowledgeState.hasMemories) {
           logger.info("Cortex recall: skipped (no memories yet)");
@@ -331,28 +326,39 @@ export function createRecallHandler(
         });
       }
 
+      const retrieveMode = profileParams.mode ?? "full";
+      logger.debug?.(`Cortex recall: mode=${retrieveMode}`);
+
       let rawResponse;
       try {
         rawResponse = await client.retrieve(
           retrieveQuery,
           profileParams.limit,
-          "full",
+          retrieveMode,
           effectiveTimeout,
           profileParams.queryType,
           retrieveOptions,
         );
       } catch (retryErr) {
-        // Single retry on transient 502/503 gateway errors
+        // On transient 502/503 (cold start, gateway blip), retry once after
+        // a short delay. Dropping recall entirely on a single failure is a
+        // direct answer-quality regression — most cold starts resolve in ~1-2s.
         if (/50[23]/.test(String(retryErr))) {
-          await new Promise((r) => setTimeout(r, 1000));
-          rawResponse = await client.retrieve(
-            retrieveQuery,
-            profileParams.limit,
-            "full",
-            effectiveTimeout,
-            profileParams.queryType,
-            retrieveOptions,
-          );
+          logger.debug?.("Cortex recall: transient 502/503, retrying once after 1.5s");
+          await new Promise((r) => setTimeout(r, 1500));
+          try {
+            rawResponse = await client.retrieve(
+              retrieveQuery,
+              profileParams.limit,
+              retrieveMode,
+              effectiveTimeout,
+              profileParams.queryType,
+              retrieveOptions,
+            );
+          } catch (retryErr2) {
+            logger.debug?.("Cortex recall: retry failed, proceeding without memories");
+            return;
+          }
         } else {
           throw retryErr;
         }
