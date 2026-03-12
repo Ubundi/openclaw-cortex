@@ -149,7 +149,6 @@ describe("createRecallHandler", () => {
         limit: 10,
         userId: undefined,
         queryType: "factual",
-        minConfidence: 0.3,
         context: [
           "assistant: We switched auth to OAuth 2.1 with PKCE and removed legacy tokens.",
           "user: What is the auth flow we settled on?",
@@ -165,6 +164,7 @@ describe("createRecallHandler", () => {
       recall: vi.fn().mockResolvedValue({
         memories: [
           { content: "User uses Neovim", confidence: 0.19, when: null, session_id: null, entities: ["Neovim"] },
+          { content: "Weak tail", confidence: 0.06, when: null, session_id: null, entities: [] },
         ],
       }),
     } as unknown as CortexClient;
@@ -179,11 +179,11 @@ describe("createRecallHandler", () => {
         limit: 10,
         userId: undefined,
         queryType: "factual",
-        minConfidence: 0.3,
         context: undefined,
       },
     );
-    expect(result).toBeUndefined();
+    expect(result?.prependContext).toContain("User uses Neovim");
+    expect(result?.prependContext).not.toContain("Weak tail");
   });
 
   it("returns undefined when autoRecall is disabled", async () => {

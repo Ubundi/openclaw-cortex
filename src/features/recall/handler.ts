@@ -54,6 +54,8 @@ const MAX_QUERY_LENGTH = 2000;
  * plugin instance ingested memories or the initial check failed.
  */
 const KNOWLEDGE_RECHECK_INTERVAL_MS = 5 * 60_000; // 5 minutes
+const FALLBACK_RECALL_MIN_SCORE = 0.15;
+const FALLBACK_RECALL_SCORE_WINDOW = 0.2;
 
 /**
  * Parses a machine-readable [cortex-date: YYYY-MM-DD] marker from the start of
@@ -208,6 +210,17 @@ function applyProfileFilters(memories: RecallMemory[], profileParams: RecallProf
   return memories.filter((memory) => memory.confidence >= profileParams.minConfidence!);
 }
 
+function filterFallbackRecallMemories(memories: RecallMemory[]): RecallMemory[] {
+  if (memories.length === 0) return memories;
+
+  const score = (m: RecallMemory) => m.relevance ?? m.confidence;
+  const topScore = memories.reduce((max, m) => Math.max(max, score(m)), -Infinity);
+  const minScore = Math.max(FALLBACK_RECALL_MIN_SCORE, topScore - FALLBACK_RECALL_SCORE_WINDOW);
+  const filtered = memories.filter((memory) => score(memory) >= minScore);
+  // Always keep at least the top result — this is a fallback path that should return something
+  return filtered.length > 0 ? filtered : memories.slice(0, 1);
+}
+
 export function createRecallHandler(
   client: CortexClient,
   config: CortexConfig,
@@ -251,9 +264,8 @@ export function createRecallHandler(
         context: profileParams.context,
         userId,
         queryType: profileParams.queryType,
-        minConfidence: profileParams.minConfidence,
       });
-      return applyProfileFilters(response.memories ?? [], profileParams);
+      return filterFallbackRecallMemories(response.memories ?? []);
     } catch (err) {
       logger.debug?.(`Cortex recall fallback failed: ${String(err)}`);
       return [];

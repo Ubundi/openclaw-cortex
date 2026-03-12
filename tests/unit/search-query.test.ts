@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { coerceCliSearchQuery, inferSearchMode, prepareSearchQuery } from "../../src/plugin/search-query.js";
+import { coerceCliSearchQuery, filterSearchResults, inferSearchMode, prepareSearchQuery } from "../../src/plugin/search-query.js";
 
 describe("search-query helpers", () => {
   it("joins variadic CLI args into a single natural-language query", () => {
@@ -55,5 +55,24 @@ describe("search-query helpers", () => {
       mode: "recent",
       queryType: "combined",
     });
+  });
+
+  it("filters weak tail results for broad all-mode searches", () => {
+    const filtered = filterSearchResults([
+      { content: "strong", confidence: 0.82, relevance: 0.82, when: null, session_id: null, entities: [] },
+      { content: "still relevant", confidence: 0.61, relevance: 0.61, when: null, session_id: null, entities: [] },
+      { content: "weak tail", confidence: 0.12, relevance: 0.12, when: null, session_id: null, entities: [] },
+    ], "all");
+
+    expect(filtered.map((memory) => memory.content)).toEqual(["strong", "still relevant"]);
+  });
+
+  it("does not filter explicit mode searches", () => {
+    const filtered = filterSearchResults([
+      { content: "decision A", confidence: 0.21, relevance: 0.21, when: null, session_id: null, entities: [] },
+      { content: "decision B", confidence: 0.11, relevance: 0.11, when: null, session_id: null, entities: [] },
+    ], "decisions");
+
+    expect(filtered).toHaveLength(2);
   });
 });

@@ -112,4 +112,56 @@ describe("registerCliCommands search output", () => {
     expect(logSpy).not.toHaveBeenCalledWith("1. [1.00] Project uses PostgreSQL");
     expect(errorSpy).not.toHaveBeenCalled();
   });
+
+  it("filters low-score tail results for broad searches", async () => {
+    const registerCli = vi.fn();
+    const recall = vi.fn().mockResolvedValue({
+      memories: [
+        {
+          content: "User uses Neovim",
+          confidence: 0.74,
+          relevance: 0.74,
+          when: null,
+          session_id: null,
+          entities: ["Neovim"],
+        },
+        {
+          content: "Weak unrelated tail",
+          confidence: 0.12,
+          relevance: 0.12,
+          when: null,
+          session_id: null,
+          entities: [],
+        },
+      ],
+    });
+
+    registerCliCommands(registerCli, {
+      client: { recall } as any,
+      config: { toolTimeoutMs: 500 } as any,
+      version: "test",
+      getUserId: () => "user-1",
+      userIdReady: Promise.resolve(),
+      getNamespace: () => "test",
+      sessionStats: makeSessionStats(),
+      loadPersistedStats: () => null,
+      isAbortError: () => false,
+      resetCompletedAfterAbort: async () => false,
+    });
+
+    const program = createCliNode("root");
+    const registrar = registerCli.mock.calls[0][0] as (ctx: { program: CliProgram; config: Record<string, unknown> }) => void;
+    registrar({ program: program as unknown as CliProgram, config: {} });
+
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    await program.children.get("cortex")?.children.get("search")?.actionHandler?.(["what", "editor"], {
+      limit: "10",
+      mode: "all",
+    });
+
+    expect(logSpy).toHaveBeenCalledWith("Found 1 memories (mode: all):\n");
+    expect(logSpy).toHaveBeenCalledWith("1. [0.74] User uses Neovim");
+    expect(logSpy).not.toHaveBeenCalledWith("2. [0.12] Weak unrelated tail");
+  });
 });

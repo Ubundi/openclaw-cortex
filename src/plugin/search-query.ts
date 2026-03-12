@@ -1,4 +1,4 @@
-import type { QueryType } from "../cortex/client.js";
+import type { QueryType, RecallMemory } from "../cortex/client.js";
 
 export type SearchMode = "all" | "decisions" | "preferences" | "facts" | "recent";
 type SearchModeSelection = SearchMode | undefined;
@@ -9,6 +9,25 @@ export interface PreparedSearchQuery {
   mode: SearchMode;
   queryType: QueryType;
   memoryType?: "decision" | "preference" | "fact";
+}
+
+const BROAD_SEARCH_MIN_SCORE = 0.15;
+const BROAD_SEARCH_SCORE_WINDOW = 0.35;
+
+export function getMemoryDisplayScore(memory: Pick<RecallMemory, "relevance" | "confidence">): number {
+  return memory.relevance ?? memory.confidence;
+}
+
+export function filterSearchResults(
+  memories: RecallMemory[],
+  mode: SearchMode,
+): RecallMemory[] {
+  if (memories.length === 0) return memories;
+  if (mode !== "all" && mode !== "recent") return memories;
+
+  const topScore = memories.reduce((max, m) => Math.max(max, getMemoryDisplayScore(m)), -Infinity);
+  const minScore = Math.max(BROAD_SEARCH_MIN_SCORE, topScore - BROAD_SEARCH_SCORE_WINDOW);
+  return memories.filter((memory) => getMemoryDisplayScore(memory) >= minScore);
 }
 
 function normalizeWhitespace(text: string): string {

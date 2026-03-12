@@ -5,7 +5,7 @@ import type { AuditLogger } from "../internal/audit-logger.js";
 import type { RecentSaves } from "../internal/dedupe.js";
 import type { KnowledgeState } from "./index.js";
 import { formatMemories } from "../features/recall/formatter.js";
-import { coerceSearchMode, prepareSearchQuery } from "./search-query.js";
+import { coerceSearchMode, filterSearchResults, prepareSearchQuery } from "./search-query.js";
 
 export interface SessionStats {
   saves: number;
@@ -107,13 +107,14 @@ export function buildSearchMemoryTool(deps: ToolsDeps): ToolDefinition {
         };
 
         const response = await doRecall();
+        const filteredMemories = filterSearchResults(response.memories ?? [], prepared.mode);
 
-        if (!response.memories?.length) {
+        if (!filteredMemories.length) {
           return { content: [{ type: "text", text: "No memories found matching that query." }] };
         }
 
-        logger.debug?.(`Cortex search returned ${response.memories.length} memories`);
-        const formatted = formatMemories(response.memories, config.recallTopK);
+        logger.debug?.(`Cortex search returned ${filteredMemories.length} memories after filtering`);
+        const formatted = formatMemories(filteredMemories, config.recallTopK);
         return { content: [{ type: "text", text: formatted }] };
       } catch (err) {
         logger.warn(`Cortex search failed: ${String(err)}`);

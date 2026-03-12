@@ -1,7 +1,7 @@
 import type { CortexClient } from "../cortex/client.js";
 import type { CortexConfig } from "./config.js";
 import type { CliProgram, Logger } from "./types.js";
-import { coerceCliSearchQuery, coerceSearchMode, prepareSearchQuery } from "./search-query.js";
+import { coerceCliSearchQuery, coerceSearchMode, filterSearchResults, getMemoryDisplayScore, prepareSearchQuery } from "./search-query.js";
 
 export interface SessionStats {
   saves: number;
@@ -228,14 +228,16 @@ export function registerCliCommands(
               memoryType: prepared.memoryType,
             });
 
-            if (!response.memories?.length) {
+            const filteredMemories = filterSearchResults(response.memories ?? [], prepared.mode);
+
+            if (!filteredMemories.length) {
               console.log(`No memories found for: "${query}"`);
               return;
             }
 
-            console.log(`Found ${response.memories.length} memories (mode: ${prepared.mode}):\n`);
-            response.memories.forEach((m, i) => {
-              const displayScore = m.relevance ?? m.confidence;
+            console.log(`Found ${filteredMemories.length} memories (mode: ${prepared.mode}):\n`);
+            filteredMemories.forEach((m, i) => {
+              const displayScore = getMemoryDisplayScore(m);
               console.log(`${i + 1}. [${displayScore.toFixed(2)}] ${m.content}`);
               if (m.entities.length > 0) {
                 console.log(`   entities: ${m.entities.join(", ")}`);
