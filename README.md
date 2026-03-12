@@ -16,8 +16,9 @@
 - **Commands** — `/checkpoint` to save session context, `/sleep` to mark a clean end, `/audit` to toggle local logging
 - **CLI Commands** — `openclaw cortex {status,memories,search,config,pair,reset}` for terminal access
 - **Recovery Detection** — detects unclean prior sessions and prepends recovery context at session start
-- **Heartbeat** — periodic health and knowledge state refresh via `gateway:heartbeat`
+- **Heartbeat** — periodic health, knowledge state refresh, and activity-aware reflect triggering via `gateway:heartbeat`
 - **Gateway RPC** — `cortex.status` method for programmatic health and metrics access
+- **Deduplication** — client-side dedupe window and novelty threshold to prevent redundant memory saves
 - **Resilience** — retry queue with exponential backoff, cold-start detection, latency metrics
 
 ## Prerequisites
@@ -112,7 +113,7 @@ Add to your `openclaw.json`:
 | `autoRecall`             | boolean | `true`       | Inject relevant memories before each agent turn                                                  |
 | `autoCapture`            | boolean | `true`       | Extract and store facts after each agent turn                                                    |
 | `recallLimit`            | number  | `20`         | Max number of memories returned per recall                                                       |
-| `recallTopK`             | number  | `20`         | Max memories returned after scoring (applied after `recallLimit`)                                |
+| `recallTopK`             | number  | `10`         | Max memories returned after scoring (applied after `recallLimit`)                                |
 | `recallQueryType`        | string  | `"combined"` | Recall query mode: `"factual"`, `"emotional"`, `"combined"`, or `"codex"`                        |
 | `recallProfile`          | string  | `"auto"`     | Recall profile: `"auto"`, `"default"`, `"factual"`, `"planning"`, `"incident"`, `"handoff"`. `auto` picks the best profile based on context. |
 | `recallTimeoutMs`        | number  | `60000`      | Auto-recall timeout in ms. Scales with knowledge tier via `deriveEffectiveTimeout`.              |
@@ -121,6 +122,8 @@ Add to your `openclaw.json`:
 | `captureMaxPayloadBytes` | number  | `262144`     | Max byte size of capture payloads (256KB default). Oversized transcripts are trimmed from the oldest messages. |
 | `captureFilter`          | boolean | `true`       | Enable built-in filter to drop low-signal content (heartbeat messages, TUI artifacts, token counters) before ingestion. |
 | `auditLog`               | boolean | `false`      | Enable local audit log. Records every payload sent to Cortex at `.cortex/audit/` in the workspace. Also toggleable at runtime via `/audit on`. |
+| `dedupeWindowMinutes`    | number  | `30`         | Time window (minutes) for client-side deduplication of explicit memory saves. Set to 0 to disable. |
+| `noveltyThreshold`       | number  | `0.85`       | Similarity score (0–1) above which an existing memory is considered a duplicate. Lower = stricter. |
 | `namespace`              | string  | `"openclaw"` | Memory namespace. Auto-derived from workspace directory when not set explicitly.                 |
 
 ## How It Works
@@ -132,27 +135,37 @@ Add to your `openclaw.json`:
 ```text
 src/
   index.ts                  # Public package entrypoint
-  plugin/                   # Plugin wiring and config
+  cortex/
+    client.ts               # HTTP client for all Cortex API endpoints
+  plugin/                   # Plugin wiring, config, CLI, tools, commands
     index.ts
-    config/
-      schema.ts
-  adapters/                 # External service adapters
-    cortex/
-      client.ts
+    config.ts
+    cli.ts
+    commands.ts
+    tools.ts
+    search-query.ts
+    types.ts
   features/                 # Feature modules
-    capture/
-    checkpoint/
-    heartbeat/
-    recall/
-    sync/
-  internal/                 # Internal helpers (not stable public API)
-    audit/
-    fs/
-    identity/
-    metrics/
-    queue/
-    session/
-    transcript/
+    capture/                # After-turn fact extraction
+    checkpoint/             # /checkpoint command handler
+    heartbeat/              # gateway:heartbeat hook
+    recall/                 # Before-turn memory injection + context profiles
+  internal/                 # Shared utilities (not stable public API)
+    agent-instructions.ts
+    api-key.ts
+    audit-logger.ts
+    capture-watermark-store.ts
+    cleaner.ts
+    dedupe.ts
+    heartbeat-detect.ts
+    latency-metrics.ts
+    message-provenance.ts
+    message-sanitizer.ts
+    recall-echo-store.ts
+    retry-queue.ts
+    safe-path.ts
+    session-state.ts
+    user-id.ts
 ```
 
 For npm consumers, import from the package root (`@ubundi/openclaw-cortex`). Internal module paths are implementation details and may change between versions.
