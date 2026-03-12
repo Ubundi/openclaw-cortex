@@ -1,8 +1,0 @@
-{
-  "skills": {
-    "release": {
-      "description": "Bump version, run checks, commit, tag, and push to trigger npm publish",
-      "path": ".claude/skills/release.md"
-    }
-  }
-}

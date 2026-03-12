@@ -6,7 +6,7 @@ dist/
 !.env.example
 
 # Local Codex/Claude settings
-.claude/settings.local.json
+.claude/
 CLAUDE.md
 
 # Test and coverage outputs
