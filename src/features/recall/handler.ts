@@ -4,7 +4,7 @@ import type { KnowledgeState } from "../../plugin/index.js";
 import type { AuditLogger } from "../../internal/audit-logger.js";
 import { formatMemoriesWithStats } from "./formatter.js";
 import { inferRecallProfile, getProfileParams } from "./context-profile.js";
-import type { RecallProfile } from "./context-profile.js";
+import type { RecallProfile, RecallProfileParams } from "./context-profile.js";
 import { LatencyMetrics } from "../../internal/latency-metrics.js";
 import { sanitizeConversationText, stripInjectedCortexBlocks } from "../capture/filter.js";
 import type { RecallEchoStore } from "../../internal/recall-echo-store.js";
@@ -203,6 +203,11 @@ export interface RecallStats {
   collapsedCount: number;
 }
 
+function applyProfileFilters(memories: RecallMemory[], profileParams: RecallProfileParams): RecallMemory[] {
+  if (profileParams.minConfidence == null) return memories;
+  return memories.filter((memory) => memory.confidence >= profileParams.minConfidence!);
+}
+
 export function createRecallHandler(
   client: CortexClient,
   config: CortexConfig,
@@ -217,6 +222,43 @@ export function createRecallHandler(
   const recallMetrics = metrics ?? new LatencyMetrics();
   let consecutiveFailures = 0;
   let coldStartUntil = 0;
+
+  async function fallbackToBroadRecall(
+    query: string,
+    timeoutMs: number,
+    profileParams: RecallProfileParams,
+    userId: string | undefined,
+    logger: Logger,
+    auditLogger: AuditLogger | undefined,
+  ): Promise<RecallMemory[]> {
+    if (typeof client.recall !== "function") return [];
+
+    logger.debug?.("Cortex recall: retrieve returned no memories, falling back to broad recall");
+
+    if (auditLogger) {
+      void auditLogger.log({
+        feature: "auto-recall-fallback",
+        method: "POST",
+        endpoint: "/v1/recall",
+        payload: query,
+        userId,
+      });
+    }
+
+    try {
+      const response = await client.recall(query, timeoutMs, {
+        limit: profileParams.limit,
+        context: profileParams.context,
+        userId,
+        queryType: profileParams.queryType,
+        minConfidence: profileParams.minConfidence,
+      });
+      return applyProfileFilters(response.memories ?? [], profileParams);
+    } catch (err) {
+      logger.debug?.(`Cortex recall fallback failed: ${String(err)}`);
+      return [];
+    }
+  }
 
   const handler = async (
     event: BeforeAgentStartEvent,
@@ -371,11 +413,17 @@ export function createRecallHandler(
       recallMetrics.record(elapsed);
       consecutiveFailures = 0; // reset on success
 
-      let memories = mapRetrieveToRecallMemories(rawResponse.results);
+      let memories = applyProfileFilters(mapRetrieveToRecallMemories(rawResponse.results), profileParams);
 
-      // Post-filter by minConfidence (retrieve API doesn't accept this natively)
-      if (profileParams.minConfidence != null) {
-        memories = memories.filter((m) => m.confidence >= (profileParams.minConfidence as number));
+      if (!memories.length) {
+        memories = await fallbackToBroadRecall(
+          prompt,
+          effectiveTimeout,
+          profileParams,
+          currentUserId,
+          logger,
+          auditLogger,
+        );
       }
 
       if (!memories.length) return;

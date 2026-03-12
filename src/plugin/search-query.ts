@@ -78,7 +78,8 @@ export function prepareSearchQuery(
   mode?: SearchModeSelection,
 ): PreparedSearchQuery {
   const normalizedQuery = normalizeWhitespace(query);
-  const effectiveMode = mode ?? inferSearchMode(normalizedQuery);
+  // Default to broad search unless the caller explicitly narrows the mode.
+  const effectiveMode = mode ?? "all";
 
   switch (effectiveMode) {
     case "decisions":

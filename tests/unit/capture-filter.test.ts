@@ -41,6 +41,8 @@ describe("isLowSignal", () => {
     "User has a file named index.ts with permissions -rw-rw-r--, owned by user 'ubuntu', and group 'ubuntu', with a size of 1223 bytes, last modified on March 4 at 07:59.",
     "The directory 'feature-flags' has permissions drwxrwxr-x and was last modified on March 2 at 12:28.",
     "User has a directory named feature-flags with a size of 4096 bytes, last modified on March 2 at 12:28.",
+    "Audit log enabled.\n\nAll data sent to and received from Cortex will be recorded locally.\nLog path: /home/ubuntu/.openclaw/workspace/.cortex/audit/\n\nTurn off with /audit off.",
+    "**Cortex Audit Log**\n\n- Status: on\n- Log path: /home/ubuntu/.openclaw/workspace/.cortex/audit/\n\nToggle: /audit on · /audit off",
     "",
     "   ",
   ])("returns true for low-signal content: %s", (content) => {
@@ -54,6 +56,7 @@ describe("isLowSignal", () => {
     "Remember to use bun instead of npm for this project",
     "The database migration script needs to handle rollback scenarios",
     "status: the deployment is currently failing due to memory limits",
+    "Show the Cortex Audit Log path in the status output and explain what gets recorded.",
   ])("returns false for substantive content: %s", (content) => {
     expect(isLowSignal(content)).toBe(false);
   });

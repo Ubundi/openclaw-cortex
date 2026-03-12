@@ -119,6 +119,73 @@ describe("createRecallHandler", () => {
     expect(result!.prependContext).toContain("[0.92]");
   });
 
+  it("falls back to broad recall using the active profile params", async () => {
+    const client = {
+      retrieve: vi.fn().mockResolvedValue({ results: [] }),
+      recall: vi.fn().mockResolvedValue({
+        memories: [
+          { content: "We settled on OAuth 2.1 with PKCE", confidence: 0.91, when: null, session_id: null, entities: ["OAuth 2.1"] },
+        ],
+      }),
+    } as unknown as CortexClient;
+
+    const handler = createRecallHandler(client, makeConfig(), logger);
+    const result = await handler(
+      {
+        prompt: "System prompt wrapper",
+        messages: [
+          { role: "assistant", content: "We switched auth to OAuth 2.1 with PKCE and removed legacy tokens." },
+          { role: "user", content: "What is the auth flow we settled on?" },
+        ],
+      },
+      {},
+    );
+
+    expect(client.retrieve).toHaveBeenCalledOnce();
+    expect(client.recall).toHaveBeenCalledWith(
+      "What is the auth flow we settled on?",
+      500,
+      {
+        limit: 10,
+        userId: undefined,
+        queryType: "factual",
+        minConfidence: 0.3,
+        context: [
+          "assistant: We switched auth to OAuth 2.1 with PKCE and removed legacy tokens.",
+          "user: What is the auth flow we settled on?",
+        ].join("\n"),
+      },
+    );
+    expect(result?.prependContext).toContain("We settled on OAuth 2.1 with PKCE");
+  });
+
+  it("filters low-confidence memories returned by the broad recall fallback", async () => {
+    const client = {
+      retrieve: vi.fn().mockResolvedValue({ results: [] }),
+      recall: vi.fn().mockResolvedValue({
+        memories: [
+          { content: "User uses Neovim", confidence: 0.19, when: null, session_id: null, entities: ["Neovim"] },
+        ],
+      }),
+    } as unknown as CortexClient;
+
+    const handler = createRecallHandler(client, makeConfig(), logger);
+    const result = await handler({ prompt: "What is the editor I use?" }, {});
+
+    expect(client.recall).toHaveBeenCalledWith(
+      "What is the editor I use?",
+      500,
+      {
+        limit: 10,
+        userId: undefined,
+        queryType: "factual",
+        minConfidence: 0.3,
+        context: undefined,
+      },
+    );
+    expect(result).toBeUndefined();
+  });
+
   it("returns undefined when autoRecall is disabled", async () => {
     const client = { retrieve: vi.fn() } as unknown as CortexClient;
     const handler = createRecallHandler(client, makeConfig({ autoRecall: false }), logger);

@@ -20,13 +20,12 @@ describe("search-query helpers", () => {
     expect(inferSearchMode("what changed recently in this project")).toBe("recent");
   });
 
-  it("prepares decision queries with the same metadata tags as the in-chat tool", () => {
+  it("defaults to broad all-mode search when no explicit mode is provided", () => {
     expect(prepareSearchQuery("what database did we choose")).toEqual({
       query: "what database did we choose",
-      effectiveQuery: "[type:decision] what database did we choose",
-      mode: "decisions",
-      queryType: "factual",
-      memoryType: "decision",
+      effectiveQuery: "what database did we choose",
+      mode: "all",
+      queryType: "combined",
     });
   });
 

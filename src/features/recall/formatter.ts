@@ -53,12 +53,48 @@ const NOISE_PATTERNS: RegExp[] = [
   /\bsize of \d+ bytes\b/i,
   /\blast modified on\b/i,
   /\bcreated on\b/i,
+
 ];
+
+const AUDIT_STATUS_LINE_PATTERNS: RegExp[] = [
+  /^\*\*Cortex Audit Log\*\*$/i,
+  /^Audit log is already enabled\.$/i,
+  /^Audit log is already off\. No data is being recorded\.$/i,
+  /^(?:\*\*)?Audit log enabled\.(?:\*\*)?$/i,
+  /^(?:\*\*)?Audit log disabled\.(?:\*\*)?$/i,
+  /^(?:\*\*)?Audit log enabled\.(?:\*\*)?\s+Log path:\s*`?.*\/\.cortex\/audit\/`?$/i,
+  /^(?:\*\*)?Audit log disabled\.(?:\*\*)?\s+`?.*\/\.cortex\/audit\/`?$/i,
+  /^All data sent to and received from Cortex will be recorded locally\.$/i,
+  /^All Cortex API calls are being recorded at:$/i,
+  /^Cortex API calls are no longer being recorded\.$/i,
+  /^Existing log files are preserved and can be reviewed at:$/i,
+  /^The audit log records all data sent to and received from the Cortex API, stored locally for inspection\.$/i,
+  /^- Status:\s*(?:\*\*)?(?:on|off)(?:\*\*)?$/i,
+  /^- Config default:\s*(?:on|off)$/i,
+  /^- Log path:\s*`?.*\/\.cortex\/audit\/`?$/i,
+  /^Log path:\s*`?.*\/\.cortex\/audit\/`?$/i,
+  /^`?.*\/\.cortex\/audit\/`?$/i,
+  /^Turn off with\s+`?\/audit off`?(?:\. Log files are preserved when disabled\.|\.)?$/i,
+  /^Toggle:\s*`?\/audit on`?\s*[·-]\s*`?\/audit off`?$/i,
+  /^\*\*Cortex Audit Log\*\*\s+Toggle:\s*`?\/audit on`?\s*[·-]\s*`?\/audit off`?$/i,
+];
+
+function isAuditStatusBoilerplate(content: string): boolean {
+  const lines = content
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  if (lines.length === 0) return false;
+  if (lines.length === 1) return AUDIT_STATUS_LINE_PATTERNS.some((pattern) => pattern.test(lines[0]));
+  return lines.every((line) => AUDIT_STATUS_LINE_PATTERNS.some((pattern) => pattern.test(line)));
+}
 
 /** Returns true if a recalled memory is noise that shouldn't be injected. */
 export function isRecalledNoise(content: string): boolean {
   const trimmed = content.trim();
   if (!trimmed) return true;
+  if (isAuditStatusBoilerplate(trimmed)) return true;
   return NOISE_PATTERNS.some((p) => p.test(trimmed));
 }
 

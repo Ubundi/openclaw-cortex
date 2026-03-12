@@ -76,11 +76,13 @@ describe("formatMemories", () => {
       { content: "WhatsApp gateway connected on 2026-02-27 at 09:07:19 GMT+2", confidence: 1.0, when: null, session_id: null, entities: [] },
       { content: "User requested to read HEARTBEAT.md if it exists", confidence: 1.0, when: null, session_id: null, entities: [] },
       { content: "Assistant confirmed HEARTBEAT_OK", confidence: 1.0, when: null, session_id: null, entities: [] },
+      { content: "Audit log enabled. Log path: /home/ubuntu/.openclaw/workspace/.cortex/audit/", confidence: 1.0, when: null, session_id: null, entities: [] },
     ]);
 
     expect(result).toContain("User prefers dark mode");
     expect(result).not.toContain("WhatsApp gateway");
     expect(result).not.toContain("HEARTBEAT");
+    expect(result).not.toContain(".cortex/audit");
   });
 
   it("returns empty string when all memories are noise", () => {
@@ -185,6 +187,8 @@ describe("isRecalledNoise", () => {
     "User has a file named index.ts with permissions -rw-rw-r--, owned by user 'ubuntu', and group 'ubuntu', with a size of 1223 bytes, last modified on March 4 at 07:59.",
     "The directory 'feature-flags' has permissions drwxrwxr-x and was last modified on March 2 at 12:28.",
     "User has a directory named feature-flags with a size of 4096 bytes, last modified on March 2 at 12:28.",
+    "Audit log enabled. Log path: /home/ubuntu/.openclaw/workspace/.cortex/audit/",
+    "**Cortex Audit Log** Toggle: /audit on · /audit off",
   ];
 
   for (const content of noisy) {
@@ -200,6 +204,7 @@ describe("isRecalledNoise", () => {
     "User is the founder at Ubundi, based in South Africa (GMT+2).",
     "User values specificity and forward motion in their working style.",
     "Ubundi is an AI-native venture studio focused on human-first products.",
+    "Show the Cortex Audit Log path in the status output and explain what gets recorded.",
   ];
 
   for (const content of signal) {

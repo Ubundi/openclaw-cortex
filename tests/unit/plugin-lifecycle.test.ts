@@ -422,6 +422,7 @@ describe("plugin lifecycle contract", () => {
 
     const { api, hooks, services, logger } = makeApi({
       recallTimeoutMs: 500,
+      userId: "user-1",
     });
 
     plugin.register(api as any);
