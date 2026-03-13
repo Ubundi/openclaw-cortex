@@ -62,11 +62,11 @@ const MAX_QUESTION_CHARS = 400;
 const MAX_ANSWER_CHARS = 5000;
 
 const LOOKUP_SHAPE_RE = /^(?:what (?:is|are|does|do)|which|where|when|how (?:many|much|long))\b/i;
-const TECHNICAL_LOOKUP_RE = /\b(?:file|files|repo|repository|package|dependency|dependencies|endpoint|api|port|timeout|ttl|database|schema|migration|commit|branch|log(?:s)?|stack trace|error|test(?:s)?|env|environment variable|config|setting|settings|version|runtime|token|cache)\b/i;
+const TECHNICAL_LOOKUP_RE = /\b(?:file|files|repo|repository|package|dependency|dependencies|endpoint|api|port|timeout|ttl|database|schema|migration|commit|branch|log(?:s)?|stack trace|error|test(?:s)?|env|environment variable|config|setting|settings|version|runtime|token|cache|enum|function|method|class|module|library|table|column|redis)\b/i;
 const LOW_SIGNAL_ANSWER_RE = /^(?:ok|okay|yes|no|maybe|not sure|i don't know|idk|sure|sounds good|thanks|thank you)[.!?]*$/i;
 const CLARIFYING_QUESTION_RE = /^(?:what|why|how|who|where|when|which|can|could|would|do|does|did|is|are|am|should|will|have|has)\b/i;
 
-const SECTION_HINTS: Array<{ section: BridgeTargetSection; patterns: RegExp[] }> = [
+const SECTION_HINTS: Array<{ section: BridgeTargetSection; patterns: RegExp[]; keywords: string[] }> = [
   {
     section: "coreValues",
     patterns: [
@@ -75,6 +75,20 @@ const SECTION_HINTS: Array<{ section: BridgeTargetSection; patterns: RegExp[] }>
       /\bwhat do you care about(?: most)?\b/i,
       /\bwhat feels most important to you\b/i,
       /\bwhat makes .* feel meaningful\b/i,
+    ],
+    keywords: [
+      "value",
+      "values",
+      "matters most",
+      "care about",
+      "important to you",
+      "meaningful",
+      "worthwhile",
+      "drive",
+      "drives you",
+      "motivates",
+      "motivate",
+      "purpose",
     ],
   },
   {
@@ -86,6 +100,7 @@ const SECTION_HINTS: Array<{ section: BridgeTargetSection; patterns: RegExp[] }>
       /\bwhat assumption(?:s)? do you carry\b/i,
       /\bwhat worldview\b/i,
     ],
+    keywords: ["believe", "belief", "beliefs", "true to you", "assumption", "assumptions", "worldview", "conviction"],
   },
   {
     section: "principles",
@@ -95,6 +110,19 @@ const SECTION_HINTS: Array<{ section: BridgeTargetSection; patterns: RegExp[] }>
       /\bwhat line won't you cross\b/i,
       /\bwhat standard do you hold yourself to\b/i,
       /\bwhat principle(?:s)? matter most\b/i,
+    ],
+    keywords: [
+      "principle",
+      "principles",
+      "rule",
+      "rules",
+      "standard",
+      "line won't",
+      "won't cross",
+      "boundary",
+      "boundaries",
+      "non-negotiable",
+      "non-negotiables",
     ],
   },
   {
@@ -106,6 +134,7 @@ const SECTION_HINTS: Array<{ section: BridgeTargetSection; patterns: RegExp[] }>
       /\bwhat do you want to (?:create|build|explore|learn)\b/i,
       /\bwhat possibility excites you\b/i,
     ],
+    keywords: ["idea", "ideas", "curious", "curiosity", "explore", "exploring", "build", "create", "possibility", "learn"],
   },
   {
     section: "dreams",
@@ -116,6 +145,7 @@ const SECTION_HINTS: Array<{ section: BridgeTargetSection; patterns: RegExp[] }>
       /\bwhat would your ideal\b/i,
       /\bwhat future are you trying to build\b/i,
     ],
+    keywords: ["dream", "dreams", "hope", "future", "ideal", "aspire", "aspiration", "want your life", "want your work"],
   },
   {
     section: "practices",
@@ -127,6 +157,7 @@ const SECTION_HINTS: Array<{ section: BridgeTargetSection; patterns: RegExp[] }>
       /\bhow do you keep yourself aligned\b/i,
       /\bwhat helps you reset\b/i,
     ],
+    keywords: ["practice", "practices", "habit", "habits", "routine", "routines", "ritual", "grounded", "aligned", "reset"],
   },
   {
     section: "shadows",
@@ -138,6 +169,18 @@ const SECTION_HINTS: Array<{ section: BridgeTargetSection; patterns: RegExp[] }>
       /\bwhat insecurity\b/i,
       /\bwhat part of yourself is hard to face\b/i,
     ],
+    keywords: [
+      "fear",
+      "fears",
+      "avoid",
+      "avoiding",
+      "hold yourself back",
+      "gets in your own way",
+      "stuck",
+      "insecurity",
+      "shadow",
+      "self-sabotage",
+    ],
   },
   {
     section: "legacy",
@@ -148,6 +191,7 @@ const SECTION_HINTS: Array<{ section: BridgeTargetSection; patterns: RegExp[] }>
       /\bwhat contribution do you hope to make\b/i,
       /\bwhat legacy\b/i,
     ],
+    keywords: ["remembered", "impact", "leave behind", "legacy", "contribution", "outlast"],
   },
 ];
 
@@ -185,7 +229,11 @@ function trimHandledRequests(handledRequestIds: Map<string, number>): void {
   for (const [requestId] of stale) handledRequestIds.delete(requestId);
 }
 
-function extractLastQuestion(text: string): string | undefined {
+function countKeywordMatches(text: string, keywords: readonly string[]): number {
+  return keywords.reduce((total, keyword) => total + (text.includes(keyword) ? 1 : 0), 0);
+}
+
+export function extractLastQuestion(text: string): string | undefined {
   const lines = text
     .replace(/\r\n/g, "\n")
     .split("\n")
@@ -227,10 +275,12 @@ export function inferTargetSection(question: string): BridgeTargetSection | unde
   if (LOOKUP_SHAPE_RE.test(normalized) && TECHNICAL_LOOKUP_RE.test(normalized)) return undefined;
 
   const scored = SECTION_HINTS
-    .map(({ section, patterns }, priority) => ({
+    .map(({ section, patterns, keywords }, priority) => ({
       section,
       priority,
-      score: patterns.reduce((total, pattern) => total + (pattern.test(normalized) ? 1 : 0), 0),
+      score:
+        patterns.reduce((total, pattern) => total + (pattern.test(normalized) ? 2 : 0), 0) +
+        countKeywordMatches(normalized.toLowerCase(), keywords),
     }))
     .filter((entry) => entry.score > 0)
     .sort((a, b) => b.score - a.score || a.priority - b.priority);
@@ -298,13 +348,15 @@ export function buildBridgeRequestId(input: {
   return `openclaw-bridge-${digest}`;
 }
 
-export function detectBridgeExchange(input: {
+export function detectBridgeExchanges(input: {
   messages: unknown[];
   agentUserId: string;
   sessionKey: string;
-}): DetectedBridgeExchange | undefined {
+}): DetectedBridgeExchange[] {
   const normalized = normalizeConversationMessages(input.messages);
-  if (normalized.length < 2) return undefined;
+  if (normalized.length < 2) return [];
+  const exchanges: DetectedBridgeExchange[] = [];
+  const seenRequestIds = new Set<string>();
 
   for (let userCursor = normalized.length - 1; userCursor >= 0; userCursor--) {
     if (normalized[userCursor].role !== "user") continue;
@@ -329,26 +381,37 @@ export function detectBridgeExchange(input: {
 
     const assistantIndex = normalized[priorAssistantIndex].originalIndex;
     const userIndex = normalized[userCursor].originalIndex;
+    const requestId = buildBridgeRequestId({
+      agentUserId: input.agentUserId,
+      sessionKey: input.sessionKey,
+      assistantIndex,
+      userIndex,
+      question,
+      answer,
+    });
+    if (seenRequestIds.has(requestId)) continue;
+    seenRequestIds.add(requestId);
 
-    return {
+    exchanges.push({
       question,
       answer,
       targetSection,
-      requestId: buildBridgeRequestId({
-        agentUserId: input.agentUserId,
-        sessionKey: input.sessionKey,
-        assistantIndex,
-        userIndex,
-        question,
-        answer,
-      }),
+      requestId,
       assistantIndex,
       userIndex,
       sessionKey: input.sessionKey,
-    };
+    });
   }
 
-  return undefined;
+  return exchanges.sort((a, b) => a.userIndex - b.userIndex);
+}
+
+export function detectBridgeExchange(input: {
+  messages: unknown[];
+  agentUserId: string;
+  sessionKey: string;
+}): DetectedBridgeExchange | undefined {
+  return detectBridgeExchanges(input).at(-1);
 }
 
 export function buildTooTooBridgePrompt(): string {
@@ -465,36 +528,33 @@ export function createBridgeHandler(
 
     trimHandledRequests(handledRequestIds);
 
-    const exchange = detectBridgeExchange({
+    const exchanges = detectBridgeExchanges({
       messages: event.messages,
       agentUserId,
       sessionKey: event.sessionKey ?? event.sessionId ?? pluginSessionId ?? "__default__",
     });
-    if (!exchange) return false;
+    const pendingExchanges = exchanges.filter((exchange) => {
+      if (handledRequestIds.has(exchange.requestId)) {
+        logger.debug?.(`Cortex bridge: duplicate exchange skipped requestId=${exchange.requestId}`);
+        return false;
+      }
+      return true;
+    });
+    if (pendingExchanges.length === 0) return false;
 
-    if (handledRequestIds.has(exchange.requestId)) {
-      logger.debug?.(`Cortex bridge: duplicate exchange skipped requestId=${exchange.requestId}`);
-      return false;
-    }
-    handledRequestIds.set(exchange.requestId, Date.now());
+    const performSubmit = async (exchange: DetectedBridgeExchange) => {
+      const request: BridgeQARequest = {
+        user_id: agentUserId,
+        request_id: exchange.requestId,
+        entries: [
+          {
+            question: exchange.question,
+            answer: exchange.answer,
+            target_section: exchange.targetSection,
+          },
+        ],
+      };
 
-    logger.info(
-      `Cortex bridge: detected discovery exchange requestId=${exchange.requestId} sessionId=${exchange.sessionKey} section=${exchange.targetSection}`,
-    );
-
-    const request: BridgeQARequest = {
-      user_id: agentUserId,
-      request_id: exchange.requestId,
-      entries: [
-        {
-          question: exchange.question,
-          answer: exchange.answer,
-          target_section: exchange.targetSection,
-        },
-      ],
-    };
-
-    const submit = async () => {
       if (auditLogger) {
         await auditLogger.log({
           feature: "bridge-qa",
@@ -516,26 +576,39 @@ export function createBridgeHandler(
         `Cortex bridge: accepted requestId=${exchange.requestId} forwarded=${response.forwarded} queuedForRetry=${response.queued_for_retry} entries=${response.entries_sent}`,
       );
     };
+    let handledAny = false;
 
-    void submit().catch((err) => {
-      const statusCode = extractErrorStatusCode(err);
-      if (statusCode === 404) {
-        linkStatus = {
-          linked: false,
-          checkedAt: Date.now(),
-        };
+    for (const exchange of pendingExchanges) {
+      handledRequestIds.set(exchange.requestId, Date.now());
+      logger.info(
+        `Cortex bridge: detected discovery exchange requestId=${exchange.requestId} sessionId=${exchange.sessionKey} section=${exchange.targetSection}`,
+      );
+
+      try {
+        await performSubmit(exchange);
+        handledAny = true;
+      } catch (err) {
+        const statusCode = extractErrorStatusCode(err);
+        if (statusCode === 404) {
+          linkStatus = {
+            linked: false,
+            checkedAt: Date.now(),
+          };
+        }
+
+        if (retryQueue && isRetryableBridgeError(err)) {
+          logger.warn(`Cortex bridge failed, queuing retry requestId=${exchange.requestId}: ${String(err)}`);
+          retryQueue.enqueue(() => performSubmit(exchange), `bridge-${exchange.requestId}`);
+          handledAny = true;
+          continue;
+        }
+
+        logger.warn(`Cortex bridge failed requestId=${exchange.requestId}: ${String(err)}`);
+        if (!linkStatus.linked) break;
       }
+    }
 
-      if (retryQueue && isRetryableBridgeError(err)) {
-        logger.warn(`Cortex bridge failed, queuing retry requestId=${exchange.requestId}: ${String(err)}`);
-        retryQueue.enqueue(submit, `bridge-${exchange.requestId}`);
-        return;
-      }
-
-      logger.warn(`Cortex bridge failed requestId=${exchange.requestId}: ${String(err)}`);
-    });
-
-    return true;
+    return handledAny;
   }
 
   return {

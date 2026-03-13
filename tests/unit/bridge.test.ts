@@ -4,6 +4,8 @@ import {
   buildTooTooBridgePrompt,
   createBridgeHandler,
   detectBridgeExchange,
+  detectBridgeExchanges,
+  extractLastQuestion,
   inferTargetSection,
 } from "../../src/features/bridge/handler.js";
 
@@ -233,6 +235,50 @@ describe("TooToo bridge handler", () => {
     expect(submitBridgeQA).toHaveBeenCalledTimes(1);
   });
 
+  it("submits multiple unseen discovery exchanges from the same turn history", async () => {
+    const client = makeClient();
+    const handler = createBridgeHandler(client, {
+      logger,
+      getUserId: () => "agent-user-1",
+      userIdReady: Promise.resolve(),
+      pluginSessionId: "plugin-session-1",
+    });
+
+    const messages = [
+      { role: "user", content: "I want to understand myself better." },
+      { role: "assistant", content: "What do you value most in your work?" },
+      { role: "user", content: "Autonomy and creative freedom." },
+      { role: "assistant", content: "What are your non-negotiables?" },
+      { role: "user", content: "Trust and honesty." },
+      { role: "assistant", content: "That gives us a strong map." },
+    ];
+
+    const exchanges = detectBridgeExchanges({
+      messages,
+      agentUserId: "agent-user-1",
+      sessionKey: "sess-batch",
+    });
+    expect(exchanges).toHaveLength(2);
+
+    expect(await handler.handleAgentEnd({
+      messages,
+      aborted: false,
+      sessionKey: "sess-batch",
+    })).toBe(true);
+
+    expect((client.submitBridgeQA as any)).toHaveBeenCalledTimes(2);
+    expect((client.submitBridgeQA as any).mock.calls[0][0].entries[0]).toEqual({
+      question: "What do you value most in your work?",
+      answer: "Autonomy and creative freedom.",
+      target_section: "coreValues",
+    });
+    expect((client.submitBridgeQA as any).mock.calls[1][0].entries[0]).toEqual({
+      question: "What are your non-negotiables?",
+      answer: "Trust and honesty.",
+      target_section: "principles",
+    });
+  });
+
   it("treats queued_for_retry responses from Cortex as accepted/deferred success", async () => {
     const retryQueue = { enqueue: vi.fn() };
     const client = makeClient({
@@ -266,7 +312,17 @@ describe("TooToo bridge handler", () => {
 
   it("maps discovery questions to target sections conservatively", () => {
     expect(inferTargetSection("What do you value most in your work?")).toBe("coreValues");
+    expect(inferTargetSection("What drives you?")).toBe("coreValues");
+    expect(inferTargetSection("What are your non-negotiables?")).toBe("principles");
     expect(inferTargetSection("How do you want to be remembered?")).toBe("legacy");
     expect(inferTargetSection("What is the default Redis cache TTL we use?")).toBeUndefined();
+  });
+
+  it("extracts the last question from assistant text directly", () => {
+    expect(extractLastQuestion("That sounds important. What drives you?")).toBe("What drives you?");
+    expect(
+      extractLastQuestion("- What do you value most in your work?\n- What are your non-negotiables?"),
+    ).toBe("What are your non-negotiables?");
+    expect(extractLastQuestion("What do you value most in your work")).toBeUndefined();
   });
 });
