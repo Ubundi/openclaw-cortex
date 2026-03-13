@@ -277,6 +277,63 @@ describe("formatMemories relevance scoring", () => {
   });
 });
 
+describe("recency-aware dedup and collapse", () => {
+  const makeMem = (
+    content: string,
+    confidence: number,
+    when: string | null,
+    relevance?: number,
+  ): RecallMemory => ({
+    content, confidence, relevance, when, session_id: null, entities: [],
+  });
+
+  it("near-duplicate collapse prefers newer memory over higher relevance", () => {
+    const result = formatMemories([
+      makeMem("The user mentioned their birthday is March 10 in their profile settings", 0.95, "2026-01-15T10:00:00Z"),
+      makeMem("The user mentioned their birthday is July 5 in their profile settings", 0.80, "2026-03-01T10:00:00Z"),
+    ], 10);
+    expect(result).toContain("July 5");
+    expect(result).not.toContain("March 10");
+  });
+
+  it("near-duplicate collapse falls back to relevance when both lack timestamps", () => {
+    const result = formatMemories([
+      makeMem("User prefers dark mode in the IDE", 0.95, null),
+      makeMem("The user prefers dark mode for their IDE", 0.80, null),
+    ], 10);
+    expect(result).toContain("0.95");
+  });
+
+  it("exact dedup uses recency as tiebreaker when scores are within 0.1", () => {
+    const result = formatMemories([
+      makeMem("Project uses PostgreSQL", 0.90, "2026-01-01T10:00:00Z"),
+      makeMem("Project uses PostgreSQL", 0.85, "2026-03-01T10:00:00Z"),
+    ], 10);
+    // Scores within 0.1, newer one (0.85) should win
+    expect(result).toContain("0.85");
+    expect(result).not.toContain("0.90");
+  });
+
+  it("exact dedup does not override significantly higher relevance with recency", () => {
+    const result = formatMemories([
+      makeMem("Project uses PostgreSQL", 0.95, "2026-01-01T10:00:00Z"),
+      makeMem("Project uses PostgreSQL", 0.70, "2026-03-01T10:00:00Z"),
+    ], 10);
+    // Score gap > 0.1, higher relevance wins despite being older
+    expect(result).toContain("0.95");
+  });
+
+  it("near-duplicate collapse handles one null timestamp gracefully", () => {
+    const result = formatMemories([
+      makeMem("The user mentioned their birthday is March 10 in their profile settings", 0.80, null),
+      makeMem("The user mentioned their birthday is July 5 in their profile settings", 0.75, "2026-03-01T10:00:00Z"),
+    ], 10);
+    // Memory with timestamp is "newer" than null (which sorts as oldest)
+    expect(result).toContain("July 5");
+    expect(result).not.toContain("March 10");
+  });
+});
+
 describe("formatMemoriesWithStats near-duplicate collapsing", () => {
   const makeMem = (content: string, confidence = 0.9): RecallMemory => ({
     content,

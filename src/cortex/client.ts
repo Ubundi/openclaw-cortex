@@ -232,6 +232,46 @@ export interface StatsResponse {
   [key: string]: unknown;
 }
 
+export interface NodeDetailRelatedNode {
+  node_id: string;
+  type?: NodeType;
+  content?: string;
+  name?: string;
+  confidence?: number | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+  relationship?: string;
+  metadata?: Record<string, unknown>;
+  [key: string]: unknown;
+}
+
+export interface NodeDetailRelatedEdge {
+  edge_id?: string;
+  type?: string;
+  relationship?: string;
+  source_node_id?: string;
+  target_node_id?: string;
+  created_at?: string | null;
+  updated_at?: string | null;
+  metadata?: Record<string, unknown>;
+  [key: string]: unknown;
+}
+
+export interface NodeDetailResponse {
+  node_id: string;
+  type: NodeType;
+  content: string;
+  confidence?: number | null;
+  session_id?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+  entities?: string[];
+  related_nodes?: NodeDetailRelatedNode[];
+  related_edges?: NodeDetailRelatedEdge[];
+  metadata?: Record<string, unknown>;
+  [key: string]: unknown;
+}
+
 // --- Internal API Defaults ---
 const DEFAULT_INGEST_TIMEOUT_MS = 45_000;
 const DEFAULT_SUBMIT_TIMEOUT_MS = 10_000;
@@ -671,6 +711,18 @@ export class CortexClient {
       { method: "GET" },
       timeoutMs,
       "knowledge",
+    );
+  }
+
+  async getNode(
+    nodeId: string,
+    timeoutMs = DEFAULT_INSPECT_TIMEOUT_MS,
+  ): Promise<NodeDetailResponse> {
+    return this.fetchRequest<NodeDetailResponse>(
+      `${this.baseUrl}/v1/nodes/${encodeURIComponent(nodeId)}`,
+      { method: "GET" },
+      timeoutMs,
+      "nodes",
     );
   }
 

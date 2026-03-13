@@ -1,4 +1,9 @@
-import type { CortexClient, ForgetResponse } from "../cortex/client.js";
+import type {
+  CortexClient,
+  ForgetResponse,
+  NodeDetailResponse,
+  RecallMemory,
+} from "../cortex/client.js";
 import type { CortexConfig } from "./config.js";
 import type { ToolDefinition, Logger } from "./types.js";
 import type { AuditLogger } from "../internal/audit-logger.js";
@@ -22,6 +27,7 @@ export interface ToolsDeps {
   config: CortexConfig;
   logger: Logger;
   getUserId: () => string | undefined;
+  getActiveSessionKey?: () => string | undefined;
   userIdReady: Promise<void>;
   sessionId: string;
   sessionStats: SessionStats;
@@ -29,6 +35,116 @@ export interface ToolsDeps {
   auditLoggerProxy: AuditLogger;
   knowledgeState: KnowledgeState;
   recentSaves: RecentSaves | null;
+}
+
+type SearchScope = "all" | "session" | "long-term";
+
+const FORGET_QUERY_LIMIT = 10;
+const FORGET_QUERY_MIN_CONFIDENCE = 0.5;
+
+function coerceSearchScope(input: unknown): SearchScope {
+  switch (input) {
+    case "session":
+    case "long-term":
+    case "all":
+      return input;
+    default:
+      return "all";
+  }
+}
+
+function normalizeSessionKey(value: string | null | undefined): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function getSearchSessionIds(deps: ToolsDeps): string[] {
+  const activeSessionKey = normalizeSessionKey(deps.getActiveSessionKey?.());
+  if (activeSessionKey) return [activeSessionKey];
+
+  const toolSessionId = normalizeSessionKey(deps.sessionId);
+  return toolSessionId ? [toolSessionId] : [];
+}
+
+function getLongTermExcludedSessionIds(deps: ToolsDeps): Set<string> {
+  const sessionIds = new Set<string>();
+  const activeSessionKey = normalizeSessionKey(deps.getActiveSessionKey?.());
+  if (activeSessionKey) sessionIds.add(activeSessionKey);
+  return sessionIds;
+}
+
+function getMemoryDisplayScore(memory: RecallMemory): number {
+  return memory.relevance ?? memory.confidence;
+}
+
+function sortMemoriesByDisplayScore(memories: RecallMemory[]): RecallMemory[] {
+  return [...memories].sort((a, b) => getMemoryDisplayScore(b) - getMemoryDisplayScore(a));
+}
+
+function formatForgetMatches(memories: RecallMemory[]): string {
+  const previews = memories.slice(0, 3).map(
+    (memory) => `- [${memory.confidence.toFixed(2)}] ${memory.content}`,
+  );
+  return previews.length > 0 ? `Matching memories:\n${previews.join("\n")}` : "";
+}
+
+function collectEntityNames(memories: RecallMemory[]): string[] {
+  const entities = new Set<string>();
+  for (const memory of memories) {
+    for (const entity of memory.entities ?? []) {
+      const trimmed = entity.trim();
+      if (trimmed) entities.add(trimmed);
+    }
+  }
+  return [...entities];
+}
+
+function extractRelatedEntityNames(node: NodeDetailResponse): string[] {
+  const entities = new Set<string>();
+
+  for (const entity of node.entities ?? []) {
+    const trimmed = entity.trim();
+    if (trimmed) entities.add(trimmed);
+  }
+
+  for (const relatedNode of node.related_nodes ?? []) {
+    if (relatedNode.type !== "ENTITY") continue;
+    const label = typeof relatedNode.content === "string" && relatedNode.content.trim().length > 0
+      ? relatedNode.content.trim()
+      : typeof relatedNode.name === "string" && relatedNode.name.trim().length > 0
+        ? relatedNode.name.trim()
+        : relatedNode.node_id;
+    if (label) entities.add(label);
+  }
+
+  return [...entities];
+}
+
+function formatNodeDetail(node: NodeDetailResponse): string {
+  const lines = [
+    `ID: ${node.node_id}`,
+    `Type: ${node.type}`,
+  ];
+
+  if (typeof node.confidence === "number") {
+    lines.push(`Confidence: ${node.confidence.toFixed(2)}`);
+  }
+
+  const relatedEntities = extractRelatedEntityNames(node);
+  if (relatedEntities.length > 0) {
+    lines.push(`Related entities: ${relatedEntities.join(", ")}`);
+  }
+
+  if (node.created_at) {
+    lines.push(`Created: ${node.created_at}`);
+  }
+
+  if (node.updated_at) {
+    lines.push(`Updated: ${node.updated_at}`);
+  }
+
+  return `${lines.join("\n")}\n\n${node.content}`;
 }
 
 export function buildSearchMemoryTool(deps: ToolsDeps): ToolDefinition {
@@ -45,7 +161,7 @@ export function buildSearchMemoryTool(deps: ToolsDeps): ToolDefinition {
 
   return {
     name: "cortex_search_memory",
-    description: "Search long-term memory for facts, preferences, and past context. Use when you need to recall something the user mentioned before or retrieve stored knowledge. Use 'mode' to narrow results to a specific category.",
+    description: "Search long-term memory for facts, preferences, and past context. Use when you need to recall something the user mentioned before or retrieve stored knowledge. Use 'mode' to narrow results to a specific category and 'scope' to focus on the current session versus older memories.",
     parameters: {
       type: "object",
       properties: {
@@ -63,6 +179,12 @@ export function buildSearchMemoryTool(deps: ToolsDeps): ToolDefinition {
           enum: ["all", "decisions", "preferences", "facts", "recent"],
           description: "Filter memories by category. 'all' returns everything (default), 'decisions' returns architectural/design choices, 'preferences' returns user likes/settings, 'facts' returns durable knowledge, 'recent' prioritizes recency over relevance.",
         },
+        scope: {
+          type: "string",
+          enum: ["all", "session", "long-term"],
+          description: "Search across all memories (default), only the current session, or only long-term memories from other sessions.",
+          default: "all",
+        },
       },
       required: ["query"],
     },
@@ -70,13 +192,19 @@ export function buildSearchMemoryTool(deps: ToolsDeps): ToolDefinition {
       const query = String(params.query ?? "");
       const limit = Math.min(Math.max(Number(params.limit) || 10, 1), 50);
       const mode = coerceSearchMode(typeof params.mode === "string" ? params.mode : undefined);
+      const scope = coerceSearchScope(params.scope);
+      const initialRecallLimit = scope === "long-term"
+        ? Math.min(50, Math.max(limit, Math.ceil(limit * 2)))
+        : limit;
 
       await userIdReady;
       const userId = getUserId();
 
       const prepared = prepareSearchQuery(query, mode);
 
-      logger.debug?.(`Cortex search: "${prepared.effectiveQuery.slice(0, 80)}" (limit=${limit}, mode=${prepared.mode})`);
+      logger.debug?.(
+        `Cortex search: "${prepared.effectiveQuery.slice(0, 80)}" (limit=${limit}, mode=${prepared.mode}, scope=${scope})`,
+      );
       sessionStats.searches++;
       persistStats(sessionStats);
 
@@ -89,25 +217,74 @@ export function buildSearchMemoryTool(deps: ToolsDeps): ToolDefinition {
       });
 
       try {
-        const doRecall = async (attempt = 0): ReturnType<typeof client.recall> => {
+        const doRecall = async (
+          recallLimit: number,
+          sessionFilter?: string,
+          attempt = 0,
+        ): ReturnType<typeof client.recall> => {
           try {
             return await client.recall(prepared.effectiveQuery, config.toolTimeoutMs, {
-              limit,
+              limit: recallLimit,
               userId: userId,
               queryType: prepared.queryType,
               memoryType: prepared.memoryType,
+              ...(sessionFilter ? { sessionFilter } : {}),
             });
           } catch (err) {
             if (attempt < 1 && /50[23]/.test(String(err))) {
               await new Promise((r) => setTimeout(r, 1500));
-              return doRecall(attempt + 1);
+              return doRecall(recallLimit, sessionFilter, attempt + 1);
             }
             throw err;
           }
         };
 
-        const response = await doRecall();
-        const filteredMemories = filterSearchResults(response.memories ?? [], prepared.mode);
+        let scopedMemories: RecallMemory[];
+
+        if (scope === "session") {
+          const sessionIds = getSearchSessionIds(deps);
+          const responses = await Promise.all(
+            sessionIds.map((sessionFilter) => doRecall(limit, sessionFilter)),
+          );
+          const combinedMemories = responses.flatMap((response) => response.memories ?? []);
+          scopedMemories = responses.length > 1
+            ? sortMemoriesByDisplayScore(combinedMemories)
+            : combinedMemories;
+        } else if (scope === "long-term") {
+          const excludedSessionIds = getLongTermExcludedSessionIds(deps);
+          let expandedRecallLimit = initialRecallLimit;
+          let response = await doRecall(expandedRecallLimit);
+          scopedMemories = excludedSessionIds.size > 0
+            ? (response.memories ?? []).filter(
+                (memory) => !excludedSessionIds.has(memory.session_id ?? ""),
+              )
+            : (response.memories ?? []);
+
+          while (
+            excludedSessionIds.size > 0 &&
+            scopedMemories.length < limit &&
+            expandedRecallLimit < 50 &&
+            (response.memories?.length ?? 0) >= expandedRecallLimit
+          ) {
+            expandedRecallLimit = Math.min(
+              50,
+              Math.max(expandedRecallLimit + limit, Math.ceil(expandedRecallLimit * 1.5)),
+            );
+            logger.debug?.(
+              `Cortex search: expanding long-term scope fetch to ${expandedRecallLimit} results`,
+            );
+            response = await doRecall(expandedRecallLimit);
+            scopedMemories = (response.memories ?? []).filter(
+              (memory) => !excludedSessionIds.has(memory.session_id ?? ""),
+            );
+          }
+        } else {
+          const response = await doRecall(initialRecallLimit);
+          scopedMemories = response.memories ?? [];
+        }
+
+        const filteredMemories = filterSearchResults(scopedMemories, prepared.mode)
+          .slice(0, Math.min(limit, config.recallTopK));
 
         if (!filteredMemories.length) {
           return { content: [{ type: "text", text: "No memories found matching that query." }] };
@@ -130,6 +307,7 @@ export function buildSaveMemoryTool(deps: ToolsDeps): ToolDefinition {
     config,
     logger,
     getUserId,
+    getActiveSessionKey,
     userIdReady,
     sessionId,
     sessionStats,
@@ -178,6 +356,7 @@ export function buildSaveMemoryTool(deps: ToolsDeps): ToolDefinition {
 
       await userIdReady;
       const userId = getUserId();
+      const effectiveSessionId = normalizeSessionKey(getActiveSessionKey?.()) ?? sessionId;
       if (!userId) {
         logger.warn("Cortex save: missing user_id");
         return { content: [{ type: "text", text: "Failed to save memory: Cortex ingest requires user_id." }] };
@@ -236,7 +415,7 @@ export function buildSaveMemoryTool(deps: ToolsDeps): ToolDefinition {
         method: "POST",
         endpoint: "/v1/remember",
         payload: enrichedText,
-        sessionId,
+        sessionId: effectiveSessionId,
         userId,
       });
 
@@ -245,7 +424,7 @@ export function buildSaveMemoryTool(deps: ToolsDeps): ToolDefinition {
         const referenceDate = now.toISOString().slice(0, 10);
         await client.remember(
           enrichedText,
-          sessionId,
+          effectiveSessionId,
           config.toolTimeoutMs,
           referenceDate,
           userId,
@@ -272,7 +451,7 @@ export function buildSaveMemoryTool(deps: ToolsDeps): ToolDefinition {
           const referenceDate = new Date().toISOString();
           const job = await client.submitIngest(
             enrichedText,
-            sessionId,
+            effectiveSessionId,
             referenceDate,
             userId,
             "openclaw",
@@ -311,7 +490,7 @@ export function buildForgetMemoryTool(deps: ToolsDeps): ToolDefinition {
 
   return {
     name: "cortex_forget",
-    description: "Selectively remove memories from long-term storage. Use when the user says something is wrong, outdated, or should be forgotten. Target by entity name (a person, project, or concept) or by session ID.",
+    description: "Selectively remove memories from long-term storage. Use when the user says something is wrong, outdated, or should be forgotten. Target by entity name or by session ID; use 'query' to identify candidate memories and entities before deleting anything.",
     parameters: {
       type: "object",
       properties: {
@@ -323,15 +502,20 @@ export function buildForgetMemoryTool(deps: ToolsDeps): ToolDefinition {
           type: "string",
           description: "Session ID whose memories should be removed. Removes all memories from that session.",
         },
+        query: {
+          type: "string",
+          description: "Search for related memories first and surface candidate entities or sessions to confirm before forgetting.",
+        },
       },
     },
     async execute(_id, params) {
       const entity = typeof params.entity === "string" ? params.entity.trim() : undefined;
       const session = typeof params.session === "string" ? params.session.trim() : undefined;
+      const query = typeof params.query === "string" ? params.query.trim() : undefined;
 
-      if (!entity && !session) {
+      if (!entity && !session && !query) {
         return {
-          content: [{ type: "text", text: "Please specify either an 'entity' name or a 'session' ID to forget." }],
+          content: [{ type: "text", text: "Please specify an 'entity', a 'session', or a 'query' to forget." }],
         };
       }
 
@@ -339,6 +523,63 @@ export function buildForgetMemoryTool(deps: ToolsDeps): ToolDefinition {
       const userId = getUserId();
 
       const results: string[] = [];
+
+      if (query) {
+        void auditLoggerProxy.log({
+          feature: "tool-forget-memory",
+          method: "POST",
+          endpoint: "/v1/recall",
+          payload: query,
+          userId,
+        });
+
+        try {
+          const response = await client.recall(query, config.toolTimeoutMs, {
+            limit: FORGET_QUERY_LIMIT,
+            userId,
+          });
+          const matchedMemories = response.memories ?? [];
+          const highConfidenceMemories = matchedMemories.filter(
+            (memory) => memory.confidence >= FORGET_QUERY_MIN_CONFIDENCE,
+          );
+          const entityNames = collectEntityNames(highConfidenceMemories);
+
+          if (entityNames.length === 0) {
+            if (matchedMemories.length === 0) {
+              results.push(`No memories found matching "${query}".`);
+            } else {
+              const prefix = highConfidenceMemories.length === 0
+                ? `Matched ${matchedMemories.length} memor${matchedMemories.length === 1 ? "y" : "ies"}, but none met the confidence threshold of ${FORGET_QUERY_MIN_CONFIDENCE.toFixed(2)}.`
+                : `Found ${highConfidenceMemories.length} high-confidence memor${highConfidenceMemories.length === 1 ? "y" : "ies"}, but none included named entities to forget.`;
+              const previewBlock = formatForgetMatches(highConfidenceMemories.length > 0 ? highConfidenceMemories : matchedMemories);
+              results.push(
+                [
+                  prefix,
+                  previewBlock,
+                  "No memories were deleted. Confirm the exact 'entity' or 'session' with the user before forgetting.",
+                ]
+                  .filter(Boolean)
+                  .join("\n"),
+              );
+            }
+          } else {
+            const previewBlock = formatForgetMatches(highConfidenceMemories);
+            results.push(
+              [
+                `Found ${highConfidenceMemories.length} matching memories.`,
+                previewBlock,
+                `Candidate entities: ${entityNames.join(", ")}.`,
+                "No memories were deleted from the query matches. Confirm the exact 'entity' or 'session' with the user before forgetting.",
+              ]
+                .filter(Boolean)
+                .join("\n"),
+            );
+          }
+        } catch (err) {
+          logger.warn(`Cortex forget query failed: ${String(err)}`);
+          results.push(`Failed to search memories for query "${query}": ${String(err)}`);
+        }
+      }
 
       if (entity) {
         void auditLoggerProxy.log({
@@ -379,6 +620,57 @@ export function buildForgetMemoryTool(deps: ToolsDeps): ToolDefinition {
       }
 
       return { content: [{ type: "text", text: results.join("\n") }] };
+    },
+  };
+}
+
+export function buildGetMemoryTool(deps: ToolsDeps): ToolDefinition {
+  const {
+    client,
+    config,
+    logger,
+    getUserId,
+    userIdReady,
+    auditLoggerProxy,
+  } = deps;
+
+  return {
+    name: "cortex_get_memory",
+    description: "Fetch a specific memory by its node ID when you already know the exact memory identifier.",
+    parameters: {
+      type: "object",
+      properties: {
+        id: {
+          type: "string",
+          description: "The Cortex node ID of the memory to retrieve.",
+        },
+      },
+      required: ["id"],
+    },
+    async execute(_id, params) {
+      const memoryId = typeof params.id === "string" ? params.id.trim() : "";
+      if (!memoryId) {
+        return { content: [{ type: "text", text: "Please provide a memory 'id' to retrieve." }] };
+      }
+
+      await userIdReady;
+      const userId = getUserId();
+
+      void auditLoggerProxy.log({
+        feature: "tool-get-memory",
+        method: "GET",
+        endpoint: `/v1/nodes/${memoryId}`,
+        payload: memoryId,
+        userId,
+      });
+
+      try {
+        const response = await client.getNode(memoryId, config.toolTimeoutMs);
+        return { content: [{ type: "text", text: formatNodeDetail(response) }] };
+      } catch (err) {
+        logger.warn(`Cortex get memory failed: ${String(err)}`);
+        return { content: [{ type: "text", text: `Failed to fetch memory "${memoryId}": ${String(err)}` }] };
+      }
     },
   };
 }

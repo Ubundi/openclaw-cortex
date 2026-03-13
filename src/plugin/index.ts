@@ -29,7 +29,7 @@ import type {
   Logger,
 } from "./types.js";
 import { registerCliCommands } from "./cli.js";
-import { buildSearchMemoryTool, buildSaveMemoryTool, buildForgetMemoryTool } from "./tools.js";
+import { buildSearchMemoryTool, buildSaveMemoryTool, buildForgetMemoryTool, buildGetMemoryTool } from "./tools.js";
 import { buildCommands } from "./commands.js";
 
 const version = packageJson.version;
@@ -245,7 +245,12 @@ function registerHookCompat(
 }
 
 /** Tool names that must survive the tools.profile allowlist filter. */
-const CORTEX_TOOL_NAMES = ["cortex_search_memory", "cortex_save_memory", "cortex_forget"] as const;
+const CORTEX_TOOL_NAMES = [
+  "cortex_search_memory",
+  "cortex_get_memory",
+  "cortex_save_memory",
+  "cortex_forget",
+] as const;
 
 const PLUGIN_ID = "openclaw-cortex";
 
@@ -314,7 +319,7 @@ function ensureToolsAllowlist(logger: Logger): void {
     // Config unreadable — tools may be filtered by the profile allowlist.
     // Hooks (auto-recall, auto-capture) still work regardless.
     logger.warn(
-      `Cortex: could not verify tool access — if the agent cannot use cortex_search_memory or cortex_save_memory, add them to tools.alsoAllow in openclaw.json`,
+      `Cortex: could not verify tool access — if the agent cannot use cortex_search_memory, cortex_get_memory, cortex_save_memory, or cortex_forget, add them to tools.alsoAllow in openclaw.json`,
     );
   }
 }
@@ -388,6 +393,7 @@ const plugin = {
     // start logging without a restart when toggled on at runtime.
     let auditLoggerInner: AuditLogger | undefined;
     let workspaceDirResolved: string | undefined;
+    let currentSessionKey: string | undefined;
     const auditLoggerProxy: AuditLogger = {
       log(entry) {
         return auditLoggerInner?.log(entry) ?? Promise.resolve();
@@ -469,6 +475,7 @@ const plugin = {
         ctx: { sessionKey?: string; sessionId?: string },
       ) => {
         const activeSessionKey = resolveSessionKey(ctx, sessionId);
+        currentSessionKey = activeSessionKey;
         let recoveryContext: string | undefined;
 
         if (!recoveryCheckedSessions.has(activeSessionKey)) {
@@ -511,6 +518,7 @@ const plugin = {
         if (event.messages?.length) {
           lastMessages = event.messages;
           const activeSessionKey = resolveSessionKey(event, sessionId);
+          currentSessionKey = activeSessionKey;
           const summary = buildSessionSummaryFromMessages(event.messages);
           try {
             await sessionState.markDirty({
@@ -589,6 +597,7 @@ const plugin = {
         config,
         logger: api.logger,
         getUserId: () => userId,
+        getActiveSessionKey: () => currentSessionKey,
         userIdReady,
         sessionId,
         sessionStats,
@@ -599,10 +608,11 @@ const plugin = {
       };
 
       api.registerTool(buildSearchMemoryTool(toolsDeps));
+      api.registerTool(buildGetMemoryTool(toolsDeps));
       api.registerTool(buildSaveMemoryTool(toolsDeps));
       api.registerTool(buildForgetMemoryTool(toolsDeps));
 
-      api.logger.debug?.("Cortex tools registered: cortex_search_memory, cortex_save_memory, cortex_forget");
+      api.logger.debug?.("Cortex tools registered: cortex_search_memory, cortex_get_memory, cortex_save_memory, cortex_forget");
     }
 
     // --- Auto-Reply Commands ---
@@ -746,7 +756,10 @@ const plugin = {
 
         // Inject Cortex instructions into AGENTS.md (idempotent)
         if (ctx.workspaceDir) {
-          void injectAgentInstructions(ctx.workspaceDir, api.logger);
+          void injectAgentInstructions(ctx.workspaceDir, api.logger, {
+            captureInstructions: config.captureInstructions,
+            captureCategories: config.captureCategories,
+          });
         }
 
         api.logger.debug?.("Cortex services started");

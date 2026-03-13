@@ -2,7 +2,7 @@
   "id": "openclaw-cortex",
   "name": "Cortex Memory",
   "description": "Long-term memory powered by Cortex — Auto-Recall, Auto-Capture, agent memory tools, and deduplication",
-  "version": "2.5.0",
+  "version": "2.6.0",
   "configSchema": {
     "type": "object",
     "properties": {
@@ -98,6 +98,17 @@
         "type": "string",
         "description": "Session namespace to isolate memory per workspace/project. Auto-derived from workspace directory if not set.",
         "default": "openclaw"
+      },
+      "captureInstructions": {
+        "type": "string",
+        "description": "Optional custom guidance appended to AGENTS.md describing what kinds of information should be proactively saved to Cortex."
+      },
+      "captureCategories": {
+        "type": "array",
+        "description": "Optional list of categories the agent should pay extra attention to when deciding what to save to memory.",
+        "items": {
+          "type": "string"
+        }
       }
     }
   },
@@ -175,6 +186,16 @@
       "label": "Namespace",
       "advanced": true,
       "helpText": "Isolates memory per workspace. Auto-derived from workspace directory if left empty."
+    },
+    "captureInstructions": {
+      "label": "Capture Instructions",
+      "advanced": true,
+      "helpText": "Appends custom save guidance to the injected Cortex section in AGENTS.md so the agent knows what to prioritize."
+    },
+    "captureCategories": {
+      "label": "Capture Categories",
+      "advanced": true,
+      "helpText": "Highlights categories the agent should especially watch for when deciding what to save to memory."
     }
   }
 }

@@ -119,6 +119,47 @@ describe("CortexConfigSchema", () => {
         expect(result.data.namespace).toBe("openclaw");
       }
     });
+
+    it("accepts custom capture instructions and categories", () => {
+      const result = CortexConfigSchema.safeParse({
+        ...validBase,
+        captureInstructions: "Capture deployment details and runbooks.",
+        captureCategories: ["deployments", "runbooks"],
+      });
+
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.captureInstructions).toBe("Capture deployment details and runbooks.");
+        expect(result.data.captureCategories).toEqual(["deployments", "runbooks"]);
+      }
+    });
+
+    it("rejects capture instructions longer than 2000 characters", () => {
+      const result = CortexConfigSchema.safeParse({
+        ...validBase,
+        captureInstructions: "x".repeat(2001),
+      });
+
+      expect(result.success).toBe(false);
+    });
+
+    it("rejects more than 20 capture categories", () => {
+      const result = CortexConfigSchema.safeParse({
+        ...validBase,
+        captureCategories: Array.from({ length: 21 }, (_, index) => `category-${index}`),
+      });
+
+      expect(result.success).toBe(false);
+    });
+
+    it("rejects empty capture category labels", () => {
+      const result = CortexConfigSchema.safeParse({
+        ...validBase,
+        captureCategories: [""],
+      });
+
+      expect(result.success).toBe(false);
+    });
   });
 
   describe("manifest parity", () => {

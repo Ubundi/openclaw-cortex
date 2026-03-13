@@ -57,6 +57,18 @@ describe("CortexClient", () => {
       expect(body.context).toBe("some context");
     });
 
+    it("sends session_filter when provided", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ memories: [] }),
+      });
+
+      await client.recall("test query", 500, { sessionFilter: "session-123" });
+
+      const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+      expect(body.session_filter).toBe("session-123");
+    });
+
     it("throws on non-ok response", async () => {
       mockFetch.mockResolvedValueOnce({ ok: false, status: 500 });
 
@@ -222,6 +234,54 @@ describe("CortexClient", () => {
     it("throws before sending request when user id is missing", async () => {
       await expect(client.knowledge("" as string)).rejects.toThrow("Cortex inspect requires user_id");
       expect(mockFetch).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("getNode", () => {
+    it("fetches node details by id", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          node_id: "node-1",
+          type: "FACT",
+          content: "User prefers TypeScript",
+          confidence: 0.91,
+          related_nodes: [],
+          related_edges: [],
+          created_at: "2026-03-01T10:00:00Z",
+          updated_at: "2026-03-02T10:00:00Z",
+        }),
+      });
+
+      const result = await client.getNode("node-1");
+
+      expect(mockFetch).toHaveBeenCalledWith(
+        "https://api.example.com/v1/nodes/node-1",
+        expect.objectContaining({ method: "GET" }),
+      );
+      expect(result.node_id).toBe("node-1");
+      expect(result.content).toBe("User prefers TypeScript");
+    });
+
+    it("throws on unknown node id", async () => {
+      mockFetch.mockResolvedValueOnce({ ok: false, status: 404 });
+
+      await expect(client.getNode("missing-node")).rejects.toThrow("Cortex nodes failed: 404");
+    });
+
+    it("aborts on timeout", async () => {
+      mockFetch.mockImplementationOnce(
+        (_url: string, init: { signal: AbortSignal }) =>
+          new Promise((_resolve, reject) => {
+            init.signal.addEventListener("abort", () =>
+              reject(new DOMException("aborted", "AbortError")),
+            );
+          }),
+      );
+
+      await expect(client.getNode("node-1", 10)).rejects.toMatchObject({
+        name: "AbortError",
+      });
     });
   });
 

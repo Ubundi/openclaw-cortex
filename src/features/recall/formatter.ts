@@ -149,10 +149,19 @@ function dedupeMemories(memories: RecallMemory[]): RecallMemory[] {
     const existing = deduped[existingIndex];
     const memRelevance = memory.relevance ?? memory.confidence;
     const existRelevance = existing.relevance ?? existing.confidence;
-    if (
-      memRelevance > existRelevance ||
-      (memRelevance === existRelevance && memory.content.length < existing.content.length)
-    ) {
+    const scoreDiff = Math.abs(memRelevance - existRelevance);
+
+    if (memRelevance > existRelevance) {
+      // Clear relevance winner — but if scores are close, check recency
+      if (scoreDiff <= 0.1 && isNewer(existing, memory)) {
+        // Existing is newer and scores are close — keep existing
+      } else {
+        deduped[existingIndex] = memory;
+      }
+    } else if (scoreDiff <= 0.1 && isNewer(memory, existing)) {
+      // Scores are close and new memory is more recent — prefer it
+      deduped[existingIndex] = memory;
+    } else if (memRelevance === existRelevance && memory.content.length < existing.content.length) {
       deduped[existingIndex] = memory;
     }
   }
@@ -165,6 +174,27 @@ function truncateMemory(content: string, maxChars = MAX_MEMORY_LINE_CHARS): stri
   if (trimmed.length <= maxChars) return trimmed;
   if (maxChars <= 1) return "…";
   return `${trimmed.slice(0, maxChars - 1).trimEnd()}…`;
+}
+
+/**
+ * Parse the `when` field into a comparable timestamp.
+ * Returns 0 for null/invalid values so null sorts as oldest.
+ */
+function parseWhen(when: string | null | undefined): number {
+  if (!when) return 0;
+  const ts = Date.parse(when);
+  return Number.isNaN(ts) ? 0 : ts;
+}
+
+/**
+ * Compare two memories by recency. Returns true if `a` is newer than `b`.
+ * Returns false if both are null/invalid (no recency signal).
+ */
+function isNewer(a: RecallMemory, b: RecallMemory): boolean {
+  const aTime = parseWhen(a.when);
+  const bTime = parseWhen(b.when);
+  if (aTime === 0 && bTime === 0) return false;
+  return aTime > bTime;
 }
 
 /** Tokenize text into a word set for Jaccard similarity. */
@@ -214,12 +244,19 @@ function collapseNearDuplicates(
       if (group.words.size === 0) continue;
       if (jaccardSimilarity(words, group.words) >= SIMILARITY_COLLAPSE_THRESHOLD) {
         group.count++;
-        // Keep the one with higher relevance (falls back to confidence)
-        const memRelevance = memory.relevance ?? memory.confidence;
-        const groupRelevance = group.memory.relevance ?? group.memory.confidence;
-        if (memRelevance > groupRelevance) {
+        // For near-duplicates, prefer the newer memory (same fact, updated).
+        // Fall back to relevance only if both lack timestamps.
+        if (isNewer(memory, group.memory)) {
           group.memory = memory;
           group.words = words;
+        } else if (!isNewer(group.memory, memory)) {
+          // No recency signal on either — fall back to higher relevance
+          const memRelevance = memory.relevance ?? memory.confidence;
+          const groupRelevance = group.memory.relevance ?? group.memory.confidence;
+          if (memRelevance > groupRelevance) {
+            group.memory = memory;
+            group.words = words;
+          }
         }
         merged = true;
         break;

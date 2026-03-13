@@ -5,7 +5,42 @@ import { join } from "node:path";
 const MARKER = "## Cortex Memory";
 const MARKER_END = "<!-- /cortex-memory -->";
 
-const CORTEX_INSTRUCTIONS = `
+export interface CortexInstructionOptions {
+  captureInstructions?: string;
+  captureCategories?: string[];
+}
+
+function buildCustomSaveGuidance(opts?: CortexInstructionOptions): string {
+  const customInstructions = opts?.captureInstructions?.trim();
+  const customCategories = (opts?.captureCategories ?? [])
+    .map((category) => category.trim())
+    .filter(Boolean);
+
+  if (!customInstructions && customCategories.length === 0) return "";
+
+  const lines = ["### Custom save guidance", ""];
+
+  if (customInstructions) {
+    lines.push(customInstructions);
+  }
+
+  if (customCategories.length > 0) {
+    if (customInstructions) {
+      lines.push("");
+    }
+    lines.push("Pay special attention to these categories:");
+    for (const category of customCategories) {
+      lines.push(`- ${category}`);
+    }
+  }
+
+  return lines.join("\n");
+}
+
+export function buildCortexInstructions(opts?: CortexInstructionOptions): string {
+  const customSaveGuidance = buildCustomSaveGuidance(opts);
+
+  return `
 
 ## Cortex Memory
 
@@ -17,25 +52,28 @@ You have a long-term memory system powered by Cortex. Before each conversation t
 - **For volatile current-state facts, verify against live workspace/runtime first.** Examples: versions, ports, env/config defaults, active dependencies, and script commands.
 - **If memory and live state conflict, report both with timing context.** Example: "Memory says X (from March 4, 2026), current repo shows Y."
 - **Memories include a confidence score** (e.g., \`[0.85]\`). Higher scores indicate stronger relevance to the current conversation.
-- **You also have \`cortex_search_memory\`, \`cortex_save_memory\`, and \`cortex_forget\` tools** for explicit search, save, and selective removal when the automatic recall isn't sufficient.
+- **You also have \`cortex_search_memory\`, \`cortex_get_memory\`, \`cortex_save_memory\`, and \`cortex_forget\` tools** for explicit search, lookup by ID, save, and selective removal when the automatic recall isn't sufficient.
 
 ### When to search explicitly
 
 - When asked a specific factual question (port numbers, library choices, config values), use \`cortex_search_memory\` to look up the answer before responding from general knowledge.
 - When auto-recalled memories don't cover the topic being asked about, search before saying "I don't know."
 - Use \`mode\` to narrow results: \`"decisions"\` for "why did we do X?", \`"preferences"\` for style/config questions, \`"facts"\` for durable knowledge, \`"recent"\` when recency matters more than relevance.
+- Use \`scope\` to focus the search on the current session, older long-term memories, or all stored memories.
+- Use \`cortex_get_memory\` when you already have a specific memory ID and want the full details for that node.
 
 ### When to save
 
 - When the user explicitly asks you to remember something.
 - When a significant **decision, preference, or durable fact** is stated — especially if it would be useful in future sessions.
 - Set \`type\` (\`"preference"\`, \`"decision"\`, \`"fact"\`, \`"transient"\`) and \`importance\` (\`"high"\`, \`"normal"\`, \`"low"\`) to improve future recall quality.
-- **Don't save** transient tool output, debug logs, or information you just recalled — that creates feedback loops.
+- **Don't save** transient tool output, debug logs, or information you just recalled — that creates feedback loops.${customSaveGuidance ? `\n\n${customSaveGuidance}` : ""}
 
 ### When to forget
 
 - When the user says something you remembered is **wrong, outdated, or should be forgotten**, use \`cortex_forget\` with the entity name to remove those memories.
 - When the user wants to clear all memories from a specific session, use \`cortex_forget\` with the session ID.
+- Use \`query\` on \`cortex_forget\` to find candidate memories and entity names when the user describes the memory but doesn't know the exact entity or session yet.
 - **Always confirm with the user before forgetting** — deletion is permanent.
 
 ### What NOT to do
@@ -47,15 +85,16 @@ You have a long-term memory system powered by Cortex. Before each conversation t
 - **Don't make unsolicited factual claims about the user.** If the user didn't ask, don't volunteer personal details from memory (e.g., don't spontaneously wish happy birthday based on a recalled memory).
 - **Don't assume a recalled fact is true because it appears multiple times.** Hallucinations can get captured and re-recalled repeatedly, creating false confidence through repetition.
 `;
+}
 
 /** Short hash of the instructions content for staleness detection. */
-function instructionsHash(): string {
-  return createHash("sha256").update(CORTEX_INSTRUCTIONS).digest("hex").slice(0, 12);
+export function instructionsHash(opts?: CortexInstructionOptions): string {
+  return createHash("sha256").update(buildCortexInstructions(opts)).digest("hex").slice(0, 12);
 }
 
 /** Build the full block with version marker for replacement detection. */
-function buildBlock(): string {
-  return `${CORTEX_INSTRUCTIONS.trimEnd()}\n\n<!-- cortex-memory-hash:${instructionsHash()} -->\n${MARKER_END}\n`;
+function buildBlock(opts?: CortexInstructionOptions): string {
+  return `${buildCortexInstructions(opts).trimEnd()}\n\n<!-- cortex-memory-hash:${instructionsHash(opts)} -->\n${MARKER_END}\n`;
 }
 
 interface Logger {
@@ -77,6 +116,7 @@ interface Logger {
 export async function injectAgentInstructions(
   workspaceDir: string,
   logger: Logger,
+  opts?: CortexInstructionOptions,
 ): Promise<void> {
   const agentsMdPath = join(workspaceDir, "AGENTS.md");
 
@@ -92,8 +132,8 @@ export async function injectAgentInstructions(
       throw err;
     }
 
-    const currentHash = instructionsHash();
-    const block = buildBlock();
+    const currentHash = instructionsHash(opts);
+    const block = buildBlock(opts);
 
     if (!content.includes(MARKER)) {
       // Fresh injection

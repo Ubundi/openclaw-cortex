@@ -2,7 +2,11 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtemp, writeFile, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { injectAgentInstructions } from "../../src/internal/agent-instructions.js";
+import {
+  buildCortexInstructions,
+  injectAgentInstructions,
+  instructionsHash,
+} from "../../src/internal/agent-instructions.js";
 
 function mockLogger() {
   const logs: { level: string; msg: string }[] = [];
@@ -35,6 +39,7 @@ describe("injectAgentInstructions", () => {
     const result = await readFile(agentsMd, "utf-8");
     expect(result).toContain("## Cortex Memory");
     expect(result).toContain("cortex_search_memory");
+    expect(result).toContain("cortex_get_memory");
     expect(result).toContain("For volatile current-state facts, verify against live workspace/runtime first.");
     expect(result).toContain("If memory and live state conflict, report both with timing context.");
     expect(result).toContain("<!-- /cortex-memory -->");
@@ -140,5 +145,42 @@ describe("injectAgentInstructions", () => {
     expect(result).toContain("## Other Section");
     expect(result).toContain("Keep this.");
     expect(result).toContain("Don't act on personal facts");
+  });
+});
+
+describe("buildCortexInstructions", () => {
+  it("builds the default instructions without custom save guidance", () => {
+    const result = buildCortexInstructions();
+
+    expect(result).toContain("cortex_get_memory");
+    expect(result).toContain("Use `scope` to focus the search");
+    expect(result).not.toContain("### Custom save guidance");
+  });
+
+  it("appends custom save guidance and categories when provided", () => {
+    const result = buildCortexInstructions({
+      captureInstructions: "Prefer saving deployment decisions and operational runbooks.",
+      captureCategories: ["Deployments", "Incidents"],
+    });
+
+    expect(result).toContain("### Custom save guidance");
+    expect(result).toContain("Prefer saving deployment decisions and operational runbooks.");
+    expect(result).toContain("Pay special attention to these categories:");
+    expect(result).toContain("- Deployments");
+    expect(result).toContain("- Incidents");
+  });
+
+  it("changes the instructions hash when custom guidance changes", () => {
+    const defaultHash = instructionsHash();
+    const instructionHash = instructionsHash({
+      captureInstructions: "Capture architecture decisions.",
+    });
+    const categoryHash = instructionsHash({
+      captureCategories: ["Architecture"],
+    });
+
+    expect(instructionHash).not.toBe(defaultHash);
+    expect(categoryHash).not.toBe(defaultHash);
+    expect(categoryHash).not.toBe(instructionHash);
   });
 });

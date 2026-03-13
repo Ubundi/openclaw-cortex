@@ -245,9 +245,10 @@ describe("plugin lifecycle contract", () => {
     plugin.register(api as any);
     await flushMicrotasks();
 
-    expect(api.registerTool).toHaveBeenCalledTimes(3);
+    expect(api.registerTool).toHaveBeenCalledTimes(4);
     const toolNames = tools.map((t) => t.name);
     expect(toolNames).toContain("cortex_search_memory");
+    expect(toolNames).toContain("cortex_get_memory");
     expect(toolNames).toContain("cortex_save_memory");
     expect(toolNames).toContain("cortex_forget");
   });
@@ -602,7 +603,12 @@ describe("plugin lifecycle contract", () => {
       // Two writes: one for plugins.allow, one for tools.alsoAllow
       expect(configWrites.length).toBeGreaterThanOrEqual(1);
       const lastWrite = JSON.parse(configWrites[configWrites.length - 1][1] as string);
-      expect(lastWrite.tools.alsoAllow).toEqual(["cortex_search_memory", "cortex_save_memory", "cortex_forget"]);
+      expect(lastWrite.tools.alsoAllow).toEqual([
+        "cortex_search_memory",
+        "cortex_get_memory",
+        "cortex_save_memory",
+        "cortex_forget",
+      ]);
       expect(api.logger.info).toHaveBeenCalledWith(
         expect.stringContaining('enabled memory tools for "coding" profile'),
       );
@@ -628,7 +634,7 @@ describe("plugin lifecycle contract", () => {
       const config = {
         tools: {
           profile: "coding",
-          alsoAllow: ["cortex_search_memory", "cortex_save_memory", "cortex_forget"],
+          alsoAllow: ["cortex_search_memory", "cortex_get_memory", "cortex_save_memory", "cortex_forget"],
         },
         plugins: { allow: ["openclaw-cortex"] },
       };
@@ -663,6 +669,7 @@ describe("plugin lifecycle contract", () => {
       expect(written.tools.alsoAllow).toEqual([
         "some_other_tool",
         "cortex_search_memory",
+        "cortex_get_memory",
         "cortex_save_memory",
         "cortex_forget",
       ]);
