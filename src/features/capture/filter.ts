@@ -160,6 +160,61 @@ export function sanitizeConversationText(text: string): string {
   ).trim();
 }
 
+/**
+ * Patterns that match volatile/transient state — facts likely to go stale
+ * quickly and pollute long-term memory when auto-captured.
+ *
+ * These are applied per-sentence within message content. Unlike LOW_SIGNAL_PATTERNS
+ * (which reject entire messages), volatile patterns strip individual sentences
+ * from otherwise valuable messages before they reach the capture pipeline.
+ */
+const VOLATILE_STATE_PATTERNS: RegExp[] = [
+  // Version/release statements: "version 2.5.0", "v3.1.2", "running node 20.11"
+  /\b(?:version|v)\s*\d+\.\d+(?:\.\d+)?(?:-[\w.]+)?\b/i,
+  /\brunning (?:node|python|ruby|go|java|php|deno|bun)\s*\d+/i,
+
+  // Task/progress status: "task X is in progress", "currently working on", "is done/complete"
+  /\b(?:task|ticket|issue|PR|pull request)\s+\S+\s+(?:is|are|was)\s+(?:in[- ]progress|pending|blocked|done|complete|finished|closed|merged)\b/i,
+  /\bcurrently (?:working on|building|debugging|investigating|deploying|testing|fixing|running|implementing)\b/i,
+  /\b(?:is|are) currently (?:running|deploying|building|testing|failing|passing)\b/i,
+
+  // Ephemeral runtime state: ports, PIDs, active connections
+  /\b(?:running|listening|serving) (?:on|at) (?:port|:)\s*\d{2,5}\b/i,
+  /\bPID\s*(?:is\s*)?\d+\b/i,
+
+  // Temporal markers that signal snapshot-in-time facts
+  /\b(?:right now|at the moment|at this point|as of (?:now|today)|for now)\b/i,
+
+  // Deploy/build status that changes frequently
+  /\b(?:deploy(?:ment)?|build|pipeline|CI)\s+(?:is|are|was)\s+(?:running|in[- ]progress|queued|pending|failing|passing|green|red)\b/i,
+];
+
+/**
+ * Returns true if a sentence is primarily a volatile/transient state assertion.
+ * Only matches when the volatile pattern dominates the sentence (short sentences
+ * or sentences where the volatile content is the main claim).
+ */
+export function isVolatileStatement(sentence: string): boolean {
+  const trimmed = sentence.trim();
+  if (!trimmed || trimmed.length > 300) return false;
+  return VOLATILE_STATE_PATTERNS.some((pattern) => pattern.test(trimmed));
+}
+
+/**
+ * Strips volatile/transient sentences from message content while preserving
+ * durable facts. Operates on sentence boundaries (split by period, newline,
+ * or semicolon). Returns the cleaned text, or the original if nothing was stripped.
+ */
+export function stripVolatileStatements(text: string): string {
+  // Split on sentence boundaries: newlines, periods followed by space/end, semicolons
+  const sentences = text.split(/(?<=\.)\s+|\n+|(?<=;)\s*/);
+  const kept = sentences.filter((sentence) => !isVolatileStatement(sentence));
+
+  if (kept.length === sentences.length) return text; // nothing stripped
+  const result = kept.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+  return result || text; // never return empty — preserve original if all sentences matched
+}
+
 /** Returns true if the content matches a known low-signal pattern. */
 export function isLowSignal(content: string): boolean {
   const trimmed = content.trim();
@@ -171,6 +226,18 @@ export function isLowSignal(content: string): boolean {
 /** Filters out messages whose content is entirely low-signal noise. */
 export function filterLowSignalMessages(messages: ConversationMessage[]): ConversationMessage[] {
   return messages.filter((m) => !isLowSignal(m.content));
+}
+
+/**
+ * Strips volatile/transient statements from message content within a conversation.
+ * Unlike filterLowSignalMessages (which drops entire messages), this preserves
+ * messages but removes individual volatile sentences from their content.
+ */
+export function stripVolatileContent(messages: ConversationMessage[]): ConversationMessage[] {
+  return messages.map((m) => ({
+    ...m,
+    content: stripVolatileStatements(m.content),
+  }));
 }
 
 /** Filters out low-signal lines from a text block, returning the cleaned text. */

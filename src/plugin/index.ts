@@ -345,14 +345,26 @@ const plugin = {
       return;
     }
 
-    // BUILD_API_KEY must be injected into dist at build/publish time.
-    // If the placeholder "__OPENCLAW_API_KEY__" is still present, Cortex
-    // calls will fail — but we allow it so unit tests (which mock the
-    // client) can exercise registration. Only bail on a truly empty key
-    // (which can happen if inject-api-key.mjs runs with an empty var).
-    if (!(BAKED_API_KEY as string)) {
-      api.logger.error(
-        "Cortex plugin misconfigured: empty API key. Rebuild with BUILD_API_KEY=... npm run build, or install the published package.",
+    const config: CortexConfig = parsed.data;
+
+    // Resolve API key: plugin config → CORTEX_API_KEY env var → baked build key.
+    // The baked key is a placeholder ("__OPENCLAW_API_KEY__") in source and may
+    // be empty in published builds, so user-provided keys take priority.
+    const resolvedApiKey =
+      config.apiKey ||
+      process.env.CORTEX_API_KEY ||
+      (BAKED_API_KEY !== "__OPENCLAW_API_KEY__" && BAKED_API_KEY) ||
+      "";
+
+    if (!resolvedApiKey) {
+      api.logger.warn(
+        "[Cortex] This plugin is currently in early testing and requires an API key to use.",
+      );
+      api.logger.warn(
+        '[Cortex] Set "apiKey" in your plugin config (openclaw.json) or export the CORTEX_API_KEY environment variable.',
+      );
+      api.logger.warn(
+        "[Cortex] To request access, reach out to the Ubundi team: https://ubundi.com",
       );
       return;
     }
@@ -362,8 +374,7 @@ const plugin = {
     // Ensure our tools survive the profile allowlist filter (one-time config patch)
     ensureToolsAllowlist(api.logger);
 
-    const config: CortexConfig = parsed.data;
-    const client = new CortexClient(config.baseUrl, BAKED_API_KEY);
+    const client = new CortexClient(config.baseUrl, resolvedApiKey);
     const retryQueue = new RetryQueue(api.logger);
     const recallMetrics = new LatencyMetrics();
     const sessionState = new SessionStateStore();
@@ -429,7 +440,7 @@ const plugin = {
       void checkForUpdate(api.logger);
     }
 
-    api.logger.info(`Cortex v${version} ready`);
+    api.logger.info(`Cortex v${version} ready (early testing)`);
 
     // Show a getting-started hint on first install or after version upgrade
     if (!isCliInvocation) {

@@ -6,8 +6,8 @@
  * Usage:
  *   BUILD_API_KEY=your-key npm run build
  *
- * If BUILD_API_KEY is not set the placeholder is left as-is, which will cause
- * the plugin to fail at runtime — intentional, so a bad build is visible.
+ * If BUILD_API_KEY is not set the placeholder is left as-is. Users must
+ * provide their own API key via plugin config or the CORTEX_API_KEY env var.
  */
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -16,8 +16,8 @@ import { fileURLToPath } from "node:url";
 const apiKey = process.env.BUILD_API_KEY;
 
 if (!apiKey) {
-  console.error("[inject-api-key] BUILD_API_KEY is not set — placeholder left in dist, plugin will not work");
-  process.exit(1);
+  console.log("[inject-api-key] BUILD_API_KEY not set — placeholder left in dist. Users must provide their own API key.");
+  process.exit(0);
 }
 
 const distDir = join(fileURLToPath(import.meta.url), "../../dist");

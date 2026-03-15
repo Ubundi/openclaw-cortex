@@ -55,7 +55,7 @@ openclaw plugins install -l ./path/to/openclaw-cortex
 
    > **Note:** OpenClaw defaults to the `messaging` tools profile, which excludes memory tools. The plugin's own tools (`cortex_search_memory`, `cortex_save_memory`) are registered directly and work on any profile, but the built-in `memory_search`, `read`, `write`, and other tools require `full`. This must be re-applied after running `openclaw configure` as the wizard resets it.
 
-3. Add a minimal plugin config to `openclaw.json`:
+3. Add your API key and plugin config to `openclaw.json`:
 
    ```json
    {
@@ -63,7 +63,9 @@ openclaw plugins install -l ./path/to/openclaw-cortex
        "entries": {
          "@ubundi/openclaw-cortex": {
            "enabled": true,
-           "config": {}
+           "config": {
+             "apiKey": "your-cortex-api-key"
+           }
          }
        },
        "slots": {
@@ -73,7 +75,13 @@ openclaw plugins install -l ./path/to/openclaw-cortex
    }
    ```
 
-   That's it — no API key, no account, no setup. On first run the plugin generates a unique ID for this installation, persists it at `~/.openclaw/cortex-user-id`, and scopes all memories to that ID.
+   Alternatively, set the `CORTEX_API_KEY` environment variable instead of putting the key in config:
+
+   ```bash
+   export CORTEX_API_KEY="your-cortex-api-key"
+   ```
+
+   On first run the plugin generates a unique ID for this installation, persists it at `~/.openclaw/cortex-user-id`, and scopes all memories to that ID.
 
 4. Run an agent turn. If configured correctly, recall data is prepended in a `<cortex_memories>` block before the model turn.
 
@@ -88,7 +96,7 @@ Add to your `openclaw.json`:
       "@ubundi/openclaw-cortex": {
         enabled: true,
         config: {
-          // All fields are optional — the plugin works with no config at all.
+          apiKey: "your-cortex-api-key",  // required — or set CORTEX_API_KEY env var
           autoRecall: true,
           autoCapture: true,
           recallLimit: 20,
@@ -109,6 +117,7 @@ Add to your `openclaw.json`:
 
 | Option                   | Type    | Default      | Description                                                                                      |
 | ------------------------ | ------- | ------------ | ------------------------------------------------------------------------------------------------ |
+| `apiKey`                 | string  | —            | **Required.** Your Cortex API key. Can also be set via the `CORTEX_API_KEY` environment variable. |
 | `userId`                 | string  | _auto_       | Memory scope ID. Auto-generated per install and persisted at `~/.openclaw/cortex-user-id`. Override to share memory across machines or team members. |
 | `autoRecall`             | boolean | `true`       | Inject relevant memories before each agent turn                                                  |
 | `autoCapture`            | boolean | `true`       | Extract and store facts after each agent turn                                                    |

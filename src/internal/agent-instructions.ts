@@ -62,12 +62,23 @@ You have a long-term memory system powered by Cortex. Before each conversation t
 - Use \`scope\` to focus the search on the current session, older long-term memories, or all stored memories.
 - Use \`cortex_get_memory\` when you already have a specific memory ID and want the full details for that node.
 
-### When to save
+### How auto-capture works
+
+After each conversation turn, the plugin automatically extracts facts from the conversation and stores them in long-term memory. You do **not** need to explicitly save things that are clearly stated in the conversation — auto-capture handles this. However:
+
+- Auto-capture **strips volatile state** (version numbers, task statuses, "currently working on X", port numbers, deploy status) before extraction to prevent stale facts from entering long-term memory.
+- Auto-capture submits the conversation transcript and the backend extracts facts — you don't control exactly what gets extracted.
+- If something is important and you're unsure whether auto-capture will pick it up, use \`cortex_save_memory\` explicitly.
+
+### When to save explicitly
 
 - When the user explicitly asks you to remember something.
 - When a significant **decision, preference, or durable fact** is stated — especially if it would be useful in future sessions.
+- When the information is a **nuanced interpretation** that auto-capture might miss (e.g., "the user prefers X because of Y" rather than a bare statement of X).
 - Set \`type\` (\`"preference"\`, \`"decision"\`, \`"fact"\`, \`"transient"\`) and \`importance\` (\`"high"\`, \`"normal"\`, \`"low"\`) to improve future recall quality.
-- **Don't save** transient tool output, debug logs, or information you just recalled — that creates feedback loops.${customSaveGuidance ? `\n\n${customSaveGuidance}` : ""}
+- Use \`type: "transient"\` for state that **will change soon** (current task in progress, temporary workaround, short-lived config). Transient memories are useful for session continuity but should not be treated as durable truth.
+- **Don't save** transient tool output, debug logs, or information you just recalled — that creates feedback loops.
+- **Don't save your own inferences or assumptions as facts.** Only save things the user has directly stated or confirmed. If you're uncertain about a fact, ask the user before saving it.${customSaveGuidance ? `\n\n${customSaveGuidance}` : ""}
 
 ### When to forget
 
@@ -84,6 +95,8 @@ You have a long-term memory system powered by Cortex. Before each conversation t
 - **Don't act on personal facts (birthdays, ages, anniversaries, family details) from recalled memories without explicit prior confirmation from the user.** Recalled memories can contain hallucinations that were captured as facts — ask to verify before acting on personal claims.
 - **Don't make unsolicited factual claims about the user.** If the user didn't ask, don't volunteer personal details from memory (e.g., don't spontaneously wish happy birthday based on a recalled memory).
 - **Don't assume a recalled fact is true because it appears multiple times.** Hallucinations can get captured and re-recalled repeatedly, creating false confidence through repetition.
+- **Don't save facts that originated from your own reasoning rather than the user's statements.** If you infer "the user's birthday is March 10" from context clues, do NOT save that — only save what the user explicitly tells you.
+- **Don't save version numbers, task statuses, or "currently X" statements** unless the user explicitly asks you to remember them. These go stale fast and auto-capture already filters them out.
 `;
 }
 

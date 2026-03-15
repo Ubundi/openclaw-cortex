@@ -4,7 +4,7 @@ import type { CortexConfig } from "../../plugin/config.js";
 import type { KnowledgeState } from "../../plugin/index.js";
 import type { RetryQueue } from "../../internal/retry-queue.js";
 import type { AuditLogger } from "../../internal/audit-logger.js";
-import { filterLowSignalMessages, sanitizeConversationText } from "./filter.js";
+import { filterLowSignalMessages, stripVolatileContent, sanitizeConversationText } from "./filter.js";
 import type { RecallEchoStore } from "../../internal/recall-echo-store.js";
 import { containsHeartbeatPrompt } from "../../internal/heartbeat-detect.js";
 import type { CaptureWatermarkStore } from "../../internal/capture-watermark-store.js";
@@ -221,12 +221,18 @@ export function createCaptureHandler(
         ? filterLowSignalMessages(normalized)
         : normalized;
 
+      // Strip volatile/transient statements (version numbers, task status, "currently" state)
+      // from message content before capture to prevent stale facts from entering long-term memory.
+      const volatileStripped = config.captureFilter !== false
+        ? stripVolatileContent(filtered)
+        : filtered;
+
       // Strip assistant messages that echo recently recalled memories.
       // This breaks the feedback loop: recall → agent parrots → capture → recall (stronger).
-      let echoFiltered = filtered;
+      let echoFiltered = volatileStripped;
       if (echoStore) {
         let echoesStripped = 0;
-        echoFiltered = filtered.filter((msg) => {
+        echoFiltered = volatileStripped.filter((msg) => {
           if (msg.role === "assistant" && echoStore.isEcho(msg.content)) {
             echoesStripped++;
             return false;

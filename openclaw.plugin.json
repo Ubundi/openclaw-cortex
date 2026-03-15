@@ -6,6 +6,10 @@
   "configSchema": {
     "type": "object",
     "properties": {
+      "apiKey": {
+        "type": "string",
+        "description": "Cortex API key. Required for the plugin to function. Can also be set via the CORTEX_API_KEY environment variable."
+      },
       "baseUrl": {
         "type": "string",
         "description": "Cortex API base URL",
@@ -113,6 +117,10 @@
     }
   },
   "uiHints": {
+    "apiKey": {
+      "label": "API Key",
+      "helpText": "Your Cortex API key. Can also be provided via the CORTEX_API_KEY environment variable."
+    },
     "baseUrl": {
       "label": "Base URL",
       "advanced": true

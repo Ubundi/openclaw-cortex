@@ -6,6 +6,9 @@ import {
   sanitizeConversationText,
   stripPlaintextMetadataArtifacts,
   stripRuntimeMetadata,
+  isVolatileStatement,
+  stripVolatileStatements,
+  stripVolatileContent,
 } from "../../src/features/capture/filter.js";
 
 describe("isLowSignal", () => {
@@ -266,6 +269,104 @@ describe("sanitizeConversationText", () => {
     ].join("\n");
 
     expect(sanitizeConversationText(input)).toBe(input);
+  });
+});
+
+describe("isVolatileStatement", () => {
+  it.each([
+    "We're on version 2.5.0",
+    "The app is v3.1.2-beta",
+    "Running node 20.11",
+    "Running Python 3.12",
+    "Task PROJ-123 is in progress",
+    "PR #456 is pending",
+    "Currently working on the auth refactor",
+    "The service is currently running on port 3000",
+    "Listening on port 8080",
+    "PID is 12345",
+    "Right now the tests are passing",
+    "At the moment we use Redis",
+    "The deploy is running",
+    "Build is failing",
+    "CI is green",
+    "Pipeline is in progress",
+    "Currently debugging the timeout issue",
+    "The deployment is currently failing",
+    "For now we're using the old endpoint",
+    "As of now the service is stable",
+  ])("returns true for volatile statement: %s", (sentence) => {
+    expect(isVolatileStatement(sentence)).toBe(true);
+  });
+
+  it.each([
+    "The user prefers TypeScript for all new projects",
+    "We decided to use PostgreSQL over MySQL for data integrity reasons",
+    "The auth flow uses JWT tokens with refresh rotation",
+    "Matthew's birthday is March 10",
+    "The project follows semver",
+    "We use blue-green deployment strategy on ECS Fargate",
+    "The team agreed to use Prettier with tab width 2",
+    "Redis is used as the session store because of its TTL support",
+    "The API uses rate limiting at 100 requests per minute",
+    "Remember to always run migrations before deploying",
+  ])("returns false for durable fact: %s", (sentence) => {
+    expect(isVolatileStatement(sentence)).toBe(false);
+  });
+
+  it("returns false for very long sentences (>300 chars)", () => {
+    const long = "Currently working on " + "a".repeat(300);
+    expect(isVolatileStatement(long)).toBe(false);
+  });
+});
+
+describe("stripVolatileStatements", () => {
+  it("strips volatile sentences while preserving durable facts", () => {
+    const text = "The user prefers dark mode. We're on version 2.5.0. The project uses React.";
+    const result = stripVolatileStatements(text);
+    expect(result).toContain("The user prefers dark mode");
+    expect(result).toContain("The project uses React");
+    expect(result).not.toContain("version 2.5.0");
+  });
+
+  it("preserves original text when nothing is volatile", () => {
+    const text = "The user prefers TypeScript. The team uses PostgreSQL.";
+    expect(stripVolatileStatements(text)).toBe(text);
+  });
+
+  it("returns original text when all sentences are volatile (never returns empty)", () => {
+    const text = "Currently working on the fix. Build is failing.";
+    const result = stripVolatileStatements(text);
+    expect(result).toBe(text);
+  });
+
+  it("handles newline-separated content", () => {
+    const text = "User prefers dark mode\nCurrently debugging the auth issue\nThe project uses ESM modules";
+    const result = stripVolatileStatements(text);
+    expect(result).toContain("User prefers dark mode");
+    expect(result).toContain("The project uses ESM modules");
+    expect(result).not.toContain("Currently debugging");
+  });
+});
+
+describe("stripVolatileContent", () => {
+  it("strips volatile statements from message content", () => {
+    const messages = [
+      { role: "user", content: "We're on version 2.5.0. I prefer using bun over npm." },
+      { role: "assistant", content: "Got it, I'll use bun. Currently running the build." },
+    ];
+    const result = stripVolatileContent(messages);
+    expect(result[0].content).toContain("I prefer using bun over npm");
+    expect(result[0].content).not.toContain("version 2.5.0");
+    expect(result[1].content).toContain("I'll use bun");
+    expect(result[1].content).not.toContain("Currently running");
+  });
+
+  it("preserves messages with no volatile content unchanged", () => {
+    const messages = [
+      { role: "user", content: "The team decided to use Postgres." },
+    ];
+    const result = stripVolatileContent(messages);
+    expect(result[0].content).toBe("The team decided to use Postgres.");
   });
 });
 

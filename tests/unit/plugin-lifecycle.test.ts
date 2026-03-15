@@ -154,6 +154,8 @@ function mockClientKnowledge(overrides: Partial<{
 describe("plugin lifecycle contract", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // Provide a test API key so the plugin doesn't bail during registration
+    process.env.CORTEX_API_KEY = "test-key";
     mockClientHealth();
     mockClientKnowledge();
     vi.spyOn(CortexClient.prototype, "stats").mockResolvedValue({ pipeline_tier: 1, pipeline_maturity: "cold" });
@@ -169,6 +171,7 @@ describe("plugin lifecycle contract", () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+    delete process.env.CORTEX_API_KEY;
     process.exitCode = undefined;
   });
 
