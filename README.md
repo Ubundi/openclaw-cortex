@@ -55,31 +55,20 @@ openclaw plugins install -l ./path/to/openclaw-cortex
 
    > **Note:** OpenClaw defaults to the `messaging` tools profile, which excludes memory tools. The plugin's own tools (`cortex_search_memory`, `cortex_save_memory`) are registered directly and work on any profile, but the built-in `memory_search`, `read`, `write`, and other tools require `full`. This must be re-applied after running `openclaw configure` as the wizard resets it.
 
-3. Add your API key and plugin config to `openclaw.json`:
+3. Add your API key to the plugin config:
 
-   ```json
-   {
-     "plugins": {
-       "entries": {
-         "@ubundi/openclaw-cortex": {
-           "enabled": true,
-           "config": {
-             "apiKey": "your-cortex-api-key"
-           }
-         }
-       },
-       "slots": {
-         "memory": "@ubundi/openclaw-cortex"
-       }
-     }
-   }
+   ```bash
+   openclaw config set plugins.entries.openclaw-cortex.config.apiKey "your-cortex-api-key"
+   openclaw gateway restart
    ```
 
-   Alternatively, set the `CORTEX_API_KEY` environment variable instead of putting the key in config:
+   Alternatively, set the `CORTEX_API_KEY` environment variable:
 
    ```bash
    export CORTEX_API_KEY="your-cortex-api-key"
    ```
+
+   > **Note:** OpenClaw registers the plugin under the install name `openclaw-cortex` (without the npm scope). Always use `openclaw-cortex` when referencing the plugin in config keys.
 
    On first run the plugin generates a unique ID for this installation, persists it at `~/.openclaw/cortex-user-id`, and scopes all memories to that ID.
 
@@ -93,7 +82,7 @@ Add to your `openclaw.json`:
 {
   plugins: {
     entries: {
-      "@ubundi/openclaw-cortex": {
+      "openclaw-cortex": {
         enabled: true,
         config: {
           apiKey: "your-cortex-api-key",  // required — or set CORTEX_API_KEY env var
@@ -107,7 +96,7 @@ Add to your `openclaw.json`:
       },
     },
     slots: {
-      memory: "@ubundi/openclaw-cortex",
+      memory: "openclaw-cortex",
     },
   },
 }
@@ -313,7 +302,7 @@ If both this plugin and the Cortex SKILL.md are active, the `<cortex_memories>` 
 ## Troubleshooting
 
 - **Agent not using plugin tools**: Check `tools.profile` in `openclaw.json` — OpenClaw defaults to `"messaging"`, which excludes memory tools. Run `openclaw config set tools.profile full && openclaw gateway restart`. The configure wizard resets this, so re-check after any reconfiguration.
-- Plugin installed but no memory behavior: verify both `"enabled": true` and `"slots.memory": "@ubundi/openclaw-cortex"` in `openclaw.json`.
+- Plugin installed but no memory behavior: verify both `"enabled": true` and `"slots.memory": "openclaw-cortex"` in `openclaw.json`. Note: config uses the install name `openclaw-cortex`, not the npm scope.
 - `Cannot find module 'zod'` during plugin load (older installs): run `npm install --prefix ~/.openclaw/extensions/openclaw-cortex --omit=dev zod`.
 - Frequent recall timeouts: increase `recallTimeoutMs` for auto-recall or `toolTimeoutMs` for explicit searches.
 - No useful memories returned: ensure prior sessions were captured (`autoCapture`) or saved explicitly with `cortex_save_memory` or `/checkpoint`.
