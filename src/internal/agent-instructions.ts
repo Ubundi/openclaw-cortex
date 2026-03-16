@@ -18,7 +18,7 @@ function buildCustomSaveGuidance(opts?: CortexInstructionOptions): string {
 
   if (!customInstructions && customCategories.length === 0) return "";
 
-  const lines = ["### Custom save guidance", ""];
+  const lines = ["", "### Custom save guidance", ""];
 
   if (customInstructions) {
     lines.push(customInstructions);
@@ -37,6 +37,11 @@ function buildCustomSaveGuidance(opts?: CortexInstructionOptions): string {
   return lines.join("\n");
 }
 
+/**
+ * Builds a slim pointer block for AGENTS.md. The full operational instructions
+ * live in the `cortex-memory` skill (skill/SKILL.md); this block only contains
+ * a brief orientation and any workspace-specific custom save guidance.
+ */
 export function buildCortexInstructions(opts?: CortexInstructionOptions): string {
   const customSaveGuidance = buildCustomSaveGuidance(opts);
 
@@ -44,59 +49,16 @@ export function buildCortexInstructions(opts?: CortexInstructionOptions): string
 
 ## Cortex Memory
 
-You have a long-term memory system powered by Cortex. Before each conversation turn, relevant memories from past conversations are automatically injected in \`<cortex_memories>\` tags.
+You have long-term memory powered by the Cortex plugin. Refer to the **cortex-memory** skill for full usage instructions.
 
-### How to use recalled memories
-
-- **Use recalled memories for historical context.** They are strongest for preferences, prior decisions, rationale, and cross-session continuity.
-- **For volatile current-state facts, verify against live workspace/runtime first.** Examples: versions, ports, env/config defaults, active dependencies, and script commands.
-- **If memory and live state conflict, report both with timing context.** Example: "Memory says X (from March 4, 2026), current repo shows Y."
-- **Memories include a confidence score** (e.g., \`[0.85]\`). Higher scores indicate stronger relevance to the current conversation.
-- **You also have \`cortex_search_memory\`, \`cortex_get_memory\`, \`cortex_save_memory\`, and \`cortex_forget\` tools** for explicit search, lookup by ID, save, and selective removal when the automatic recall isn't sufficient.
-
-### When to search explicitly
-
-- When asked a specific factual question (port numbers, library choices, config values), use \`cortex_search_memory\` to look up the answer before responding from general knowledge.
-- When auto-recalled memories don't cover the topic being asked about, search before saying "I don't know."
-- Use \`mode\` to narrow results: \`"decisions"\` for "why did we do X?", \`"preferences"\` for style/config questions, \`"facts"\` for durable knowledge, \`"recent"\` when recency matters more than relevance.
-- Use \`scope\` to focus the search on the current session, older long-term memories, or all stored memories.
-- Use \`cortex_get_memory\` when you already have a specific memory ID and want the full details for that node.
-
-### How auto-capture works
-
-After each conversation turn, the plugin automatically extracts facts from the conversation and stores them in long-term memory. You do **not** need to explicitly save things that are clearly stated in the conversation — auto-capture handles this. However:
-
-- Auto-capture **strips volatile state** (version numbers, task statuses, "currently working on X", port numbers, deploy status) before extraction to prevent stale facts from entering long-term memory.
-- Auto-capture submits the conversation transcript and the backend extracts facts — you don't control exactly what gets extracted.
-- If something is important and you're unsure whether auto-capture will pick it up, use \`cortex_save_memory\` explicitly.
-
-### When to save explicitly
-
-- When the user explicitly asks you to remember something.
-- When a significant **decision, preference, or durable fact** is stated — especially if it would be useful in future sessions.
-- When the information is a **nuanced interpretation** that auto-capture might miss (e.g., "the user prefers X because of Y" rather than a bare statement of X).
-- Set \`type\` (\`"preference"\`, \`"decision"\`, \`"fact"\`, \`"transient"\`) and \`importance\` (\`"high"\`, \`"normal"\`, \`"low"\`) to improve future recall quality.
-- Use \`type: "transient"\` for state that **will change soon** (current task in progress, temporary workaround, short-lived config). Transient memories are useful for session continuity but should not be treated as durable truth.
-- **Don't save** transient tool output, debug logs, or information you just recalled — that creates feedback loops.
-- **Don't save your own inferences or assumptions as facts.** Only save things the user has directly stated or confirmed. If you're uncertain about a fact, ask the user before saving it.${customSaveGuidance ? `\n\n${customSaveGuidance}` : ""}
-
-### When to forget
-
-- When the user says something you remembered is **wrong, outdated, or should be forgotten**, use \`cortex_forget\` with the entity name to remove those memories.
-- When the user wants to clear all memories from a specific session, use \`cortex_forget\` with the session ID.
-- Use \`query\` on \`cortex_forget\` to find candidate memories and entity names when the user describes the memory but doesn't know the exact entity or session yet.
-- **Always confirm with the user before forgetting** — deletion is permanent.
-
-### What NOT to do
-
-- Don't treat recalled memory as the sole source of truth for volatile config/version questions.
-- Don't ignore recalled memories when the question is about history, rationale, decisions, or user preferences.
-- Don't fabricate details beyond what the memories state — if a memory says "TTL is 600s", use 600s, don't guess a different value.
-- **Don't act on personal facts (birthdays, ages, anniversaries, family details) from recalled memories without explicit prior confirmation from the user.** Recalled memories can contain hallucinations that were captured as facts — ask to verify before acting on personal claims.
-- **Don't make unsolicited factual claims about the user.** If the user didn't ask, don't volunteer personal details from memory (e.g., don't spontaneously wish happy birthday based on a recalled memory).
-- **Don't assume a recalled fact is true because it appears multiple times.** Hallucinations can get captured and re-recalled repeatedly, creating false confidence through repetition.
-- **Don't save facts that originated from your own reasoning rather than the user's statements.** If you infer "the user's birthday is March 10" from context clues, do NOT save that — only save what the user explicitly tells you.
-- **Don't save version numbers, task statuses, or "currently X" statements** unless the user explicitly asks you to remember them. These go stale fast and auto-capture already filters them out.
+**Quick reference:**
+- Relevant memories are auto-injected in \`<cortex_memories>\` tags before each turn.
+- New facts are auto-captured after each turn (volatile state like versions/ports is stripped).
+- Tools: \`cortex_search_memory\`, \`cortex_save_memory\`, \`cortex_forget\`, \`cortex_get_memory\`.
+- Commands: \`/checkpoint\` (save session summary), \`/sleep\` (clean session end), \`/audit\` (toggle API logging).
+- For volatile facts (versions, ports, config), verify against live workspace — don't rely solely on memory.
+- Never save your own inferences as facts. Only save what the user explicitly stated.
+- Always confirm with the user before forgetting memories.${customSaveGuidance}
 `;
 }
 
@@ -117,10 +79,14 @@ interface Logger {
 }
 
 /**
- * Injects or updates Cortex memory instructions in AGENTS.md.
+ * Injects or updates a slim Cortex memory pointer in AGENTS.md.
+ *
+ * The full operational instructions live in the cortex-memory skill
+ * (skill/SKILL.md). This block provides a brief orientation and any
+ * workspace-specific custom save guidance from the plugin config.
  *
  * - If AGENTS.md doesn't exist, skip silently.
- * - If the marker is absent, append the full block.
+ * - If the marker is absent, append the pointer block.
  * - If the marker exists but the hash is stale (or missing), replace the section in-place.
  * - If the marker exists and the hash matches, do nothing.
  *

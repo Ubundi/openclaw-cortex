@@ -38,6 +38,7 @@
   },
   "files": [
     "dist",
+    "skill",
     "openclaw.plugin.json",
     "LICENSE"
   ],

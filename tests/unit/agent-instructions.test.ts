@@ -29,7 +29,7 @@ describe("injectAgentInstructions", () => {
     await rm(tmpDir, { recursive: true, force: true });
   });
 
-  it("appends Cortex section to existing AGENTS.md", async () => {
+  it("appends slim Cortex pointer to existing AGENTS.md", async () => {
     const agentsMd = join(tmpDir, "AGENTS.md");
     await writeFile(agentsMd, "# AGENTS.md\n\nSome content.\n");
 
@@ -38,14 +38,28 @@ describe("injectAgentInstructions", () => {
 
     const result = await readFile(agentsMd, "utf-8");
     expect(result).toContain("## Cortex Memory");
+    expect(result).toContain("cortex-memory");
     expect(result).toContain("cortex_search_memory");
-    expect(result).toContain("cortex_get_memory");
-    expect(result).toContain("For volatile current-state facts, verify against live workspace/runtime first.");
-    expect(result).toContain("If memory and live state conflict, report both with timing context.");
+    expect(result).toContain("cortex_save_memory");
     expect(result).toContain("<!-- /cortex-memory -->");
     expect(result).toContain("cortex-memory-hash:");
     expect(result).toContain("# AGENTS.md"); // original content preserved
     expect(logger.logs.some((l) => l.level === "info" && l.msg.includes("appended"))).toBe(true);
+  });
+
+  it("pointer block is concise (no full instructions)", async () => {
+    const agentsMd = join(tmpDir, "AGENTS.md");
+    await writeFile(agentsMd, "# AGENTS.md\n");
+
+    await injectAgentInstructions(tmpDir, mockLogger());
+
+    const result = await readFile(agentsMd, "utf-8");
+    // Should NOT contain the verbose sections from the old full instructions
+    expect(result).not.toContain("### How auto-capture works");
+    expect(result).not.toContain("### When to search explicitly");
+    expect(result).not.toContain("### What NOT to do");
+    // Should reference the skill instead
+    expect(result).toContain("cortex-memory");
   });
 
   it("is idempotent — does not append twice", async () => {
@@ -87,10 +101,10 @@ describe("injectAgentInstructions", () => {
     await injectAgentInstructions(tmpDir, logger);
 
     const result = await readFile(agentsMd, "utf-8");
-    // Should have replaced with new content
+    // Should have replaced with new slim pointer
     expect(result).toContain("cortex-memory-hash:");
     expect(result).toContain("<!-- /cortex-memory -->");
-    expect(result).toContain("Don't act on personal facts");
+    expect(result).toContain("cortex-memory");
     expect(result).not.toContain("Old instructions without hash.");
     expect(result).toContain("# AGENTS.md"); // original content before section preserved
     expect(logger.logs.some((l) => l.level === "info" && l.msg.includes("updated"))).toBe(true);
@@ -107,7 +121,7 @@ describe("injectAgentInstructions", () => {
     await injectAgentInstructions(tmpDir, logger);
 
     const result = await readFile(agentsMd, "utf-8");
-    expect(result).toContain("Don't act on personal facts");
+    expect(result).toContain("cortex-memory");
     expect(result).not.toContain("000000000000");
     expect(result).not.toContain("Old content.");
     expect(logger.logs.some((l) => l.level === "info" && l.msg.includes("updated"))).toBe(true);
@@ -144,16 +158,16 @@ describe("injectAgentInstructions", () => {
     const result = await readFile(agentsMd, "utf-8");
     expect(result).toContain("## Other Section");
     expect(result).toContain("Keep this.");
-    expect(result).toContain("Don't act on personal facts");
+    expect(result).toContain("cortex-memory");
   });
 });
 
 describe("buildCortexInstructions", () => {
-  it("builds the default instructions without custom save guidance", () => {
+  it("builds slim pointer without custom save guidance", () => {
     const result = buildCortexInstructions();
 
-    expect(result).toContain("cortex_get_memory");
-    expect(result).toContain("Use `scope` to focus the search");
+    expect(result).toContain("cortex-memory");
+    expect(result).toContain("cortex_search_memory");
     expect(result).not.toContain("### Custom save guidance");
   });
 
