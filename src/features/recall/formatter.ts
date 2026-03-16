@@ -278,6 +278,14 @@ function collapseNearDuplicates(
 /** Maximum memories to inject into agent context after noise filtering. */
 const DEFAULT_TOP_K = 10;
 
+export interface FormatMemoriesOptions {
+  topK?: number;
+  /** Total sessions in knowledge store — used for maturity-aware guidance. */
+  totalSessions?: number;
+  /** Knowledge store maturity — adapts guidance in the memories block. */
+  maturity?: "cold" | "warming" | "mature" | "unknown";
+}
+
 export interface FormatMemoriesResult {
   text: string;
   collapsedCount: number;
@@ -290,10 +298,59 @@ export function formatMemories(
   return formatMemoriesWithStats(memories, topK).text;
 }
 
+/**
+ * Collect unique entity names from memories that were NOT included in the
+ * displayed candidates. These are "available topics" the agent could search
+ * for explicitly.
+ */
+function collectTruncatedTopics(
+  displayed: RecallMemory[],
+  allCleaned: RecallMemory[],
+  maxTopics = 5,
+): string[] {
+  const displayedEntities = new Set<string>();
+  for (const m of displayed) {
+    for (const e of m.entities ?? []) displayedEntities.add(e.toLowerCase());
+  }
+
+  const extraEntities = new Map<string, number>();
+  for (const m of allCleaned) {
+    for (const entity of m.entities ?? []) {
+      const key = entity.toLowerCase();
+      if (displayedEntities.has(key)) continue;
+      const display = extraEntities.has(key) ? undefined : entity;
+      if (display) extraEntities.set(key, (extraEntities.get(key) ?? 0) + 1);
+    }
+  }
+
+  // Sort by frequency (most-mentioned first), take top N
+  return [...extraEntities.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, maxTopics)
+    .map(([name]) => name);
+}
+
+/**
+ * Build a brief maturity-aware guidance line for the memories block.
+ * Adapts based on knowledge store maturity — heavier recall guidance for
+ * mature stores, lighter for cold/warming.
+ */
+function buildMaturityGuidance(opts?: FormatMemoriesOptions): string | undefined {
+  if (!opts?.maturity || opts.maturity === "unknown") return undefined;
+
+  if (opts.maturity === "mature" && (opts.totalSessions ?? 0) >= 5) {
+    return "You have extensive memory. Before answering history/decision/preference questions, search explicitly with cortex_search_memory.";
+  }
+  return undefined;
+}
+
 export function formatMemoriesWithStats(
   memories: RecallMemory[],
-  topK: number = DEFAULT_TOP_K,
+  topKOrOpts: number | FormatMemoriesOptions = DEFAULT_TOP_K,
 ): FormatMemoriesResult {
+  const opts = typeof topKOrOpts === "number" ? { topK: topKOrOpts } : topKOrOpts;
+  const topK = opts.topK ?? DEFAULT_TOP_K;
+
   const cleaned = filterNoisyMemories(memories);
   if (!cleaned.length) return { text: "", collapsedCount: 0 };
 
@@ -302,11 +359,21 @@ export function formatMemoriesWithStats(
   const { collapsed, collapsedCount } = collapseNearDuplicates(deduped);
   const candidates = collapsed.slice(0, topK);
 
+  const maturityGuidance = buildMaturityGuidance(opts);
   const prefix = `<cortex_memories>\n${UNTRUSTED_PREAMBLE}\n`;
   const suffix = "\n</cortex_memories>";
   let totalChars = prefix.length + suffix.length;
   const lines: string[] = [];
 
+  // Add maturity-aware guidance at the top of the block
+  if (maturityGuidance) {
+    const guidanceLine = `[${maturityGuidance}]`;
+    lines.push(guidanceLine);
+    totalChars += guidanceLine.length;
+  }
+
+  let displayedCount = 0;
+  const displayed: RecallMemory[] = [];
   for (const memory of candidates) {
     const content = truncateMemory(memory.content, MAX_MEMORY_LINE_CHARS);
     const displayScore = memory.relevance ?? memory.confidence;
@@ -315,17 +382,42 @@ export function formatMemoriesWithStats(
     if (totalChars + addedChars > MAX_MEMORY_BLOCK_CHARS) break;
     lines.push(line);
     totalChars += addedChars;
+    displayedCount++;
+    displayed.push(memory);
   }
 
+  // Build footer: collapsed count + truncated topics
+  const footerParts: string[] = [];
+
   if (collapsedCount > 0) {
-    const note = `(${collapsedCount} similar ${collapsedCount === 1 ? "memory" : "memories"} collapsed)`;
-    const noteChars = (lines.length > 0 ? 1 : 0) + note.length;
-    if (totalChars + noteChars <= MAX_MEMORY_BLOCK_CHARS) {
-      lines.push(note);
+    footerParts.push(`${collapsedCount} similar collapsed`);
+  }
+
+  const omittedByBudget = candidates.length - displayedCount;
+  const omittedTotal = collapsed.length - displayedCount;
+  if (omittedTotal > 0) {
+    footerParts.push(`${omittedTotal} more available`);
+  }
+
+  // Collect entity topics from non-displayed memories for "search for" hint
+  const truncatedTopics = omittedTotal > 0
+    ? collectTruncatedTopics(displayed, cleaned)
+    : [];
+
+  if (footerParts.length > 0 || truncatedTopics.length > 0) {
+    let footer = footerParts.length > 0 ? `(${footerParts.join(", ")})` : "";
+    if (truncatedTopics.length > 0) {
+      const topicList = truncatedTopics.join(", ");
+      const searchHint = `Related topics not shown: ${topicList}. Use cortex_search_memory for details.`;
+      footer = footer ? `${footer}\n${searchHint}` : searchHint;
+    }
+    const footerChars = (lines.length > 0 ? 1 : 0) + footer.length;
+    if (totalChars + footerChars <= MAX_MEMORY_BLOCK_CHARS) {
+      lines.push(footer);
     }
   }
 
-  if (!lines.length) return { text: "", collapsedCount };
+  if (displayedCount === 0) return { text: "", collapsedCount };
   return {
     text: `${prefix}${lines.join("\n")}${suffix}`,
     collapsedCount,

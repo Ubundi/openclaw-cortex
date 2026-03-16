@@ -3,6 +3,7 @@ import type { CortexConfig } from "../../plugin/config.js";
 import type { KnowledgeState } from "../../plugin/index.js";
 import type { AuditLogger } from "../../internal/audit-logger.js";
 import { formatMemoriesWithStats } from "./formatter.js";
+import type { FormatMemoriesOptions } from "./formatter.js";
 import { inferRecallProfile, getProfileParams } from "./context-profile.js";
 import type { RecallProfile, RecallProfileParams } from "./context-profile.js";
 import { LatencyMetrics } from "../../internal/latency-metrics.js";
@@ -475,7 +476,12 @@ export function createRecallHandler(
         echoStore.storeRecalled(memories.map((m) => m.content));
       }
 
-      const { text: formatted, collapsedCount } = formatMemoriesWithStats(memories, config.recallTopK);
+      const formatOpts: FormatMemoriesOptions = {
+        topK: config.recallTopK,
+        totalSessions: knowledgeState?.totalSessions,
+        maturity: knowledgeState?.maturity,
+      };
+      const { text: formatted, collapsedCount } = formatMemoriesWithStats(memories, formatOpts);
       if (!formatted) return;
 
       onRecallStats?.({ memoriesReturned: memories.length, collapsedCount });
