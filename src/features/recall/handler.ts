@@ -13,6 +13,7 @@ import {
   filterConversationMessagesForMemory,
   shouldUseUserMessageForMemory,
 } from "../../internal/message-provenance.js";
+import type { SessionGoalStore } from "../../internal/session-goal.js";
 
 interface BeforeAgentStartEvent {
   prompt: string;
@@ -155,6 +156,12 @@ function buildRecentConversationContext(
   return recent.length > MAX_CONTEXT_CHARS ? recent.slice(-MAX_CONTEXT_CHARS) : recent;
 }
 
+function mergeGoalAndProfileContext(goal: string | undefined, profileContext: string | undefined): string | undefined {
+  if (goal && profileContext) return `Session goal: ${goal}\n${profileContext}`;
+  if (goal) return `Session goal: ${goal}`;
+  return profileContext;
+}
+
 function mergeQueryAndContext(query: string, context: string | undefined): string {
   if (!context) return query;
   const cleaned = context.trim();
@@ -231,6 +238,7 @@ export function createRecallHandler(
   auditLogger?: AuditLogger,
   onRecallStats?: (stats: RecallStats) => void,
   echoStore?: RecallEchoStore,
+  sessionGoalStore?: SessionGoalStore,
 ) {
   const recallMetrics = metrics ?? new LatencyMetrics();
   let consecutiveFailures = 0;
@@ -362,6 +370,13 @@ export function createRecallHandler(
         ? buildRecentConversationContext(event.messages, prompt)
         : undefined;
       const profileParams = getProfileParams(profile, config, factualContext);
+      const activeGoal = config.sessionGoal ? sessionGoalStore?.get()?.goal : undefined;
+      // Merge session goal into profile context for the fallback broad-recall
+      // path (/v1/recall doesn't have a dedicated session_goal parameter).
+      // The primary /v1/retrieve path uses the dedicated parameter instead.
+      if (activeGoal) {
+        profileParams.context = mergeGoalAndProfileContext(activeGoal, profileParams.context);
+      }
       const retrieveQuery = mergeQueryAndContext(prompt, profileParams.context);
       logger.debug?.(`Cortex recall: profile=${profile}`);
 
@@ -371,6 +386,7 @@ export function createRecallHandler(
         // so no user config is needed. config.recallReferenceDate is a fallback override.
         referenceDate: embeddedDate ?? config.recallReferenceDate ?? new Date().toISOString(),
         userId: currentUserId,
+        sessionGoal: activeGoal,
       };
 
       if (auditLogger) {

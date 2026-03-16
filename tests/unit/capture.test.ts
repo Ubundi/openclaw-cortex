@@ -71,6 +71,7 @@ describe("createCaptureHandler", () => {
       "inferred",
       undefined,
       undefined,
+      undefined,
     );
   });
 
@@ -526,6 +527,7 @@ describe("createCaptureHandler", () => {
       "inferred",
       undefined,
       undefined,
+      undefined,
     );
   });
 
@@ -631,6 +633,7 @@ describe("createCaptureHandler", () => {
       "inferred",
       "acp",
       "acp-session-42",
+      undefined,
     );
   });
 
@@ -669,6 +672,7 @@ describe("createCaptureHandler", () => {
       "inferred",
       undefined,
       undefined,
+      undefined,
     );
   });
 
@@ -697,6 +701,7 @@ describe("createCaptureHandler", () => {
       "openclaw",
       "OpenClaw",
       "inferred",
+      undefined,
       undefined,
       undefined,
     );

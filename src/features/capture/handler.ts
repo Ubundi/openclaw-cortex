@@ -9,6 +9,7 @@ import type { RecallEchoStore } from "../../internal/recall-echo-store.js";
 import { containsHeartbeatPrompt } from "../../internal/heartbeat-detect.js";
 import type { CaptureWatermarkStore } from "../../internal/capture-watermark-store.js";
 import { filterConversationMessagesForMemory } from "../../internal/message-provenance.js";
+import type { SessionGoalStore } from "../../internal/session-goal.js";
 
 interface InputProvenance {
   kind?: string;
@@ -159,6 +160,7 @@ export function createCaptureHandler(
   auditLogger?: AuditLogger,
   echoStore?: RecallEchoStore,
   watermarkStore?: CaptureWatermarkStore,
+  sessionGoalStore?: SessionGoalStore,
 ) {
   let captureCounter = 0;
   const seenTurnFingerprints = new Map<string, number>();
@@ -249,6 +251,9 @@ export function createCaptureHandler(
         logger.info("Cortex capture: skipping — not enough substantive content");
         return false;
       }
+
+      // Capture the active session goal for tagging the ingest payload.
+      const activeGoal = config.sessionGoal ? sessionGoalStore?.get()?.goal : undefined;
 
       // API caps at 200 messages — take the most recent to stay within the limit
       const MAX_MESSAGES = 200;
@@ -363,6 +368,7 @@ export function createCaptureHandler(
           CAPTURE_DERIVATION_MODE,
           sourceChannel,
           originSessionId,
+          activeGoal,
         );
         logger.info(`Cortex capture: submitted job ${job.job_id} (status=${job.status})`);
         // Mark that we have memories — heartbeat handler owns full knowledge refresh

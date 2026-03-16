@@ -30,7 +30,8 @@ import type {
   Logger,
 } from "./types.js";
 import { registerCliCommands } from "./cli.js";
-import { buildSearchMemoryTool, buildSaveMemoryTool, buildForgetMemoryTool, buildGetMemoryTool } from "./tools.js";
+import { buildSearchMemoryTool, buildSaveMemoryTool, buildForgetMemoryTool, buildGetMemoryTool, buildSetSessionGoalTool } from "./tools.js";
+import { SessionGoalStore } from "../internal/session-goal.js";
 import { buildCommands } from "./commands.js";
 
 const version = packageJson.version;
@@ -251,6 +252,7 @@ const CORTEX_TOOL_NAMES = [
   "cortex_get_memory",
   "cortex_save_memory",
   "cortex_forget",
+  "cortex_set_session_goal",
 ] as const;
 
 const PLUGIN_ID = "openclaw-cortex";
@@ -429,6 +431,7 @@ const plugin = {
       maturity: "unknown",
       lastChecked: 0,
     };
+    const sessionGoalStore = new SessionGoalStore();
 
     // Session ID for this plugin lifecycle — groups tool-saved memories into
     // a single Cortex SESSION node so total_sessions increments properly.
@@ -503,6 +506,7 @@ const plugin = {
 
     // Track last messages for /checkpoint command (populated by agent_end wrapper)
     let lastMessages: unknown[] = [];
+    let previousSessionKey: string | undefined;
     const recoveryCheckedSessions = new Set<string>();
     const recallHandler = createRecallHandler(
       client,
@@ -519,6 +523,7 @@ const plugin = {
         persistStats(sessionStats);
       },
       echoStore,
+      sessionGoalStore,
     );
 
     // Auto-Recall: inject relevant memories before every agent turn
@@ -530,6 +535,13 @@ const plugin = {
         ctx: { sessionKey?: string; sessionId?: string },
       ) => {
         const activeSessionKey = resolveSessionKey(ctx, sessionId);
+        // Clear session goal when switching to a new session (e.g. /new)
+        // so the previous chat's goal doesn't bias the new session's recall/capture.
+        if (previousSessionKey && previousSessionKey !== activeSessionKey) {
+          sessionGoalStore.clear();
+          api.logger.debug?.("Cortex session goal cleared (session changed)");
+        }
+        previousSessionKey = activeSessionKey;
         currentSessionKey = activeSessionKey;
         let recoveryContext: string | undefined;
 
@@ -539,6 +551,14 @@ const plugin = {
             const dirty = await sessionState.readDirtyFromPriorLifecycle(sessionId);
             if (dirty) {
               recoveryContext = formatRecoveryContext(dirty);
+              if (dirty.currentGoal && !sessionGoalStore.get()) {
+                sessionGoalStore.set({
+                  goal: dirty.currentGoal,
+                  setAt: dirty.updatedAt,
+                  setBy: "agent",
+                });
+                api.logger.info(`Cortex recovery: restored session goal "${dirty.currentGoal.slice(0, 60)}"`);
+              }
               await sessionState.clear();
               api.logger.warn(`Cortex recovery: detected unclean previous session (${dirty.sessionKey})`);
             }
@@ -565,7 +585,7 @@ const plugin = {
     // Auto-Capture: extract facts after agent responses
     const watermarkStore = new CaptureWatermarkStore();
     void watermarkStore.load().catch((err) => api.logger.debug?.(`Cortex watermark load failed: ${String(err)}`));
-    const captureHandler = createCaptureHandler(client, config, api.logger, retryQueue, knowledgeState, () => userId, userIdReady, sessionId, auditLoggerProxy, echoStore, watermarkStore);
+    const captureHandler = createCaptureHandler(client, config, api.logger, retryQueue, knowledgeState, () => userId, userIdReady, sessionId, auditLoggerProxy, echoStore, watermarkStore, sessionGoalStore);
     registerHookCompat(
       api,
       "agent_end",
@@ -580,6 +600,7 @@ const plugin = {
               pluginSessionId: sessionId,
               sessionKey: activeSessionKey,
               summary,
+              currentGoal: sessionGoalStore.get()?.goal,
             });
           } catch (err) {
             api.logger.debug?.(`Cortex session state update failed: ${String(err)}`);
@@ -660,14 +681,16 @@ const plugin = {
         auditLoggerProxy,
         knowledgeState,
         recentSaves,
+        sessionGoalStore,
       };
 
       api.registerTool(buildSearchMemoryTool(toolsDeps));
       api.registerTool(buildGetMemoryTool(toolsDeps));
       api.registerTool(buildSaveMemoryTool(toolsDeps));
       api.registerTool(buildForgetMemoryTool(toolsDeps));
+      api.registerTool(buildSetSessionGoalTool(toolsDeps));
 
-      api.logger.debug?.("Cortex tools registered: cortex_search_memory, cortex_get_memory, cortex_save_memory, cortex_forget");
+      api.logger.debug?.("Cortex tools registered: cortex_search_memory, cortex_get_memory, cortex_save_memory, cortex_forget, cortex_set_session_goal");
     }
 
     // --- Auto-Reply Commands ---

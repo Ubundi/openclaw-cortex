@@ -12,7 +12,8 @@
 
 - **Auto-Recall** — injects relevant memories before every agent turn via `before_agent_start` hook
 - **Auto-Capture** — extracts facts from conversations via `agent_end` hook
-- **Agent Tools** — `cortex_search_memory` and `cortex_save_memory` tools the LLM can invoke directly
+- **Session Goals** — agent sets the session objective via `cortex_set_session_goal`, biasing recall toward goal-relevant memories and tagging captured facts
+- **Agent Tools** — `cortex_search_memory`, `cortex_save_memory`, `cortex_set_session_goal`, and more — tools the LLM can invoke directly
 - **Commands** — `/checkpoint` to save session context, `/sleep` to mark a clean end, `/audit` to toggle local logging
 - **CLI Commands** — `openclaw cortex {status,memories,search,config,pair,reset}` for terminal access
 - **Recovery Detection** — detects unclean prior sessions and prepends recovery context at session start
@@ -30,6 +31,8 @@
 
 ```bash
 openclaw plugins install @ubundi/openclaw-cortex
+openclaw config set plugins.entries.openclaw-cortex.config.apiKey "your-cortex-api-key"
+openclaw gateway restart
 ```
 
 Or link locally for development:
@@ -123,6 +126,7 @@ Add to your `openclaw.json`:
 | `dedupeWindowMinutes`    | number  | `30`         | Time window (minutes) for client-side deduplication of explicit memory saves. Set to 0 to disable. |
 | `noveltyThreshold`       | number  | `0.85`       | Similarity score (0–1) above which an existing memory is considered a duplicate. Lower = stricter. |
 | `namespace`              | string  | `"openclaw"` | Memory namespace. Auto-derived from workspace directory when not set explicitly.                 |
+| `sessionGoal`            | boolean | `true`       | Enable session goal detection. When active, the agent sets a goal that biases recall and tags captures. |
 
 ## How It Works
 
@@ -162,6 +166,7 @@ src/
     recall-echo-store.ts
     retry-queue.ts
     safe-path.ts
+    session-goal.ts
     session-state.ts
     user-id.ts
 ```
@@ -201,12 +206,23 @@ After each agent turn completes, the plugin flattens the turn's new `user` and `
 
 Capture is fire-and-forget — it never blocks the agent. Failed ingestions are queued for retry with exponential backoff (up to 5 retries).
 
+### Session Goals
+
+The agent automatically identifies the user's primary objective at session start and sets it via `cortex_set_session_goal`. This biases recall queries toward goal-relevant memories and tags captured facts with the active goal for better future retrieval. If the session crashes, the goal is persisted and restored automatically on recovery.
+
+The goal is passed as a dedicated `session_goal` parameter to the Cortex retrieval pipeline, where it computes a separate embedding for clean alignment scoring — no contamination of the primary query's BM25 matching or classification. On the capture side, the goal is sent as metadata on the ingest payload so the backend can tag SESSION and FACT nodes.
+
+Session goals are cleared automatically when the session changes (e.g. `/new`). Disable with `sessionGoal: false` in config.
+
 ### Agent Tools
 
-The plugin registers two tools the LLM agent can invoke directly:
+The plugin registers tools the LLM agent can invoke directly:
 
+- **`cortex_set_session_goal`** — set the session's primary objective to bias recall and tag captures. Called automatically at session start; updated if the goal shifts.
 - **`cortex_search_memory`** — search long-term memory with a natural language query. Returns matching memories with confidence scores. Use when the agent needs to recall something specific.
 - **`cortex_save_memory`** — explicitly save a fact, preference, or piece of information to long-term memory. Use when the user asks "remember this" or the agent identifies something worth persisting.
+- **`cortex_forget`** — selectively remove memories by entity name or session ID. Always searches first and confirms before deleting.
+- **`cortex_get_memory`** — fetch a specific memory by its node ID for detailed inspection.
 
 These work alongside Auto-Recall/Auto-Capture — the automatic hooks handle background memory flow, while the tools give the agent explicit control when needed.
 
@@ -282,6 +298,7 @@ This plugin sends data to the Cortex API to provide memory functionality. Here's
 |------|------|----------------|
 | Conversation messages (user + assistant) | After each agent turn | `autoCapture: false` |
 | Your current prompt | Before each agent turn | `autoRecall: false` |
+| Session goal (if set) | With recall and capture requests | `sessionGoal: false` |
 
 Additionally, a randomly generated installation ID (`userId`) and a workspace namespace hash are sent with every request to scope your data. No personally identifiable information is collected.
 
@@ -312,7 +329,7 @@ If both this plugin and the Cortex SKILL.md are active, the `<cortex_memories>` 
 ```bash
 npm install
 npm run build      # TypeScript → dist/
-npm test           # Run vitest (375 tests)
+npm test           # Run vitest (504 tests)
 npm run test:watch # Watch mode
 npm run test:integration # Live Cortex API tests (uses the baked-in API key)
 ```

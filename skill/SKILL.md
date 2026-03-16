@@ -40,9 +40,35 @@ These are conversation commands, not memory tools. They manage session lifecycle
 - `/sleep` — Mark the session as cleanly ended. Cortex won't show a recovery warning on the next session start.
 - `/audit on|off` — Toggle local audit logging of all data sent to/from Cortex. Logs are stored at `<workspace>/.cortex/audit/`.
 
+## Session Goals
+
+At the start of each session, identify the user's primary objective and set it:
+
+    cortex_set_session_goal({ goal: "Implement OAuth2 integration" })
+
+**Why this matters:**
+- Recall queries are biased toward memories relevant to the current goal
+- Captured facts are tagged with the goal for better future retrieval
+- If the session crashes, the goal is preserved and restored automatically
+
+**When to update the goal:**
+- When the user shifts to a fundamentally different task
+- Don't update for sub-tasks within the same goal
+
+**When NOT to set a goal:**
+- Quick Q&A sessions with no clear project objective
+- When the user is explicitly exploring/browsing without direction
+
 ## Tools
 
-You have four memory tools available:
+You have five memory tools available:
+
+### cortex_set_session_goal
+Set the current session's primary objective to bias recall and tag captures.
+
+**Parameters:**
+- `goal` — The session's primary objective (e.g., "Implement OAuth2 integration")
+- `clear` — Set to `true` to clear the current goal
 
 ### cortex_search_memory
 Search long-term memory for facts, preferences, and past context.
