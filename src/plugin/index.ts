@@ -286,15 +286,16 @@ function ensurePluginsAllowlist(logger: Logger): void {
 }
 
 /**
- * Installs the cortex-memory skill to ~/.openclaw/skills/cortex-memory/.
- * Copies SKILL.md from the package if it's missing or has a different hash
- * (version upgrade). Idempotent and non-fatal.
+ * Installs the cortex-memory skill to ~/skills/cortex-memory/.
+ * OpenClaw resolves global skills from ~/skills/ (home directory level),
+ * not ~/.openclaw/skills/. Copies SKILL.md from the package if it's missing
+ * or has a different hash (version upgrade). Idempotent and non-fatal.
  */
 function installSkill(logger: Logger): void {
   try {
     const packageRoot = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
     const srcSkillPath = join(packageRoot, "skill", "SKILL.md");
-    const destDir = join(homedir(), ".openclaw", "skills", "cortex-memory");
+    const destDir = join(homedir(), "skills", "cortex-memory");
     const destPath = join(destDir, "SKILL.md");
 
     // Check if source skill file exists
