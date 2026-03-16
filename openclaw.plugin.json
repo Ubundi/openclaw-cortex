@@ -2,7 +2,7 @@
   "id": "openclaw-cortex",
   "name": "Cortex Memory",
   "description": "Long-term memory powered by Cortex — Auto-Recall, Auto-Capture, agent memory tools, and deduplication",
-  "version": "2.8.2",
+  "version": "2.9.0",
   "configSchema": {
     "type": "object",
     "properties": {
@@ -121,7 +121,13 @@
       },
       "agentRole": {
         "type": "string",
-        "enum": ["developer", "researcher", "manager", "support", "generalist"],
+        "enum": [
+          "developer",
+          "researcher",
+          "manager",
+          "support",
+          "generalist"
+        ],
         "description": "Agent specialization that tunes capture categories, capture instructions, and recall context for the role."
       }
     }
