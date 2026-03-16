@@ -44,6 +44,8 @@ export const CortexConfigSchema = z.object({
   namespace: z.string().min(1).default("openclaw"),
   captureInstructions: z.string().max(2000).optional(),
   captureCategories: z.array(z.string().min(1).max(100)).max(20).optional(),
+  sessionGoal: z.boolean().default(true),
+  agentRole: z.enum(["developer", "researcher", "manager", "support", "generalist"]).optional(),
   /**
    * Optional fixed reference date (ISO 8601) to use as the temporal anchor for
    * all recall queries instead of `new Date()`. Useful when replaying historical

@@ -13,6 +13,7 @@ export interface DirtySessionState {
   sessionKey: string;
   updatedAt: string;
   summary?: string;
+  currentGoal?: string;
 }
 
 interface PersistedSessionState {
@@ -21,6 +22,7 @@ interface PersistedSessionState {
   sessionKey?: string;
   updatedAt?: string;
   summary?: string;
+  currentGoal?: string;
 }
 
 function extractContent(content: unknown): string {
@@ -73,6 +75,9 @@ export function formatRecoveryContext(state: DirtySessionState): string {
     `- Previous session: ${state.sessionKey}`,
     `- Last activity: ${state.updatedAt}`,
   ];
+  if (state.currentGoal) {
+    lines.push(`- Session goal: ${state.currentGoal}`);
+  }
   if (state.summary) {
     lines.push(`- Last known focus: ${state.summary}`);
   }
@@ -87,6 +92,7 @@ export class SessionStateStore {
     pluginSessionId: string;
     sessionKey: string;
     summary?: string;
+    currentGoal?: string;
   }): Promise<void> {
     const payload: DirtySessionState = {
       dirty: true,
@@ -94,6 +100,7 @@ export class SessionStateStore {
       sessionKey: state.sessionKey,
       updatedAt: new Date().toISOString(),
       summary: state.summary?.trim() || undefined,
+      currentGoal: state.currentGoal?.trim() || undefined,
     };
     await mkdir(dirname(this.filePath), { recursive: true });
     await writeFile(this.filePath, JSON.stringify(payload, null, 2), "utf-8");
@@ -120,6 +127,7 @@ export class SessionStateStore {
       sessionKey: state.sessionKey,
       updatedAt: state.updatedAt,
       summary: state.summary,
+      currentGoal: state.currentGoal,
     };
   }
 

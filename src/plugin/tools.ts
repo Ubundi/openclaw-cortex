@@ -9,6 +9,7 @@ import type { ToolDefinition, Logger } from "./types.js";
 import type { AuditLogger } from "../internal/audit-logger.js";
 import type { RecentSaves } from "../internal/dedupe.js";
 import type { KnowledgeState } from "./index.js";
+import type { SessionGoalStore } from "../internal/session-goal.js";
 import { formatMemories } from "../features/recall/formatter.js";
 import { coerceSearchMode, filterSearchResults, prepareSearchQuery } from "./search-query.js";
 
@@ -35,6 +36,8 @@ export interface ToolsDeps {
   auditLoggerProxy: AuditLogger;
   knowledgeState: KnowledgeState;
   recentSaves: RecentSaves | null;
+  sessionGoalStore: SessionGoalStore;
+  getRoleContext?: () => string | undefined;
 }
 
 type SearchScope = "all" | "session" | "long-term";
@@ -229,6 +232,7 @@ export function buildSearchMemoryTool(deps: ToolsDeps): ToolDefinition {
               queryType: prepared.queryType,
               memoryType: prepared.memoryType,
               ...(sessionFilter ? { sessionFilter } : {}),
+              ...(deps.getRoleContext?.() ? { context: deps.getRoleContext() } : {}),
             });
           } catch (err) {
             if (attempt < 1 && /50[23]/.test(String(err))) {
@@ -620,6 +624,51 @@ export function buildForgetMemoryTool(deps: ToolsDeps): ToolDefinition {
       }
 
       return { content: [{ type: "text", text: results.join("\n") }] };
+    },
+  };
+}
+
+export function buildSetSessionGoalTool(deps: ToolsDeps): ToolDefinition {
+  const { logger, sessionGoalStore } = deps;
+
+  return {
+    name: "cortex_set_session_goal",
+    description: "Set the current session's primary objective. This biases memory recall toward goal-relevant memories and tags captured facts with the goal for better future retrieval. Call this at session start after identifying the user's objective, and update it if the goal shifts.",
+    parameters: {
+      type: "object",
+      properties: {
+        goal: {
+          type: "string",
+          description: "The session's primary objective (e.g., 'Implement OAuth2 integration', 'Debug payment webhook failures')",
+        },
+        clear: {
+          type: "boolean",
+          description: "Clear the current session goal without setting a new one",
+        },
+      },
+    },
+    async execute(_id, params) {
+      const clear = params.clear === true;
+      const goal = typeof params.goal === "string" ? params.goal.trim() : "";
+
+      if (clear) {
+        sessionGoalStore.clear();
+        logger.info("Cortex session goal cleared");
+        return { content: [{ type: "text", text: "Session goal cleared." }] };
+      }
+
+      if (!goal || goal.length < 5) {
+        return { content: [{ type: "text", text: "Please provide a goal (at least 5 characters) or set clear=true to remove the current goal." }] };
+      }
+
+      sessionGoalStore.set({
+        goal,
+        setAt: new Date().toISOString(),
+        setBy: "agent",
+      });
+
+      logger.info(`Cortex session goal set: "${goal.slice(0, 80)}"`);
+      return { content: [{ type: "text", text: `Session goal set: ${goal}` }] };
     },
   };
 }

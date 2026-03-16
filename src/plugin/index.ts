@@ -30,7 +30,10 @@ import type {
   Logger,
 } from "./types.js";
 import { registerCliCommands } from "./cli.js";
-import { buildSearchMemoryTool, buildSaveMemoryTool, buildForgetMemoryTool, buildGetMemoryTool } from "./tools.js";
+import { buildSearchMemoryTool, buildSaveMemoryTool, buildForgetMemoryTool, buildGetMemoryTool, buildSetSessionGoalTool } from "./tools.js";
+import { SessionGoalStore } from "../internal/session-goal.js";
+import { getRolePreset, detectAgentRole } from "../internal/agent-roles.js";
+import type { AgentRole } from "../internal/agent-roles.js";
 import { buildCommands } from "./commands.js";
 
 const version = packageJson.version;
@@ -251,6 +254,7 @@ const CORTEX_TOOL_NAMES = [
   "cortex_get_memory",
   "cortex_save_memory",
   "cortex_forget",
+  "cortex_set_session_goal",
 ] as const;
 
 const PLUGIN_ID = "openclaw-cortex";
@@ -418,6 +422,20 @@ const plugin = {
     // Install the cortex-memory skill (idempotent, updates on version change)
     installSkill(api.logger);
 
+    // Resolve agent role preset — fills in captureCategories and captureInstructions
+    // unless the user explicitly provided them in their config.
+    // Mutable: start() may update these via auto-detection from bootstrap files.
+    let resolvedRole: AgentRole | undefined = config.agentRole as AgentRole | undefined;
+    let rolePreset = resolvedRole ? getRolePreset(resolvedRole) : undefined;
+    let effectiveCaptureCategories: string[] | undefined =
+      (Array.isArray(raw.captureCategories) ? raw.captureCategories as string[] : undefined)
+      ?? rolePreset?.captureCategories
+      ?? undefined;
+    let effectiveCaptureInstructions: string | undefined =
+      (typeof raw.captureInstructions === "string" ? raw.captureInstructions : undefined)
+      ?? rolePreset?.captureInstructions
+      ?? undefined;
+
     const client = new CortexClient(config.baseUrl, resolvedApiKey);
     const retryQueue = new RetryQueue(api.logger);
     const recallMetrics = new LatencyMetrics();
@@ -429,6 +447,7 @@ const plugin = {
       maturity: "unknown",
       lastChecked: 0,
     };
+    const sessionGoalStore = new SessionGoalStore();
 
     // Session ID for this plugin lifecycle — groups tool-saved memories into
     // a single Cortex SESSION node so total_sessions increments properly.
@@ -503,6 +522,7 @@ const plugin = {
 
     // Track last messages for /checkpoint command (populated by agent_end wrapper)
     let lastMessages: unknown[] = [];
+    let previousSessionKey: string | undefined;
     const recoveryCheckedSessions = new Set<string>();
     const recallHandler = createRecallHandler(
       client,
@@ -519,6 +539,8 @@ const plugin = {
         persistStats(sessionStats);
       },
       echoStore,
+      sessionGoalStore,
+      () => rolePreset?.recallContext,
     );
 
     // Auto-Recall: inject relevant memories before every agent turn
@@ -530,6 +552,13 @@ const plugin = {
         ctx: { sessionKey?: string; sessionId?: string },
       ) => {
         const activeSessionKey = resolveSessionKey(ctx, sessionId);
+        // Clear session goal when switching to a new session (e.g. /new)
+        // so the previous chat's goal doesn't bias the new session's recall/capture.
+        if (previousSessionKey && previousSessionKey !== activeSessionKey) {
+          sessionGoalStore.clear();
+          api.logger.debug?.("Cortex session goal cleared (session changed)");
+        }
+        previousSessionKey = activeSessionKey;
         currentSessionKey = activeSessionKey;
         let recoveryContext: string | undefined;
 
@@ -539,6 +568,14 @@ const plugin = {
             const dirty = await sessionState.readDirtyFromPriorLifecycle(sessionId);
             if (dirty) {
               recoveryContext = formatRecoveryContext(dirty);
+              if (dirty.currentGoal && !sessionGoalStore.get()) {
+                sessionGoalStore.set({
+                  goal: dirty.currentGoal,
+                  setAt: dirty.updatedAt,
+                  setBy: "agent",
+                });
+                api.logger.info(`Cortex recovery: restored session goal "${dirty.currentGoal.slice(0, 60)}"`);
+              }
               await sessionState.clear();
               api.logger.warn(`Cortex recovery: detected unclean previous session (${dirty.sessionKey})`);
             }
@@ -565,7 +602,7 @@ const plugin = {
     // Auto-Capture: extract facts after agent responses
     const watermarkStore = new CaptureWatermarkStore();
     void watermarkStore.load().catch((err) => api.logger.debug?.(`Cortex watermark load failed: ${String(err)}`));
-    const captureHandler = createCaptureHandler(client, config, api.logger, retryQueue, knowledgeState, () => userId, userIdReady, sessionId, auditLoggerProxy, echoStore, watermarkStore);
+    const captureHandler = createCaptureHandler(client, config, api.logger, retryQueue, knowledgeState, () => userId, userIdReady, sessionId, auditLoggerProxy, echoStore, watermarkStore, sessionGoalStore);
     registerHookCompat(
       api,
       "agent_end",
@@ -580,6 +617,7 @@ const plugin = {
               pluginSessionId: sessionId,
               sessionKey: activeSessionKey,
               summary,
+              currentGoal: sessionGoalStore.get()?.goal,
             });
           } catch (err) {
             api.logger.debug?.(`Cortex session state update failed: ${String(err)}`);
@@ -660,14 +698,17 @@ const plugin = {
         auditLoggerProxy,
         knowledgeState,
         recentSaves,
+        sessionGoalStore,
+        getRoleContext: () => rolePreset?.recallContext,
       };
 
       api.registerTool(buildSearchMemoryTool(toolsDeps));
       api.registerTool(buildGetMemoryTool(toolsDeps));
       api.registerTool(buildSaveMemoryTool(toolsDeps));
       api.registerTool(buildForgetMemoryTool(toolsDeps));
+      api.registerTool(buildSetSessionGoalTool(toolsDeps));
 
-      api.logger.debug?.("Cortex tools registered: cortex_search_memory, cortex_get_memory, cortex_save_memory, cortex_forget");
+      api.logger.debug?.("Cortex tools registered: cortex_search_memory, cortex_get_memory, cortex_save_memory, cortex_forget, cortex_set_session_goal");
     }
 
     // --- Auto-Reply Commands ---
@@ -809,11 +850,33 @@ const plugin = {
           api.logger.debug?.(`Cortex namespace: ${namespace}`);
         }
 
+        // Auto-detect agent role from bootstrap files when not explicitly configured.
+        // Scans SOUL.md, AGENTS.md, USER.md, IDENTITY.md for role-indicating keywords.
+        if (!resolvedRole && ctx.workspaceDir) {
+          void detectAgentRole(ctx.workspaceDir).then((detected) => {
+            if (detected) {
+              resolvedRole = detected;
+              rolePreset = getRolePreset(detected);
+              // Only fill in capture settings if user didn't provide them explicitly
+              if (!effectiveCaptureCategories && rolePreset.captureCategories.length > 0) {
+                effectiveCaptureCategories = rolePreset.captureCategories;
+              }
+              if (!effectiveCaptureInstructions && rolePreset.captureInstructions) {
+                effectiveCaptureInstructions = rolePreset.captureInstructions;
+              }
+              api.logger.info(`Cortex: auto-detected agent role "${detected}" from bootstrap files`);
+            }
+          }).catch((err) => {
+            api.logger.debug?.(`Cortex: role auto-detection failed (non-fatal): ${String(err)}`);
+          });
+        }
+
         // Inject Cortex instructions into AGENTS.md (idempotent)
         if (ctx.workspaceDir) {
           void injectAgentInstructions(ctx.workspaceDir, api.logger, {
-            captureInstructions: config.captureInstructions,
-            captureCategories: config.captureCategories,
+            captureInstructions: effectiveCaptureInstructions,
+            captureCategories: effectiveCaptureCategories,
+            agentRole: resolvedRole,
           });
         }
 

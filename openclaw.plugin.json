@@ -113,6 +113,16 @@
         "items": {
           "type": "string"
         }
+      },
+      "sessionGoal": {
+        "type": "boolean",
+        "description": "Enable session goal detection and injection into recall and capture pipelines",
+        "default": true
+      },
+      "agentRole": {
+        "type": "string",
+        "enum": ["developer", "researcher", "manager", "support", "generalist"],
+        "description": "Agent specialization that tunes capture categories, capture instructions, and recall context for the role."
       }
     }
   },
@@ -204,6 +214,14 @@
       "label": "Capture Categories",
       "advanced": true,
       "helpText": "Highlights categories the agent should especially watch for when deciding what to save to memory."
+    },
+    "sessionGoal": {
+      "label": "Session Goal",
+      "helpText": "When enabled, the agent sets a session goal that biases recall toward relevant memories and tags captured facts."
+    },
+    "agentRole": {
+      "label": "Agent Role",
+      "helpText": "Tunes memory capture and recall for a specific focus area. Leave unset for general-purpose behavior."
     }
   }
 }

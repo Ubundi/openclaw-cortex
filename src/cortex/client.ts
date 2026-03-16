@@ -403,7 +403,7 @@ export class CortexClient {
     mode: "fast" | "full",
     timeoutMs: number,
     queryType?: QueryType,
-    options?: { referenceDate?: string; debug?: boolean; userId?: string; sessionId?: string; forceTier?: 1 | 2 | 3 },
+    options?: { referenceDate?: string; debug?: boolean; userId?: string; sessionId?: string; forceTier?: 1 | 2 | 3; sessionGoal?: string },
   ): Promise<RetrieveResponse> {
     return this.fetchJsonWithTimeout<RetrieveResponse>(
       `${this.baseUrl}/v1/retrieve`,
@@ -417,6 +417,7 @@ export class CortexClient {
         ...(options?.userId ? { user_id: options.userId } : {}),
         ...(options?.sessionId ? { session_id: options.sessionId } : {}),
         ...(options?.forceTier ? { force_tier: options.forceTier } : {}),
+        ...(options?.sessionGoal ? { session_goal: options.sessionGoal } : {}),
       },
       timeoutMs,
       "retrieve",
@@ -522,6 +523,7 @@ export class CortexClient {
     derivationMode = DEFAULT_DERIVATION_MODE,
     sourceChannel?: string,
     originSessionId?: string,
+    sessionGoal?: string,
   ): Promise<JobSubmitResponse> {
     return this.fetchJsonWithTimeout<JobSubmitResponse>(
       `${this.baseUrl}/v1/jobs/ingest/conversation`,
@@ -530,6 +532,7 @@ export class CortexClient {
         session_id: sessionId,
         reference_date: referenceDate ?? null,
         ...this.buildIngestProvenance(userId, sourceOrigin, derivationMode, sourceApp, sourceChannel, originSessionId),
+        ...(sessionGoal ? { session_goal: sessionGoal } : {}),
       },
       DEFAULT_SUBMIT_TIMEOUT_MS,
       "jobs/ingest/conversation",

@@ -13,6 +13,7 @@ import {
   filterConversationMessagesForMemory,
   shouldUseUserMessageForMemory,
 } from "../../internal/message-provenance.js";
+import type { SessionGoalStore } from "../../internal/session-goal.js";
 
 interface BeforeAgentStartEvent {
   prompt: string;
@@ -155,6 +156,23 @@ function buildRecentConversationContext(
   return recent.length > MAX_CONTEXT_CHARS ? recent.slice(-MAX_CONTEXT_CHARS) : recent;
 }
 
+function mergeGoalRoleAndProfileContext(
+  goal: string | undefined,
+  roleContext: string | undefined,
+  profileContext: string | undefined,
+): string | undefined {
+  // Profile context (e.g. recent conversation lines for factual queries) goes
+  // first so it isn't trimmed when mergeQueryAndContext() truncates from the
+  // tail near the 2 000-char limit. Goal and role are shorter, lower-priority
+  // context that can afford to be clipped.
+  const parts = [
+    profileContext,
+    goal ? `Session goal: ${goal}` : undefined,
+    roleContext ? `Agent focus: ${roleContext}` : undefined,
+  ].filter(Boolean) as string[];
+  return parts.length > 0 ? parts.join("\n") : undefined;
+}
+
 function mergeQueryAndContext(query: string, context: string | undefined): string {
   if (!context) return query;
   const cleaned = context.trim();
@@ -231,6 +249,8 @@ export function createRecallHandler(
   auditLogger?: AuditLogger,
   onRecallStats?: (stats: RecallStats) => void,
   echoStore?: RecallEchoStore,
+  sessionGoalStore?: SessionGoalStore,
+  getRoleContext?: () => string | undefined,
 ) {
   const recallMetrics = metrics ?? new LatencyMetrics();
   let consecutiveFailures = 0;
@@ -362,6 +382,14 @@ export function createRecallHandler(
         ? buildRecentConversationContext(event.messages, prompt)
         : undefined;
       const profileParams = getProfileParams(profile, config, factualContext);
+      const activeGoal = config.sessionGoal ? sessionGoalStore?.get()?.goal : undefined;
+      // Merge session goal and role context into profile context for the fallback
+      // broad-recall path (/v1/recall doesn't have dedicated parameters).
+      // The primary /v1/retrieve path uses the dedicated session_goal parameter.
+      const mergedContext = mergeGoalRoleAndProfileContext(activeGoal, getRoleContext?.(), profileParams.context);
+      if (mergedContext) {
+        profileParams.context = mergedContext;
+      }
       const retrieveQuery = mergeQueryAndContext(prompt, profileParams.context);
       logger.debug?.(`Cortex recall: profile=${profile}`);
 
@@ -371,6 +399,7 @@ export function createRecallHandler(
         // so no user config is needed. config.recallReferenceDate is a fallback override.
         referenceDate: embeddedDate ?? config.recallReferenceDate ?? new Date().toISOString(),
         userId: currentUserId,
+        sessionGoal: activeGoal,
       };
 
       if (auditLogger) {
