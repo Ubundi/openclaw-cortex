@@ -8,6 +8,7 @@ const MARKER_END = "<!-- /cortex-memory -->";
 export interface CortexInstructionOptions {
   captureInstructions?: string;
   captureCategories?: string[];
+  agentRole?: string;
 }
 
 function buildCustomSaveGuidance(opts?: CortexInstructionOptions): string {
@@ -56,7 +57,7 @@ You have long-term memory powered by the Cortex plugin. Refer to the **cortex-me
 - New facts are auto-captured after each turn (volatile state like versions/ports is stripped).
 - Tools: \`cortex_search_memory\`, \`cortex_save_memory\`, \`cortex_forget\`, \`cortex_get_memory\`.
 - Commands: \`/checkpoint\` (save session summary), \`/sleep\` (clean session end), \`/audit\` (toggle API logging).
-- At session start, identify the user's primary objective and call \`cortex_set_session_goal\` to set it. Update if the goal shifts.
+- At session start, identify the user's primary objective and call \`cortex_set_session_goal\` to set it. Update if the goal shifts.${opts?.agentRole ? `\n- Agent role: ${opts.agentRole} — memory capture and recall are tuned for this focus area.` : ""}
 - For volatile facts (versions, ports, config), verify against live workspace — don't rely solely on memory.
 - Never save your own inferences as facts. Only save what the user explicitly stated.
 - Always confirm with the user before forgetting memories.${customSaveGuidance}

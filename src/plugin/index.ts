@@ -32,6 +32,8 @@ import type {
 import { registerCliCommands } from "./cli.js";
 import { buildSearchMemoryTool, buildSaveMemoryTool, buildForgetMemoryTool, buildGetMemoryTool, buildSetSessionGoalTool } from "./tools.js";
 import { SessionGoalStore } from "../internal/session-goal.js";
+import { getRolePreset } from "../internal/agent-roles.js";
+import type { AgentRole } from "../internal/agent-roles.js";
 import { buildCommands } from "./commands.js";
 
 const version = packageJson.version;
@@ -420,6 +422,18 @@ const plugin = {
     // Install the cortex-memory skill (idempotent, updates on version change)
     installSkill(api.logger);
 
+    // Resolve agent role preset — fills in captureCategories and captureInstructions
+    // unless the user explicitly provided them in their config.
+    const rolePreset = config.agentRole ? getRolePreset(config.agentRole as AgentRole) : undefined;
+    const effectiveCaptureCategories: string[] | undefined =
+      (Array.isArray(raw.captureCategories) ? raw.captureCategories as string[] : undefined)
+      ?? rolePreset?.captureCategories
+      ?? undefined;
+    const effectiveCaptureInstructions: string | undefined =
+      (typeof raw.captureInstructions === "string" ? raw.captureInstructions : undefined)
+      ?? rolePreset?.captureInstructions
+      ?? undefined;
+
     const client = new CortexClient(config.baseUrl, resolvedApiKey);
     const retryQueue = new RetryQueue(api.logger);
     const recallMetrics = new LatencyMetrics();
@@ -524,6 +538,7 @@ const plugin = {
       },
       echoStore,
       sessionGoalStore,
+      rolePreset?.recallContext,
     );
 
     // Auto-Recall: inject relevant memories before every agent turn
@@ -682,6 +697,7 @@ const plugin = {
         knowledgeState,
         recentSaves,
         sessionGoalStore,
+        roleContext: rolePreset?.recallContext,
       };
 
       api.registerTool(buildSearchMemoryTool(toolsDeps));
@@ -835,8 +851,9 @@ const plugin = {
         // Inject Cortex instructions into AGENTS.md (idempotent)
         if (ctx.workspaceDir) {
           void injectAgentInstructions(ctx.workspaceDir, api.logger, {
-            captureInstructions: config.captureInstructions,
-            captureCategories: config.captureCategories,
+            captureInstructions: effectiveCaptureInstructions,
+            captureCategories: effectiveCaptureCategories,
+            agentRole: config.agentRole,
           });
         }
 

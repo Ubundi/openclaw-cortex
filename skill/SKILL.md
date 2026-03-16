@@ -59,6 +59,12 @@ At the start of each session, identify the user's primary objective and set it:
 - Quick Q&A sessions with no clear project objective
 - When the user is explicitly exploring/browsing without direction
 
+## Agent Roles
+
+If your plugin config includes `agentRole`, capture and recall are tuned for that focus area. Available roles: `developer`, `researcher`, `manager`, `support`, `generalist`.
+
+The role auto-configures which categories of information are prioritized for capture and biases recall toward domain-relevant memories. You can override `captureCategories` and `captureInstructions` in config to customize further.
+
 ## Tools
 
 You have five memory tools available:

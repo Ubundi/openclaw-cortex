@@ -156,10 +156,21 @@ function buildRecentConversationContext(
   return recent.length > MAX_CONTEXT_CHARS ? recent.slice(-MAX_CONTEXT_CHARS) : recent;
 }
 
-function mergeGoalAndProfileContext(goal: string | undefined, profileContext: string | undefined): string | undefined {
-  if (goal && profileContext) return `Session goal: ${goal}\n${profileContext}`;
-  if (goal) return `Session goal: ${goal}`;
-  return profileContext;
+function mergeGoalRoleAndProfileContext(
+  goal: string | undefined,
+  roleContext: string | undefined,
+  profileContext: string | undefined,
+): string | undefined {
+  // Profile context (e.g. recent conversation lines for factual queries) goes
+  // first so it isn't trimmed when mergeQueryAndContext() truncates from the
+  // tail near the 2 000-char limit. Goal and role are shorter, lower-priority
+  // context that can afford to be clipped.
+  const parts = [
+    profileContext,
+    goal ? `Session goal: ${goal}` : undefined,
+    roleContext ? `Agent focus: ${roleContext}` : undefined,
+  ].filter(Boolean) as string[];
+  return parts.length > 0 ? parts.join("\n") : undefined;
 }
 
 function mergeQueryAndContext(query: string, context: string | undefined): string {
@@ -239,6 +250,7 @@ export function createRecallHandler(
   onRecallStats?: (stats: RecallStats) => void,
   echoStore?: RecallEchoStore,
   sessionGoalStore?: SessionGoalStore,
+  roleContext?: string,
 ) {
   const recallMetrics = metrics ?? new LatencyMetrics();
   let consecutiveFailures = 0;
@@ -371,11 +383,12 @@ export function createRecallHandler(
         : undefined;
       const profileParams = getProfileParams(profile, config, factualContext);
       const activeGoal = config.sessionGoal ? sessionGoalStore?.get()?.goal : undefined;
-      // Merge session goal into profile context for the fallback broad-recall
-      // path (/v1/recall doesn't have a dedicated session_goal parameter).
-      // The primary /v1/retrieve path uses the dedicated parameter instead.
-      if (activeGoal) {
-        profileParams.context = mergeGoalAndProfileContext(activeGoal, profileParams.context);
+      // Merge session goal and role context into profile context for the fallback
+      // broad-recall path (/v1/recall doesn't have dedicated parameters).
+      // The primary /v1/retrieve path uses the dedicated session_goal parameter.
+      const mergedContext = mergeGoalRoleAndProfileContext(activeGoal, roleContext, profileParams.context);
+      if (mergedContext) {
+        profileParams.context = mergedContext;
       }
       const retrieveQuery = mergeQueryAndContext(prompt, profileParams.context);
       logger.debug?.(`Cortex recall: profile=${profile}`);

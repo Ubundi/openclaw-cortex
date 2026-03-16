@@ -37,6 +37,7 @@ export interface ToolsDeps {
   knowledgeState: KnowledgeState;
   recentSaves: RecentSaves | null;
   sessionGoalStore: SessionGoalStore;
+  roleContext?: string;
 }
 
 type SearchScope = "all" | "session" | "long-term";
@@ -231,6 +232,7 @@ export function buildSearchMemoryTool(deps: ToolsDeps): ToolDefinition {
               queryType: prepared.queryType,
               memoryType: prepared.memoryType,
               ...(sessionFilter ? { sessionFilter } : {}),
+              ...(deps.roleContext ? { context: deps.roleContext } : {}),
             });
           } catch (err) {
             if (attempt < 1 && /50[23]/.test(String(err))) {

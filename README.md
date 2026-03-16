@@ -127,6 +127,7 @@ Add to your `openclaw.json`:
 | `noveltyThreshold`       | number  | `0.85`       | Similarity score (0–1) above which an existing memory is considered a duplicate. Lower = stricter. |
 | `namespace`              | string  | `"openclaw"` | Memory namespace. Auto-derived from workspace directory when not set explicitly.                 |
 | `sessionGoal`            | boolean | `true`       | Enable session goal detection. When active, the agent sets a goal that biases recall and tags captures. |
+| `agentRole`              | string  | —            | Agent specialization: `"developer"`, `"researcher"`, `"manager"`, `"support"`, `"generalist"`. Tunes capture categories and recall context. |
 
 ## How It Works
 
