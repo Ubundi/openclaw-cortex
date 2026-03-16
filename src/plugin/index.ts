@@ -32,7 +32,7 @@ import type {
 import { registerCliCommands } from "./cli.js";
 import { buildSearchMemoryTool, buildSaveMemoryTool, buildForgetMemoryTool, buildGetMemoryTool, buildSetSessionGoalTool } from "./tools.js";
 import { SessionGoalStore } from "../internal/session-goal.js";
-import { getRolePreset } from "../internal/agent-roles.js";
+import { getRolePreset, detectAgentRole } from "../internal/agent-roles.js";
 import type { AgentRole } from "../internal/agent-roles.js";
 import { buildCommands } from "./commands.js";
 
@@ -424,12 +424,14 @@ const plugin = {
 
     // Resolve agent role preset — fills in captureCategories and captureInstructions
     // unless the user explicitly provided them in their config.
-    const rolePreset = config.agentRole ? getRolePreset(config.agentRole as AgentRole) : undefined;
-    const effectiveCaptureCategories: string[] | undefined =
+    // Mutable: start() may update these via auto-detection from bootstrap files.
+    let resolvedRole: AgentRole | undefined = config.agentRole as AgentRole | undefined;
+    let rolePreset = resolvedRole ? getRolePreset(resolvedRole) : undefined;
+    let effectiveCaptureCategories: string[] | undefined =
       (Array.isArray(raw.captureCategories) ? raw.captureCategories as string[] : undefined)
       ?? rolePreset?.captureCategories
       ?? undefined;
-    const effectiveCaptureInstructions: string | undefined =
+    let effectiveCaptureInstructions: string | undefined =
       (typeof raw.captureInstructions === "string" ? raw.captureInstructions : undefined)
       ?? rolePreset?.captureInstructions
       ?? undefined;
@@ -538,7 +540,7 @@ const plugin = {
       },
       echoStore,
       sessionGoalStore,
-      rolePreset?.recallContext,
+      () => rolePreset?.recallContext,
     );
 
     // Auto-Recall: inject relevant memories before every agent turn
@@ -697,7 +699,7 @@ const plugin = {
         knowledgeState,
         recentSaves,
         sessionGoalStore,
-        roleContext: rolePreset?.recallContext,
+        getRoleContext: () => rolePreset?.recallContext,
       };
 
       api.registerTool(buildSearchMemoryTool(toolsDeps));
@@ -848,12 +850,33 @@ const plugin = {
           api.logger.debug?.(`Cortex namespace: ${namespace}`);
         }
 
+        // Auto-detect agent role from bootstrap files when not explicitly configured.
+        // Scans SOUL.md, AGENTS.md, USER.md, IDENTITY.md for role-indicating keywords.
+        if (!resolvedRole && ctx.workspaceDir) {
+          void detectAgentRole(ctx.workspaceDir).then((detected) => {
+            if (detected) {
+              resolvedRole = detected;
+              rolePreset = getRolePreset(detected);
+              // Only fill in capture settings if user didn't provide them explicitly
+              if (!effectiveCaptureCategories && rolePreset.captureCategories.length > 0) {
+                effectiveCaptureCategories = rolePreset.captureCategories;
+              }
+              if (!effectiveCaptureInstructions && rolePreset.captureInstructions) {
+                effectiveCaptureInstructions = rolePreset.captureInstructions;
+              }
+              api.logger.info(`Cortex: auto-detected agent role "${detected}" from bootstrap files`);
+            }
+          }).catch((err) => {
+            api.logger.debug?.(`Cortex: role auto-detection failed (non-fatal): ${String(err)}`);
+          });
+        }
+
         // Inject Cortex instructions into AGENTS.md (idempotent)
         if (ctx.workspaceDir) {
           void injectAgentInstructions(ctx.workspaceDir, api.logger, {
             captureInstructions: effectiveCaptureInstructions,
             captureCategories: effectiveCaptureCategories,
-            agentRole: config.agentRole,
+            agentRole: resolvedRole,
           });
         }
 

@@ -250,7 +250,7 @@ export function createRecallHandler(
   onRecallStats?: (stats: RecallStats) => void,
   echoStore?: RecallEchoStore,
   sessionGoalStore?: SessionGoalStore,
-  roleContext?: string,
+  getRoleContext?: () => string | undefined,
 ) {
   const recallMetrics = metrics ?? new LatencyMetrics();
   let consecutiveFailures = 0;
@@ -386,7 +386,7 @@ export function createRecallHandler(
       // Merge session goal and role context into profile context for the fallback
       // broad-recall path (/v1/recall doesn't have dedicated parameters).
       // The primary /v1/retrieve path uses the dedicated session_goal parameter.
-      const mergedContext = mergeGoalRoleAndProfileContext(activeGoal, roleContext, profileParams.context);
+      const mergedContext = mergeGoalRoleAndProfileContext(activeGoal, getRoleContext?.(), profileParams.context);
       if (mergedContext) {
         profileParams.context = mergedContext;
       }
