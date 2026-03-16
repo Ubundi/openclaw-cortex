@@ -1,6 +1,7 @@
 ---
 name: cortex-memory
 description: Long-term memory system for OpenClaw agents — auto-recalls past context before each turn, auto-captures new facts after each turn, and provides tools for explicit search, save, forget, and lookup operations.
+tools: ["cortex"]
 user-invocable: false
 ---
 
@@ -165,3 +166,11 @@ Recalled memories include a confidence score (e.g., `[0.85]`). Higher scores ind
 - Prioritize which memories to reference when multiple are relevant
 - Be more cautious about lower-confidence recalls
 - Decide whether to verify with a live check
+
+## Error Handling
+
+If Cortex is unreachable (API timeout, network error, service outage):
+- **Auto-recall silently degrades** — the turn proceeds without injected memories. You won't see `<cortex_memories>` tags but the conversation continues normally.
+- **Auto-capture retries in the background** — failed captures are queued and retried automatically. No user action needed.
+- **Explicit tool calls will return an error** — if `cortex_search_memory`, `cortex_save_memory`, etc. fail, tell the user Cortex is temporarily unavailable and proceed without memory. Don't retry in a loop.
+- **Don't hallucinate memories** — if recall is missing due to an outage, say you don't have access to past context right now rather than guessing.
