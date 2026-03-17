@@ -123,7 +123,7 @@ export function registerCliCommands(
           // Recall
           try {
             const startRecall = Date.now();
-            await client.recall("test", 5000, { limit: 1, userId });
+            await client.recall("test", 15_000, { limit: 1, userId });
             const ms = Date.now() - startRecall;
             console.log(`  Recall:         OK (${ms}ms)`);
           } catch (err) {
@@ -133,7 +133,7 @@ export function registerCliCommands(
           // Retrieve
           try {
             const startRetrieve = Date.now();
-            await client.retrieve("test", 1, "fast", 5000, undefined, { userId });
+            await client.retrieve("test", 1, "fast", 15_000, undefined, { userId });
             const ms = Date.now() - startRetrieve;
             console.log(`  Retrieve:       OK (${ms}ms)`);
           } catch (err) {
