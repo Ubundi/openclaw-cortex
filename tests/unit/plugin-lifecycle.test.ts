@@ -386,11 +386,11 @@ describe("plugin lifecycle contract", () => {
 
     const beforeTurn = await hooks.before_agent_start[0](
       {
-        prompt: "keep going with this conversation",
+        prompt: "I've been rethinking what kind of work I want this year.",
         messages: [
           {
             role: "user",
-            content: "keep going with this conversation",
+            content: "I've been rethinking what kind of work I want this year and what would actually feel meaningful.",
             provenance: { kind: "external_user" },
           },
         ],
@@ -423,6 +423,39 @@ describe("plugin lifecycle contract", () => {
         },
       ],
     });
+  });
+
+  it("does not inject bridge guidance for technical turns even when linked", async () => {
+    vi.spyOn(CortexClient.prototype, "getLinkStatus").mockResolvedValue({
+      linked: true,
+      link: {
+        tootoo_user_id: "tt-user-1",
+        linked_at: "2026-03-01T10:00:00Z",
+      },
+    });
+
+    const { api, hooks } = makeApi({
+      userId: "agent-user-1",
+    });
+
+    plugin.register(api as any);
+    await flushMicrotasks();
+
+    const beforeTurn = await hooks.before_agent_start[0](
+      {
+        prompt: "Fix the Redis cache TTL bug and add a regression test.",
+        messages: [
+          {
+            role: "user",
+            content: "Fix the Redis cache TTL bug in the worker and add a regression test for it.",
+            provenance: { kind: "external_user" },
+          },
+        ],
+      },
+      { sessionKey: "sess-technical" },
+    );
+
+    expect(beforeTurn).toBeUndefined();
   });
 
   it("leaves unlinked users unchanged for bridge behavior", async () => {

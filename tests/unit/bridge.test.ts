@@ -67,6 +67,193 @@ describe("TooToo bridge handler", () => {
     expect(buildTooTooBridgePrompt()).toContain("explicit user answers");
   });
 
+  it("only invites bridge prompts on reflective turns", async () => {
+    const client = makeClient();
+    const handler = createBridgeHandler(client, {
+      logger,
+      getUserId: () => "agent-user-1",
+      userIdReady: Promise.resolve(),
+      pluginSessionId: "plugin-session-1",
+    });
+
+    await expect(handler.shouldInjectPrompt({
+      prompt: "I've been rethinking what I want from work this year.",
+      messages: [
+        {
+          role: "user",
+          content: "I've been rethinking what I want from work this year and what would actually feel meaningful.",
+          provenance: { kind: "external_user" },
+        },
+      ],
+      sessionKey: "sess-reflective",
+    })).resolves.toBe(true);
+
+    await expect(handler.shouldInjectPrompt({
+      prompt: "Fix the Redis cache TTL bug and add a regression test.",
+      messages: [
+        {
+          role: "user",
+          content: "Fix the Redis cache TTL bug in the worker and add a regression test for it.",
+          provenance: { kind: "external_user" },
+        },
+      ],
+      sessionKey: "sess-technical",
+    })).resolves.toBe(false);
+
+    await expect(handler.shouldInjectPrompt({
+      prompt: "I'm feeling stuck (especially at work).",
+      messages: [
+        {
+          role: "user",
+          content: "I'm feeling stuck (especially at work).",
+          provenance: { kind: "external_user" },
+        },
+      ],
+      sessionKey: "sess-punctuation",
+    })).resolves.toBe(true);
+
+    await expect(handler.shouldInjectPrompt({
+      prompt: "I want to simplify the migration path this week.",
+      messages: [
+        {
+          role: "user",
+          content: "I want to simplify the migration path this week and reduce rollout risk.",
+          provenance: { kind: "external_user" },
+        },
+      ],
+      sessionKey: "sess-work-planning",
+    })).resolves.toBe(false);
+  });
+
+  it("suppresses repeated bridge prompts on nearby turns in the same session", async () => {
+    const client = makeClient();
+    const handler = createBridgeHandler(client, {
+      logger,
+      getUserId: () => "agent-user-1",
+      userIdReady: Promise.resolve(),
+      pluginSessionId: "plugin-session-1",
+    });
+
+    await expect(handler.shouldInjectPrompt({
+      prompt: "I've been rethinking the kind of life I want to build.",
+      messages: [
+        {
+          role: "user",
+          content: "I've been rethinking the kind of life I want to build and what would feel genuinely aligned.",
+          provenance: { kind: "external_user" },
+        },
+      ],
+      sessionKey: "sess-cooldown",
+    })).resolves.toBe(true);
+
+    await expect(handler.shouldInjectPrompt({
+      prompt: "I'm still trying to figure out what matters most to me in my work.",
+      messages: [
+        {
+          role: "user",
+          content: "I'm still trying to figure out what matters most to me in my work and where I should focus next.",
+          provenance: { kind: "external_user" },
+        },
+      ],
+      sessionKey: "sess-cooldown",
+    })).resolves.toBe(true);
+  });
+
+  it("starts cooldown only after the assistant actually asks a qualifying question", async () => {
+    const client = makeClient();
+    const handler = createBridgeHandler(client, {
+      logger,
+      getUserId: () => "agent-user-1",
+      userIdReady: Promise.resolve(),
+      pluginSessionId: "plugin-session-1",
+    });
+
+    await expect(handler.shouldInjectPrompt({
+      prompt: "I've been rethinking the kind of life I want to build.",
+      messages: [
+        {
+          role: "user",
+          content: "I've been rethinking the kind of life I want to build and what would feel genuinely aligned.",
+          provenance: { kind: "external_user" },
+        },
+      ],
+      sessionKey: "sess-question-cooldown",
+    })).resolves.toBe(true);
+
+    await expect(handler.shouldInjectPrompt({
+      prompt: "I'm still trying to figure out what matters most to me.",
+      messages: [
+        {
+          role: "user",
+          content: "I'm still trying to figure out what matters most to me and what kind of future I want.",
+          provenance: { kind: "external_user" },
+        },
+      ],
+      sessionKey: "sess-question-cooldown",
+    })).resolves.toBe(true);
+
+    await handler.handleAgentEnd({
+      messages: [
+        { role: "user", content: "I want to understand myself better." },
+        { role: "assistant", content: "What do you value most in your work?" },
+      ],
+      aborted: false,
+      sessionKey: "sess-question-cooldown",
+    });
+
+    await expect(handler.shouldInjectPrompt({
+      prompt: "I'm also wondering what kind of future I want from all this.",
+      messages: [
+        {
+          role: "user",
+          content: "I'm also wondering what kind of future I want from all this and what I should optimize for.",
+          provenance: { kind: "external_user" },
+        },
+      ],
+      sessionKey: "sess-question-cooldown",
+    })).resolves.toBe(false);
+  });
+
+  it("extends prompt suppression after a bridge answer is captured", async () => {
+    const client = makeClient();
+    const handler = createBridgeHandler(client, {
+      logger,
+      getUserId: () => "agent-user-1",
+      userIdReady: Promise.resolve(),
+      pluginSessionId: "plugin-session-1",
+    });
+
+    await expect(handler.shouldInjectPrompt({
+      prompt: "I've been rethinking what kind of work I want this year.",
+      messages: [
+        {
+          role: "user",
+          content: "I've been rethinking what kind of work I want this year and what would actually feel sustainable.",
+          provenance: { kind: "external_user" },
+        },
+      ],
+      sessionKey: "sess-after-answer",
+    })).resolves.toBe(true);
+
+    await handler.handleAgentEnd({
+      messages: discoveryExchangeMessages(),
+      aborted: false,
+      sessionKey: "sess-after-answer",
+    });
+
+    await expect(handler.shouldInjectPrompt({
+      prompt: "I'm also wondering what kind of future I want from all this.",
+      messages: [
+        {
+          role: "user",
+          content: "I'm also wondering what kind of future I want from all this and what I should optimize for.",
+          provenance: { kind: "external_user" },
+        },
+      ],
+      sessionKey: "sess-after-answer",
+    })).resolves.toBe(false);
+  });
+
   it("returns no prompt and skips submission for unlinked users", async () => {
     const client = makeClient({
       getLinkStatus: vi.fn().mockResolvedValue({ linked: false }),

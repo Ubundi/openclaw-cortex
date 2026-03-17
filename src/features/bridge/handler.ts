@@ -5,7 +5,11 @@ import type {
   CortexClient,
 } from "../../cortex/client.js";
 import type { AuditLogger } from "../../internal/audit-logger.js";
-import { filterConversationMessagesForMemory } from "../../internal/message-provenance.js";
+import { isHeartbeatTurn } from "../../internal/heartbeat-detect.js";
+import {
+  filterConversationMessagesForMemory,
+  shouldUseUserMessageForMemory,
+} from "../../internal/message-provenance.js";
 import type { RetryQueue } from "../../internal/retry-queue.js";
 import { isLowSignal, sanitizeConversationText } from "../capture/filter.js";
 
@@ -45,6 +49,20 @@ interface AgentEndEvent {
   sessionId?: string;
 }
 
+interface BridgePromptEvent {
+  prompt?: string;
+  messages?: unknown[];
+  sessionKey?: string;
+  sessionId?: string;
+}
+
+interface BridgeSessionState {
+  userTurns: number;
+  lastQuestionTurn?: number;
+  lastQuestionAt?: number;
+  lastAnsweredTurn?: number;
+}
+
 export interface CreateBridgeHandlerOptions {
   logger: Logger;
   retryQueue?: RetryQueue;
@@ -60,11 +78,23 @@ const HANDLED_REQUEST_MAX = 1000;
 const MIN_ANSWER_CHARS = 5;
 const MAX_QUESTION_CHARS = 400;
 const MAX_ANSWER_CHARS = 5000;
+const MIN_REFLECTIVE_MESSAGE_CHARS = 24;
+const MIN_REFLECTIVE_MESSAGE_WORDS = 5;
+const BRIDGE_QUESTION_COOLDOWN_TURNS = 4;
+const BRIDGE_ANSWER_COOLDOWN_TURNS = 8;
+const BRIDGE_QUESTION_COOLDOWN_MS = 10 * 60 * 1000;
 
 const LOOKUP_SHAPE_RE = /^(?:what (?:is|are|does|do)|which|where|when|how (?:many|much|long))\b/i;
 const TECHNICAL_LOOKUP_RE = /\b(?:file|files|repo|repository|package|dependency|dependencies|endpoint|api|port|timeout|ttl|database|schema|migration|commit|branch|log(?:s)?|stack trace|error|test(?:s)?|env|environment variable|config|setting|settings|version|runtime|token|cache|enum|function|method|class|module|library|table|column|redis)\b/i;
 const LOW_SIGNAL_ANSWER_RE = /^(?:ok|okay|yes|no|maybe|not sure|i don't know|idk|sure|sounds good|thanks|thank you)[.!?]*$/i;
 const CLARIFYING_QUESTION_RE = /^(?:what|why|how|who|where|when|which|can|could|would|do|does|did|is|are|am|should|will|have|has)\b/i;
+const REFLECTIVE_OPENING_RE = /\b(?:i(?:'m| am)?\s+(?:rethinking|wondering|feeling|struggling|stuck|lost|burned out|burnt out|questioning)|i(?:'ve| have) been\s+(?:rethinking|wondering|feeling|struggling)|i(?:'m| am) trying to figure out\b|what matters to me\b|what i want from\b|who i am\b|my future\b|i want my (?:life|work|future)\b)\b/i;
+const REFLECTIVE_SIGNAL_RE = /\b(?:value|values|believe|belief|care about|important|meaningful|purpose|aligned|future|dream|dreams|hope|aspire|fear|afraid|stuck|burned out|burnt out|lost|curious|wondering|rethinking|figuring out|non-negotiable|remembered|fulfilling|matters most)\b/i;
+const PERSONAL_DISCOVERY_RE = /\b(?:about myself|for me|to me|who i am|my (?:life|work|future|career|purpose|values|identity)|what matters to me|what i want from|what would feel (?:meaningful|aligned)|how i want to be remembered)\b/i;
+const FIRST_PERSON_RE = /\b(?:i|i'm|i’ve|i've|me|my|myself)\b/i;
+const DIRECT_TASKING_RE = /\b(?:fix|debug|solve|implement|write|update|edit|change|refactor|add|remove|delete|check|review|look at|show me|tell me|give me|explain|run|test|build|deploy)\b/i;
+const TOOLING_HINT_RE = /\b(?:npm|pnpm|yarn|uv|pytest|vitest|tsc|git|docker|kubernetes|postgres|redis)\b/i;
+const CODEISH_HINT_RE = /`[^`]+`|\b[A-Za-z_][\w]*\([^)]*\)|=>|(?:^|\s)(?:\/|\.\/|\.\.\/)[\w./-]+/;
 
 const SECTION_HINTS: Array<{ section: BridgeTargetSection; patterns: RegExp[]; keywords: string[] }> = [
   {
@@ -233,6 +263,14 @@ function countKeywordMatches(text: string, keywords: readonly string[]): number 
   return keywords.reduce((total, keyword) => total + (text.includes(keyword) ? 1 : 0), 0);
 }
 
+function countWords(text: string): number {
+  return text
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .length;
+}
+
 export function extractLastQuestion(text: string): string | undefined {
   const lines = text
     .replace(/\r\n/g, "\n")
@@ -322,6 +360,102 @@ function normalizeConversationMessages(messages: unknown[]): BridgeConversationM
       provenance: message.provenance,
     }))
     .filter((message) => message.content.length > 0);
+}
+
+function getLatestEligibleUserMessage(messages: BridgeConversationMessage[]): BridgeConversationMessage | undefined {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i].role === "user") return messages[i];
+  }
+  return undefined;
+}
+
+function looksTechnicalTurn(text: string): boolean {
+  return (
+    TECHNICAL_LOOKUP_RE.test(text) ||
+    TOOLING_HINT_RE.test(text) ||
+    CODEISH_HINT_RE.test(text)
+  );
+}
+
+function isReflectiveOpportunity(latestUserText: string, messages: BridgeConversationMessage[]): boolean {
+  const normalized = latestUserText.replace(/\s+/g, " ").trim();
+  if (normalized.length < MIN_REFLECTIVE_MESSAGE_CHARS) return false;
+  if (countWords(normalized) < MIN_REFLECTIVE_MESSAGE_WORDS) return false;
+  if (LOW_SIGNAL_ANSWER_RE.test(normalized)) return false;
+  if (isLowSignal(normalized)) return false;
+  if (looksTechnicalTurn(normalized)) return false;
+  if (DIRECT_TASKING_RE.test(normalized) && !REFLECTIVE_OPENING_RE.test(normalized)) return false;
+  if (REFLECTIVE_OPENING_RE.test(normalized)) return true;
+  if (FIRST_PERSON_RE.test(normalized) && (REFLECTIVE_SIGNAL_RE.test(normalized) || PERSONAL_DISCOVERY_RE.test(normalized))) {
+    return true;
+  }
+
+  const recentContext = messages
+    .slice(-4)
+    .map((message) => `${message.role}: ${message.content}`)
+    .join("\n");
+
+  return FIRST_PERSON_RE.test(recentContext) && PERSONAL_DISCOVERY_RE.test(recentContext) && REFLECTIVE_SIGNAL_RE.test(recentContext);
+}
+
+interface DetectedBridgeQuestion {
+  question: string;
+  targetSection: BridgeTargetSection;
+  assistantIndex: number;
+  questionId: string;
+}
+
+function buildBridgeQuestionId(input: {
+  sessionKey: string;
+  assistantIndex: number;
+  question: string;
+}): string {
+  return createHash("sha256")
+    .update(JSON.stringify({
+      v: 1,
+      sessionKey: input.sessionKey,
+      assistantIndex: input.assistantIndex,
+      question: normalizeRequestText(input.question),
+    }))
+    .digest("hex")
+    .slice(0, 32);
+}
+
+function detectBridgeQuestions(input: {
+  messages: unknown[];
+  sessionKey: string;
+}): DetectedBridgeQuestion[] {
+  const normalized = normalizeConversationMessages(input.messages);
+  if (normalized.length === 0) return [];
+
+  const questions: DetectedBridgeQuestion[] = [];
+  const seenQuestionIds = new Set<string>();
+
+  for (const message of normalized) {
+    if (message.role !== "assistant") continue;
+    const question = extractLastQuestion(message.content);
+    if (!question) continue;
+
+    const targetSection = inferTargetSection(question);
+    if (!targetSection) continue;
+
+    const questionId = buildBridgeQuestionId({
+      sessionKey: input.sessionKey,
+      assistantIndex: message.originalIndex,
+      question,
+    });
+    if (seenQuestionIds.has(questionId)) continue;
+    seenQuestionIds.add(questionId);
+
+    questions.push({
+      question,
+      targetSection,
+      assistantIndex: message.originalIndex,
+      questionId,
+    });
+  }
+
+  return questions.sort((a, b) => a.assistantIndex - b.assistantIndex);
 }
 
 export function buildBridgeRequestId(input: {
@@ -471,6 +605,21 @@ export function createBridgeHandler(
   };
   let pendingLinkStatusCheck: Promise<LinkStatusSnapshot> | null = null;
   const handledRequestIds = new Map<string, number>();
+  const handledQuestionIds = new Map<string, number>();
+  const sessionStates = new Map<string, BridgeSessionState>();
+
+  function resolveBridgeSessionKey(event: { sessionKey?: string; sessionId?: string }): string {
+    return event.sessionKey ?? event.sessionId ?? pluginSessionId ?? "__default__";
+  }
+
+  function getSessionState(sessionKey: string): BridgeSessionState {
+    let state = sessionStates.get(sessionKey);
+    if (!state) {
+      state = { userTurns: 0 };
+      sessionStates.set(sessionKey, state);
+    }
+    return state;
+  }
 
   async function refreshLinkStatus(force = false): Promise<LinkStatusSnapshot> {
     if (userIdReady) await userIdReady;
@@ -515,6 +664,58 @@ export function createBridgeHandler(
     return status.linked ? buildTooTooBridgePrompt() : undefined;
   }
 
+  async function shouldInjectPrompt(event: BridgePromptEvent): Promise<boolean> {
+    if (isHeartbeatTurn(event.prompt ?? "")) return false;
+    if (!Array.isArray(event.messages) || event.messages.length === 0) return false;
+
+    const latestRawUser = [...event.messages]
+      .reverse()
+      .find((message): message is Record<string, unknown> => (
+        typeof message === "object" &&
+        message !== null &&
+        shouldUseUserMessageForMemory(message)
+      ));
+    if (!latestRawUser) return false;
+
+    const normalizedMessages = normalizeConversationMessages(event.messages);
+    const latestUser = getLatestEligibleUserMessage(normalizedMessages);
+    if (!latestUser) return false;
+
+    const sessionKey = resolveBridgeSessionKey(event);
+    const sessionState = getSessionState(sessionKey);
+    sessionState.userTurns += 1;
+
+    if (
+      sessionState.lastAnsweredTurn != null &&
+      sessionState.userTurns - sessionState.lastAnsweredTurn < BRIDGE_ANSWER_COOLDOWN_TURNS
+    ) {
+      logger.debug?.(`Cortex bridge: prompt suppressed by answer cooldown sessionId=${sessionKey}`);
+      return false;
+    }
+
+    if (
+      sessionState.lastQuestionTurn != null &&
+      sessionState.userTurns - sessionState.lastQuestionTurn < BRIDGE_QUESTION_COOLDOWN_TURNS
+    ) {
+      logger.debug?.(`Cortex bridge: prompt suppressed by turn cooldown sessionId=${sessionKey}`);
+      return false;
+    }
+
+    if (
+      sessionState.lastQuestionAt != null &&
+      Date.now() - sessionState.lastQuestionAt < BRIDGE_QUESTION_COOLDOWN_MS
+    ) {
+      logger.debug?.(`Cortex bridge: prompt suppressed by time cooldown sessionId=${sessionKey}`);
+      return false;
+    }
+
+    if (!isReflectiveOpportunity(latestUser.content, normalizedMessages)) return false;
+
+    const status = await refreshLinkStatus();
+    if (!status.linked) return false;
+    return true;
+  }
+
   async function handleAgentEnd(event: AgentEndEvent): Promise<boolean> {
     if (event.aborted) return false;
     if (!Array.isArray(event.messages) || event.messages.length === 0) return false;
@@ -527,11 +728,25 @@ export function createBridgeHandler(
     if (!status.linked) return false;
 
     trimHandledRequests(handledRequestIds);
+    trimHandledRequests(handledQuestionIds);
+
+    const sessionKey = resolveBridgeSessionKey(event);
+    const sessionState = getSessionState(sessionKey);
+    const questions = detectBridgeQuestions({
+      messages: event.messages,
+      sessionKey,
+    });
+    const latestNewQuestion = [...questions].reverse().find((question) => !handledQuestionIds.has(question.questionId));
+    if (latestNewQuestion) {
+      handledQuestionIds.set(latestNewQuestion.questionId, Date.now());
+      sessionState.lastQuestionTurn = sessionState.userTurns;
+      sessionState.lastQuestionAt = Date.now();
+    }
 
     const exchanges = detectBridgeExchanges({
       messages: event.messages,
       agentUserId,
-      sessionKey: event.sessionKey ?? event.sessionId ?? pluginSessionId ?? "__default__",
+      sessionKey,
     });
     const pendingExchanges = exchanges.filter((exchange) => {
       if (handledRequestIds.has(exchange.requestId)) {
@@ -608,12 +823,18 @@ export function createBridgeHandler(
       }
     }
 
+    if (handledAny) {
+      sessionState.userTurns = Math.max(sessionState.userTurns, 1);
+      sessionState.lastAnsweredTurn = sessionState.userTurns;
+    }
+
     return handledAny;
   }
 
   return {
     refreshLinkStatus,
     getPromptContext,
+    shouldInjectPrompt,
     handleAgentEnd,
   };
 }

@@ -19,8 +19,6 @@ import { RecallEchoStore } from "../internal/recall-echo-store.js";
 import { CaptureWatermarkStore } from "../internal/capture-watermark-store.js";
 import { injectAgentInstructions } from "../internal/agent-instructions.js";
 import { createHeartbeatHandler } from "../features/heartbeat/handler.js";
-import { isHeartbeatTurn } from "../internal/heartbeat-detect.js";
-import { shouldUseUserMessageForMemory } from "../internal/message-provenance.js";
 import {
   buildSessionSummaryFromMessages,
   formatRecoveryContext,
@@ -111,24 +109,6 @@ function resolveSessionKey(
 function mergePrependContext(recoveryContext: string | undefined, recallContext: string | undefined): string | undefined {
   if (recoveryContext && recallContext) return `${recoveryContext}\n\n${recallContext}`;
   return recoveryContext ?? recallContext;
-}
-
-function shouldInjectBridgePrompt(event: { prompt: string; messages?: unknown[] }): boolean {
-  if (isHeartbeatTurn(event.prompt ?? "")) return false;
-  if (!Array.isArray(event.messages) || event.messages.length === 0) return false;
-
-  for (let i = event.messages.length - 1; i >= 0; i--) {
-    const message = event.messages[i];
-    if (typeof message !== "object" || message === null) continue;
-    const typed = message as Record<string, unknown>;
-    if (typed.role !== "user") {
-      if (typed.role === "assistant") return false;
-      continue;
-    }
-    return shouldUseUserMessageForMemory(typed);
-  }
-
-  return false;
 }
 
 function isAbortError(err: unknown): boolean {
@@ -618,7 +598,10 @@ const plugin = {
         }
 
         const recallResult = await recallHandler(event, ctx);
-        const bridgePromptContext = shouldInjectBridgePrompt(event)
+        const bridgePromptContext = await bridgeHandler.shouldInjectPrompt({
+          ...event,
+          sessionKey: activeSessionKey,
+        })
           ? await bridgeHandler.getPromptContext()
           : undefined;
         const combined = mergePrependContext(
