@@ -607,6 +607,9 @@ const plugin = {
           : bridgePromptMode === "followup"
             ? buildBridgeFollowUpPrompt()
             : undefined;
+        if (bridgePromptMode) {
+          api.logger.info(`Cortex bridge: injecting ${bridgePromptMode} prompt into prependContext`);
+        }
         const combined = mergePrependContext(
           mergePrependContext(recoveryContext, recallResult?.prependContext),
           bridgePromptContext,
