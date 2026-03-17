@@ -3,6 +3,7 @@ import { createCaptureHandler } from "../../src/features/capture/handler.js";
 import type { CortexClient } from "../../src/cortex/client.js";
 import type { CortexConfig } from "../../src/plugin/config.js";
 import { CaptureWatermarkStore } from "../../src/internal/capture-watermark-store.js";
+import { RecallEchoStore } from "../../src/internal/recall-echo-store.js";
 
 function makeConfig(overrides: Partial<CortexConfig> = {}): CortexConfig {
   return {
@@ -384,6 +385,44 @@ describe("createCaptureHandler", () => {
     expect(userMsg!.content.length).toBeLessThanOrEqual(10_000);
   });
 
+  it("strips long assistant echoes before compression", async () => {
+    const submitMock = vi.fn();
+    const client = { submitIngestConversation: submitMock } as unknown as CortexClient;
+    const echoStore = new RecallEchoStore();
+    echoStore.storeRecalled(["Ada's favorite database is PostgreSQL with pgvector for semantic search."]);
+
+    const handler = createCaptureHandler(
+      client,
+      makeConfig(),
+      logger,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      echoStore,
+    );
+
+    const longAssistantReply = [
+      "Intro ".repeat(900),
+      "Ada's favorite database is PostgreSQL with pgvector for semantic search.",
+      "Tail ".repeat(1_200),
+    ].join("");
+    expect(longAssistantReply.length).toBeGreaterThan(10_000);
+
+    await handler({
+      messages: [
+        { role: "user", content: "Which database setup should we remember for Ada's semantic search preferences in the project?" },
+        { role: "assistant", content: longAssistantReply },
+      ],
+      aborted: false,
+      sessionKey: "echo-long-turn",
+    });
+
+    expect(submitMock).not.toHaveBeenCalled();
+  });
+
   it("skips messages between 20 and 50 chars (raised threshold)", async () => {
     const submitMock = vi.fn();
     const client = { submitIngestConversation: submitMock } as unknown as CortexClient;
@@ -498,6 +537,40 @@ describe("createCaptureHandler", () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(submitMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not deduplicate long turns that only differ in omitted middle content", async () => {
+    const submitMock = vi.fn().mockResolvedValue({ job_id: "job-dedupe-long", status: "pending" });
+    const client = { submitIngestConversation: submitMock } as unknown as CortexClient;
+    const handler = createCaptureHandler(client, makeConfig(), logger);
+
+    const sharedPrefix = "Shared prefix ".repeat(350);
+    const sharedSuffix = " Shared suffix".repeat(350);
+    const assistantA = `${sharedPrefix}MIDDLE_A${" detailA".repeat(1000)}${sharedSuffix}`;
+    const assistantB = `${sharedPrefix}MIDDLE_B${" detailB".repeat(1000)}${sharedSuffix}`;
+
+    expect(assistantA.length).toBeGreaterThan(10_000);
+    expect(assistantB.length).toBeGreaterThan(10_000);
+
+    await handler({
+      messages: [
+        { role: "user", content: "What architecture details should we capture for the backend deployment plan across environments and handoff docs?" },
+        { role: "assistant", content: assistantA },
+      ],
+      aborted: false,
+      sessionKey: "dedupe-long-1",
+    });
+    await vi.waitFor(() => expect(submitMock).toHaveBeenCalledTimes(1));
+
+    await handler({
+      messages: [
+        { role: "user", content: "What architecture details should we capture for the backend deployment plan across environments and handoff docs?" },
+        { role: "assistant", content: assistantB },
+      ],
+      aborted: false,
+      sessionKey: "dedupe-long-2",
+    });
+    await vi.waitFor(() => expect(submitMock).toHaveBeenCalledTimes(2));
   });
 
   it("falls back to sessionId when sessionKey is absent", async () => {

@@ -5,6 +5,7 @@ import type { KnowledgeState } from "../../plugin/index.js";
 import type { RetryQueue } from "../../internal/retry-queue.js";
 import type { AuditLogger } from "../../internal/audit-logger.js";
 import { filterLowSignalMessages, stripVolatileContent, sanitizeConversationText } from "./filter.js";
+import { compressLargeContent } from "./compressor.js";
 import type { RecallEchoStore } from "../../internal/recall-echo-store.js";
 import { containsHeartbeatPrompt } from "../../internal/heartbeat-detect.js";
 import type { CaptureWatermarkStore } from "../../internal/capture-watermark-store.js";
@@ -201,15 +202,6 @@ export function createCaptureHandler(
         }))
         .filter((msg) => msg.content.length > 0);
 
-      // Truncate individual messages that exceed the Cortex per-message limit.
-      // The API rejects messages with content > 10,000 chars (422).
-      const API_MAX_MESSAGE_CHARS = 10_000;
-      for (const msg of normalized) {
-        if (msg.content.length > API_MAX_MESSAGE_CHARS) {
-          msg.content = msg.content.slice(0, API_MAX_MESSAGE_CHARS);
-        }
-      }
-
       // Skip capture entirely for heartbeat turns — they produce low-signal
       // operational noise that pollutes the memory store and amplifies false facts.
       if (containsHeartbeatPrompt(normalized)) {
@@ -261,21 +253,32 @@ export function createCaptureHandler(
 
       // Enforce byte-size cap — drop oldest messages until the transcript fits.
       // This prevents oversized payloads from pasted files or verbose replies.
+      //
+      // Compression runs here, after echo filtering and duplicate detection use
+      // the original sanitized text, so those heuristics still see the full turn.
+      const API_MAX_MESSAGE_CHARS = 10_000;
+      const compressed = trimmed.map((msg) => (
+        msg.content.length > API_MAX_MESSAGE_CHARS
+          ? { ...msg, content: compressLargeContent(msg.content, API_MAX_MESSAGE_CHARS) }
+          : msg
+      ));
+
+      // Enforce byte-size cap on the actual payload that will be sent.
       const maxBytes = config.captureMaxPayloadBytes ?? 262_144;
-      while (trimmed.length > 2) {
-        const estimatedSize = trimmed.reduce((sum, m) => sum + Buffer.byteLength(m.role, "utf-8") + 2 + Buffer.byteLength(m.content, "utf-8") + 2, 0);
+      while (compressed.length > 2) {
+        const estimatedSize = compressed.reduce((sum, m) => sum + Buffer.byteLength(m.role, "utf-8") + 2 + Buffer.byteLength(m.content, "utf-8") + 2, 0);
         if (estimatedSize <= maxBytes) break;
-        trimmed.shift();
+        compressed.shift();
       }
 
       // Enforce character cap — the Cortex API rejects text > 50,000 chars.
       // The transcript format is "role: content\n\n" per message, so we estimate
       // the final transcript length and drop oldest messages to fit.
       const API_MAX_CHARS = 50_000;
-      while (trimmed.length > 2) {
-        const estimatedChars = trimmed.reduce((sum, m) => sum + m.role.length + 2 + m.content.length + 2, 0);
+      while (compressed.length > 2) {
+        const estimatedChars = compressed.reduce((sum, m) => sum + m.role.length + 2 + m.content.length + 2, 0);
         if (estimatedChars <= API_MAX_CHARS) break;
-        trimmed.shift();
+        compressed.shift();
       }
 
       // Keep probe-lookup filtering enabled for normal traffic and benchmark probes,
@@ -309,8 +312,8 @@ export function createCaptureHandler(
         }
       }
 
-      const totalChars = trimmed.reduce((sum, m) => sum + m.content.length, 0);
-      logger.info(`Cortex capture: ${trimmed.length} messages, ${totalChars} chars`);
+      const totalChars = compressed.reduce((sum, m) => sum + m.content.length, 0);
+      logger.info(`Cortex capture: ${compressed.length} messages, ${totalChars} chars`);
 
       // Advance watermark before async work so a second turn doesn't re-send this delta
       markCapturedWatermark();
@@ -322,18 +325,18 @@ export function createCaptureHandler(
       logger.debug?.(`Cortex capture: sessionId=${sessionId}, userId=${getUserId?.()}`);
 
       // Flatten messages into a role:content transcript for concise logging/audit
-      const transcript = trimmed
+      const transcript = compressed
         .map((m) => `${m.role}: ${m.content}`)
         .join("\n\n");
 
       // Log a summary of what's being sent
       const roleCounts: Record<string, number> = {};
-      for (const m of trimmed) {
+      for (const m of compressed) {
         roleCounts[m.role] = (roleCounts[m.role] ?? 0) + 1;
       }
       const roleBreakdown = Object.entries(roleCounts).map(([r, n]) => `${r}=${n}`).join(", ");
       const preview = (transcript.length > 200 ? transcript.slice(0, 200) + "…" : transcript).replace(/\n/g, " ");
-      logger.info(`Cortex capture summary: ${trimmed.length} msgs (${roleBreakdown}), ${transcript.length} chars, sessionId=${sessionId}`);
+      logger.info(`Cortex capture summary: ${compressed.length} msgs (${roleBreakdown}), ${transcript.length} chars, sessionId=${sessionId}`);
       logger.info(`Cortex capture preview: ${preview}`);
 
       if (auditLogger) {
@@ -344,7 +347,7 @@ export function createCaptureHandler(
           payload: transcript,
           sessionId,
           userId: getUserId?.(),
-          messageCount: trimmed.length,
+          messageCount: compressed.length,
         });
       }
 
@@ -356,10 +359,10 @@ export function createCaptureHandler(
           throw new Error("Cortex ingest requires user_id");
         }
         const referenceDate = new Date().toISOString();
-        const { sourceChannel, originSessionId } = extractBatchProvenance(trimmed, event.inputProvenance);
+        const { sourceChannel, originSessionId } = extractBatchProvenance(compressed, event.inputProvenance);
         // Use async conversation ingest so role attribution is preserved for RESONATE.
         const job = await client.submitIngestConversation(
-          trimmed,
+          compressed,
           sessionId,
           referenceDate,
           userId,
