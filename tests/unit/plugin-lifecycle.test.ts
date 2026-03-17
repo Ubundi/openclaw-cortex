@@ -426,6 +426,7 @@ describe("plugin lifecycle contract", () => {
   });
 
   it("leaves unlinked users unchanged for bridge behavior", async () => {
+    vi.spyOn(SessionStateStore.prototype, "readDirtyFromPriorLifecycle").mockResolvedValue(null);
     vi.spyOn(CortexClient.prototype, "getLinkStatus").mockResolvedValue({ linked: false });
     const submitBridgeQA = vi.spyOn(CortexClient.prototype, "submitBridgeQA").mockResolvedValue({
       accepted: true,
@@ -465,6 +466,7 @@ describe("plugin lifecycle contract", () => {
   });
 
   it("does not inject bridge guidance for heartbeat or synthetic user turns", async () => {
+    vi.spyOn(SessionStateStore.prototype, "readDirtyFromPriorLifecycle").mockResolvedValue(null);
     vi.spyOn(CortexClient.prototype, "getLinkStatus").mockResolvedValue({
       linked: true,
       link: {
