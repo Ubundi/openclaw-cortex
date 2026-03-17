@@ -62,9 +62,19 @@ describe("TooToo bridge handler", () => {
     const prompt = await handler.getPromptContext();
 
     expect(prompt).toContain("<tootoo_bridge>");
-    expect(prompt).toContain("one natural discovery question");
+    expect(prompt).toContain("exactly one short, direct discovery question");
     expect((client.getLinkStatus as any)).toHaveBeenCalledWith("agent-user-1");
     expect(buildTooTooBridgePrompt()).toContain("explicit user answers");
+  });
+
+  it("nudges the model toward one direct discovery question before frameworks", () => {
+    const prompt = buildTooTooBridgePrompt();
+
+    expect(prompt).toContain("Do not lead with frameworks, bullet lists, option menus, worksheets, or multi-step coaching exercises.");
+    expect(prompt).toContain("\"What do you value most in your work?\"");
+    expect(prompt).toContain("\"What matters most to you in your work?\"");
+    expect(prompt).toContain("\"What are your non-negotiables?\"");
+    expect(prompt).toContain("After the user answers, use the answer to return to grounded practical help.");
   });
 
   it("only invites bridge prompts on reflective turns", async () => {
@@ -77,7 +87,7 @@ describe("TooToo bridge handler", () => {
     });
 
     await expect(handler.shouldInjectPrompt({
-      prompt: "I've been rethinking what I want from work this year.",
+      prompt: "I've been rethinking what I want from work this year and what would actually feel meaningful.",
       messages: [
         {
           role: "user",
@@ -511,5 +521,38 @@ describe("TooToo bridge handler", () => {
       extractLastQuestion("- What do you value most in your work?\n- What are your non-negotiables?"),
     ).toBe("What are your non-negotiables?");
     expect(extractLastQuestion("What do you value most in your work")).toBeUndefined();
+  });
+
+  it("extracts and maps a discovery question after a preamble", () => {
+    const exchange = detectBridgeExchange({
+      messages: [
+        { role: "assistant", content: "Here's the question: What do you value most in your work?" },
+        { role: "user", content: "Autonomy and impact." },
+      ],
+      agentUserId: "agent-user-1",
+      sessionKey: "sess-preamble",
+    });
+
+    expect(extractLastQuestion("Here's the question: What do you value most in your work?"))
+      .toBe("What do you value most in your work?");
+    expect(exchange?.question).toBe("What do you value most in your work?");
+    expect(exchange?.targetSection).toBe("coreValues");
+  });
+
+  it("preserves structured discovery questions that include a colon list", () => {
+    const question = "What do you value most in your work: money, status, freedom, mastery, impact, or relationships?";
+    const exchange = detectBridgeExchange({
+      messages: [
+        { role: "assistant", content: question },
+        { role: "user", content: "Freedom and impact." },
+      ],
+      agentUserId: "agent-user-1",
+      sessionKey: "sess-structured-values",
+    });
+
+    expect(extractLastQuestion(question)).toBe(question);
+    expect(inferTargetSection(question)).toBe("coreValues");
+    expect(exchange?.question).toBe(question);
+    expect(exchange?.targetSection).toBe("coreValues");
   });
 });

@@ -271,6 +271,20 @@ function countWords(text: string): number {
     .length;
 }
 
+function findLastQuestionStart(candidate: string): number | undefined {
+  const questionStartPattern = /(?:^|[.!?;:]\s+|,\s+|[-*•]\s+|[>"'“‘(\[]\s*)(what|why|how|who|where|when|which|can|could|would|do|does|did|is|are|am|should|will|have|has)\b/gi;
+  let match: RegExpExecArray | null;
+  let lastStart: number | undefined;
+
+  while ((match = questionStartPattern.exec(candidate)) !== null) {
+    const token = match[1];
+    const start = match.index + match[0].lastIndexOf(token);
+    lastStart = start;
+  }
+
+  return lastStart;
+}
+
 export function extractLastQuestion(text: string): string | undefined {
   const lines = text
     .replace(/\r\n/g, "\n")
@@ -289,17 +303,12 @@ export function extractLastQuestion(text: string): string | undefined {
       candidate = candidate.slice(previousQuestionIndex + 1).trim();
     }
 
-    const boundary = Math.max(
-      candidate.lastIndexOf(". "),
-      candidate.lastIndexOf("! "),
-      candidate.lastIndexOf(": "),
-      candidate.lastIndexOf("; "),
-    );
-    if (boundary !== -1) {
-      candidate = candidate.slice(boundary + 2).trim();
+    candidate = candidate.replace(/^[>\-*•\d.)\s]+/, "").replace(/\s+/g, " ").trim();
+    const questionStart = findLastQuestionStart(candidate);
+    if (questionStart !== undefined) {
+      candidate = candidate.slice(questionStart).trim();
     }
 
-    candidate = candidate.replace(/^[>\-*•\d.)\s]+/, "").replace(/\s+/g, " ").trim();
     if (candidate.endsWith("?")) return candidate;
   }
 
@@ -552,10 +561,13 @@ export function buildTooTooBridgePrompt(): string {
   return [
     "<tootoo_bridge>",
     "[NOTE: The current user linked this agent to TooToo. Treat this as behavioral guidance.]",
-    "When it fits the moment, you may ask one natural discovery question that grows out of the current conversation.",
-    "Keep it grounded in what the user is already discussing and do not derail practical help.",
+    "When a linked user opens in a reflective or personal way, your first move should usually be exactly one short, direct discovery question.",
+    "Ask it plainly and naturally, like a thoughtful human. Do not lead with frameworks, bullet lists, option menus, worksheets, or multi-step coaching exercises.",
+    "Prefer canonical question shapes that map cleanly, especially for work reflection: \"What do you value most in your work?\" \"What matters most to you in your work?\" \"What are your non-negotiables?\"",
+    "Keep it grounded in what the user is already discussing and do not derail practical help when the user is asking for concrete help.",
     "Prefer reflective questions about values, beliefs, principles, ideas, dreams, practices, shadows, or legacy.",
     "Do not force a questionnaire or ask repeated discovery questions in back-to-back turns.",
+    "After the user answers, use the answer to return to grounded practical help.",
     "Only explicit user answers count. Do not infer or restate personal content the user did not clearly say.",
     "</tootoo_bridge>",
   ].join("\n");
