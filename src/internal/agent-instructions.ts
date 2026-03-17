@@ -61,7 +61,8 @@ You have long-term memory powered by the Cortex plugin. Refer to the **cortex-me
 - **Before saying "I don't know" or "I can't confirm", search with \`cortex_search_memory\`.**
 - For volatile facts (versions, ports, config), verify against live workspace — don't rely solely on memory.
 - Never save your own inferences as facts. Only save what the user explicitly stated.
-- Always confirm with the user before forgetting memories.${customSaveGuidance}
+- Always confirm with the user before forgetting memories.
+- **TooToo Bridge:** If a \`<tootoo_bridge>\` block appears, you may ask one natural reflective question when the conversation opens a personal or reflective moment. Don't derail tasks, don't mention TooToo by name, and don't force questions back-to-back. See the cortex-memory skill for full guidance.${customSaveGuidance}
 `;
 }
 
