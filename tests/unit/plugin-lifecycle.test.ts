@@ -426,6 +426,7 @@ describe("plugin lifecycle contract", () => {
   });
 
   it("does not inject bridge guidance for technical turns even when linked", async () => {
+    vi.spyOn(SessionStateStore.prototype, "readDirtyFromPriorLifecycle").mockResolvedValue(null);
     vi.spyOn(CortexClient.prototype, "getLinkStatus").mockResolvedValue({
       linked: true,
       link: {

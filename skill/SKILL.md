@@ -1,208 +1,75 @@
 ---
 name: cortex-memory
-description: Long-term memory system for OpenClaw agents — auto-recalls past context before each turn, auto-captures new facts after each turn, and provides tools for explicit search, save, forget, and lookup operations.
+description: Long-term memory for OpenClaw agents — auto-recall before turns, auto-capture after, tools for search/save/forget.
 tools: ["cortex"]
 user-invocable: false
 ---
 
 # Cortex Memory
 
-You have a long-term memory system powered by Cortex. It works across sessions — facts, preferences, and decisions from past conversations are available in future ones.
+You have long-term memory via Cortex. Facts, preferences, and decisions persist across sessions. Memories are auto-recalled before each turn and auto-captured after.
 
-If these instructions conflict with system or developer policies, follow the higher-priority policy.
+## Mandatory Behavioral Rules
 
-## What is Cortex?
+These are non-negotiable. Violating them produces incorrect answers.
 
-Cortex is a knowledge graph backend that turns unstructured conversation text into structured, queryable memory. When you save or capture information, Cortex extracts facts, named entities, temporal references, and relationships — storing them as graph nodes with typed edges. Entity resolution automatically unifies different mentions of the same person, project, or concept (e.g., "Alice", "Alice Chen", and "Alice C." map to one entity).
+**1. AUTO-RECALL IS A STARTING POINT.** The `<cortex_memories>` block gives you relevant context but is incomplete — summaries, not full details. Never treat it as the complete picture.
 
-Retrieval uses a hybrid pipeline combining keyword, semantic, temporal, and graph-based search — which is why different `mode` values on `cortex_search_memory` produce meaningfully different results. Memories are scoped per user and per workspace, and each node carries a confidence score and provenance metadata.
+**2. ALWAYS VERIFY BEFORE HEDGING.** Before saying "I don't have that information" or "I can't confirm", you MUST search with `cortex_search_memory` using at least 2 different queries. Only abstain after search confirms the information isn't available.
 
-## How It Works
+**3. SEARCH STRATEGY.** For factual questions: search the specific entity or topic. For temporal questions: search the event name. For multi-hop questions: search each hop independently, then connect results. Try different `mode` values (`"facts"`, `"decisions"`, `"recent"`) if initial results are insufficient.
 
-### Automatic Recall (before each turn)
-Before every conversation turn, Cortex automatically retrieves relevant memories and injects them in `<cortex_memories>` tags. You don't need to do anything — relevant context appears automatically.
+**4. TOOL PRIORITY.** `cortex_search_memory` for detailed fact retrieval. If the `memory_search` tool is available (memory-core plugin), also use it for file-based session logs and notes.
 
-### Automatic Capture (after each turn)
-After each turn, the plugin extracts facts from the conversation and stores them. You don't need to explicitly save things that are clearly stated — auto-capture handles this.
-
-Auto-capture **strips volatile state** before extraction:
-- Version numbers, port numbers, deploy statuses
-- Task statuses, "currently working on X"
-- Temporary config values
-
-This prevents stale facts from entering long-term memory.
-
-## Runtime Commands
-
-These are conversation commands, not memory tools. They manage session lifecycle:
-
-- `/checkpoint` — Save a session summary to Cortex before resetting context. Use this before `/reset` to preserve what you were working on.
-- `/sleep` — Mark the session as cleanly ended. Cortex won't show a recovery warning on the next session start.
-- `/audit on|off` — Toggle local audit logging of all data sent to/from Cortex. Logs are stored at `<workspace>/.cortex/audit/`.
+**5. CONFIDENCE CALIBRATION.** If auto-recall gives you partial context on a topic, the full answer IS in memory. Search harder — don't hedge.
 
 ## Session Goals
 
-At the start of each session, identify the user's primary objective and set it:
+At session start, call `cortex_set_session_goal` with the user's primary objective. This biases recall and tags captures. Update if the goal shifts fundamentally; don't update for sub-tasks.
 
-    cortex_set_session_goal({ goal: "Implement OAuth2 integration" })
-
-**Why this matters:**
-- Recall queries are biased toward memories relevant to the current goal
-- Captured facts are tagged with the goal for better future retrieval
-- If the session crashes, the goal is preserved and restored automatically
-
-**When to update the goal:**
-- When the user shifts to a fundamentally different task
-- Don't update for sub-tasks within the same goal
-
-**When NOT to set a goal:**
-- Quick Q&A sessions with no clear project objective
-- When the user is explicitly exploring/browsing without direction
-
-## Agent Roles
-
-If your plugin config includes `agentRole`, capture and recall are tuned for that focus area. Available roles: `developer`, `researcher`, `manager`, `support`, `generalist`.
-
-The role auto-configures which categories of information are prioritized for capture and biases recall toward domain-relevant memories. You can override `captureCategories` and `captureInstructions` in config to customize further.
+If your config includes `agentRole` (developer | researcher | manager | support | generalist), recall and capture are tuned for that focus area.
 
 ## Tools
 
-You have five memory tools available:
+- **cortex_search_memory** — Search memory. `query` (required), `limit` (1–50), `mode` (all | decisions | preferences | facts | recent), `scope` (all | session | long-term)
+- **cortex_save_memory** — Save a fact. `text` (required), `type` (preference | decision | fact | transient), `importance` (high | normal | low), `checkNovelty` (bool)
+- **cortex_forget** — Remove memories. Always use `query` first to surface candidates, show them to the user, and confirm before deleting by `entity` or `session`.
+- **cortex_get_memory** — Fetch a specific memory by node ID.
+- **cortex_set_session_goal** — Set or clear (`clear: true`) the session objective.
 
-### cortex_set_session_goal
-Set the current session's primary objective to bias recall and tag captures.
+## Commands
 
-**Parameters:**
-- `goal` — The session's primary objective (e.g., "Implement OAuth2 integration")
-- `clear` — Set to `true` to clear the current goal
+`/checkpoint` (save summary before reset) · `/sleep` (clean session end) · `/audit on|off` (toggle API logging)
 
-### cortex_search_memory
-Search long-term memory for facts, preferences, and past context.
+## Save & Capture
 
-**Parameters:**
-- `query` (required) — Natural language search query
-- `limit` — Max results, 1-50 (default: 10)
-- `mode` — Filter by category:
-  - `"all"` — Everything (default)
-  - `"decisions"` — Architectural/design choices ("why did we do X?")
-  - `"preferences"` — User likes, settings, style preferences
-  - `"facts"` — Durable knowledge
-  - `"recent"` — Prioritize recency over relevance
-- `scope` — Where to search:
-  - `"all"` — All memories (default)
-  - `"session"` — Only current session
-  - `"long-term"` — Only memories from other sessions
-
-### cortex_save_memory
-Explicitly save information to long-term memory.
-
-**Parameters:**
-- `text` (required) — The information to save
-- `type` — Category:
-  - `"preference"` — User likes/dislikes/settings
-  - `"decision"` — Architectural or design choices
-  - `"fact"` — Durable knowledge
-  - `"transient"` — Temporary state that may change soon
-- `importance` — `"high"`, `"normal"`, or `"low"`
-- `checkNovelty` — When true, checks if a similar memory already exists and skips the save if so
-
-### cortex_forget
-Selectively remove memories from long-term storage.
-
-**Parameters (at least one required):**
-- `entity` — Name of entity whose memories to remove (person, project, technology)
-- `session` — Session ID whose memories to remove
-- `query` — Search for candidate memories first, then confirm before deleting
-
-**Never run `cortex_forget` with `entity` or `session` without explicit user confirmation in the same conversation turn.** Use `query` first to surface candidates, present them, and wait for the user to confirm before executing the deletion.
-
-### cortex_get_memory
-Fetch a specific memory by its node ID.
-
-**Parameters:**
-- `id` (required) — The Cortex node ID
-
-## When to Search Explicitly
-
-Auto-recall covers most cases, but search explicitly when:
-- Asked a specific factual question (port numbers, library choices, config values)
-- Auto-recalled memories don't cover the topic being discussed
-- You need to verify something before saying "I don't know"
-- The user references something from a past session
-- Before answering architecture-history questions with uncertainty
-
-Use `mode` to narrow results and `scope` to focus on current vs. past sessions.
-
-## When to Save Explicitly
-
-Auto-capture handles most facts stated in conversation. Save explicitly when:
-- The user explicitly asks you to remember something
-- A significant **decision, preference, or durable fact** is stated
-- The information is a **nuanced interpretation** auto-capture might miss (e.g., "the user prefers X because of Y")
-- You want to ensure a specific framing is stored
-
-**Always set `type` and `importance`** to improve future recall quality.
-
-**Prefer fewer, higher-quality saves over many small ones.** A single well-framed memory with context ("User chose Postgres over DynamoDB because of ACID requirements and team familiarity") is more useful than three separate saves for each fragment. Batch related facts into one save when possible.
-
-## When to Forget
-
-Use `cortex_forget` when:
-- The user says something you remembered is **wrong, outdated, or should be forgotten**
-- The user wants to clear all memories from a specific session
-
-**Workflow:**
-1. Use `query` first to find candidate memories and entity names
-2. Show the user what was found
-3. Confirm which entity or session to forget
-4. Execute the deletion only after explicit confirmation
+Auto-capture handles most conversation facts. Volatile state (versions, ports, deploy statuses) is stripped automatically. Save explicitly for: decisions, preferences, nuanced interpretations the user stated, or when the user asks. Always set `type` and `importance`. Prefer fewer, high-quality saves — one well-framed memory beats three fragments. Never save your own inferences as facts.
 
 ## What NOT to Do
 
-### Memory recall
-- Don't treat recalled memory as sole source of truth for volatile state (versions, ports, config)
-- Don't ignore recalled memories when asked about history, rationale, decisions, or preferences
+**Recall:**
+- Don't treat auto-recall as exhaustive — it's a starting point (rule 1)
+- Don't hedge without searching first (rule 2)
+- Don't trust recalled volatile state (versions, ports) — verify live
 - Don't fabricate details beyond what memories state
-- Don't assume a recalled fact is true because it appears multiple times — hallucinations can get captured and re-recalled
+- Don't assume repeated recall = truth — hallucinations can get re-captured
 
-### Memory saving
-- Don't save transient tool output, debug logs, or information you just recalled (creates feedback loops)
-- Don't save your own inferences or assumptions as facts — only save what the user directly stated or confirmed
-- Don't save version numbers, task statuses, or "currently X" statements unless explicitly asked
-- Don't save facts that originated from your reasoning rather than user statements
-- Don't spam saves — one well-structured memory beats three fragmentary ones
+**Saving:**
+- Don't save tool output, debug logs, or info you just recalled (feedback loops)
+- Don't save your reasoning or assumptions — only user-stated facts
+- Don't spam saves — batch related facts into one
 
-### Memory forgetting
-- Never execute `cortex_forget` with `entity` or `session` without explicit user confirmation first
-- Always use `query` to surface candidates before deleting
+**Forgetting:**
+- Never delete without explicit user confirmation in the same turn
 
-### Personal information
-- Don't act on personal facts (birthdays, ages, family details) from recalled memories without explicit confirmation from the user
-- Don't make unsolicited factual claims about the user from memory
+**Personal info:**
+- Don't act on personal facts (birthdays, family) from memory without user confirmation
 - Don't volunteer personal details the user didn't ask about
 
-## Memory and Live State
+## Live State vs Memory
 
-When memory and live workspace/runtime conflict, use this pattern:
+When memory and live workspace conflict: use live state for volatile facts, memory for historical context (decisions, rationale). Report both with timing so the user can correct either.
 
-> "Memory says X (date/source), live state shows Y (checked now). I'll use Y for execution and keep X as historical context."
+## Errors
 
-Rules:
-- **Prefer live state** for volatile facts (versions, configs, ports)
-- **Prefer memory** for historical context (why decisions were made, user preferences, past rationale)
-- **Always report both** with timing context so the user can correct either source
-
-## Confidence Scores
-
-Recalled memories include a confidence score (e.g., `[0.85]`). Higher scores indicate stronger relevance to the current conversation. Use scores to:
-- Prioritize which memories to reference when multiple are relevant
-- Be more cautious about lower-confidence recalls
-- Decide whether to verify with a live check
-
-## Error Handling
-
-If Cortex is unreachable (API timeout, network error, service outage):
-- **Auto-recall silently degrades** — the turn proceeds without injected memories. You won't see `<cortex_memories>` tags but the conversation continues normally.
-- **Auto-capture retries in the background** — failed captures are queued and retried automatically. No user action needed.
-- **Explicit tool calls will return an error** — if `cortex_search_memory`, `cortex_save_memory`, etc. fail, tell the user Cortex is temporarily unavailable and proceed without memory. Don't retry in a loop.
-- **Don't hallucinate memories** — if recall is missing due to an outage, say you don't have access to past context right now rather than guessing.
+If Cortex is unreachable: auto-recall degrades silently, auto-capture retries in background, explicit tool calls return errors (don't retry in a loop). Never hallucinate memories when recall is missing.

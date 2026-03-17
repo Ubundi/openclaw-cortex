@@ -11,6 +11,7 @@ function makeConfig(overrides: Partial<CortexConfig> = {}): CortexConfig {
     autoRecall: true,
     autoCapture: true,
     recallLimit: 10,
+    recallTopK: 10,
     recallQueryType: "combined",
     recallProfile: "auto",
     recallTimeoutMs: 500,
@@ -46,10 +47,10 @@ describe("createRecallHandler", () => {
     expect(client.retrieve).toHaveBeenCalledWith(
       "What is the default Redis cache TTL we use?",
       10,
-      "fast",
+      "full",
       500,
       "factual",
-      { referenceDate: expect.any(String), userId: undefined },
+      { referenceDate: expect.any(String), userId: undefined, sessionGoal: undefined },
     );
   });
 
@@ -460,10 +461,10 @@ it("strips [cortex-date] marker from query and uses it as referenceDate", async 
     expect(client.retrieve).toHaveBeenCalledWith(
       "What is the default Redis cache TTL we use?",
       10,
-      "fast",
+      "full",
       500,
       "factual",
-      { referenceDate: "2024-11-18", userId: undefined },
+      { referenceDate: "2024-11-18", userId: undefined, sessionGoal: undefined },
     );
   });
 

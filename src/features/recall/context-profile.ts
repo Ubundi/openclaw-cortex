@@ -9,6 +9,15 @@ export interface RecallProfileParams {
   minConfidence?: number;
   /** Retrieve mode: "fast" skips reranking/graph, "full" uses full pipeline */
   mode?: "fast" | "full";
+  /**
+   * Multiplier applied to recallTopK for this profile.
+   * Factual/planning queries benefit from more displayed results.
+   */
+  topKMultiplier?: number;
+  /** Per-memory character limit override (default: 220). */
+  maxLineChars?: number;
+  /** Total block character limit override (default: 4500). */
+  maxBlockChars?: number;
 }
 
 const INCIDENT_RE = /\b(outage|incident|sev[1-4]|broken|failure|urgent|rollback|hotfix|degraded|bug|crash|error)\b/i;
@@ -35,6 +44,8 @@ export function getProfileParams(
         queryType: "factual",
         limit: Math.min(config.recallLimit * 2, 50),
         minConfidence: 0.3,
+        maxLineChars: 350,
+        maxBlockChars: 6000,
       };
     case "handoff":
       return {
@@ -47,6 +58,9 @@ export function getProfileParams(
         queryType: "combined",
         limit: Math.min(Math.ceil(config.recallLimit * 1.5), 50),
         context: "architecture, design decisions, technical strategy",
+        topKMultiplier: 1.25,
+        maxLineChars: 350,
+        maxBlockChars: 6000,
       };
     case "factual":
       return {
@@ -54,7 +68,13 @@ export function getProfileParams(
         limit: config.recallLimit,
         minConfidence: 0.3,
         context: factualContext,
-        mode: "fast",
+        // Use full pipeline (with reranking) instead of fast mode.
+        // Short factual queries like "Why did you choose Neon?" lack semantic
+        // signal — reranking is critical for surfacing the right memory.
+        mode: "full",
+        topKMultiplier: 1.5,
+        maxLineChars: 400,
+        maxBlockChars: 6500,
       };
     case "default":
       return {

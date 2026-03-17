@@ -413,8 +413,15 @@ export function createRecallHandler(
         });
       }
 
-      const retrieveMode = profileParams.mode ?? "full";
-      logger.debug?.(`Cortex recall: mode=${retrieveMode}`);
+      // On cold start the pipeline tier defaults to 1 before the heartbeat
+      // confirms the real tier. Running "full" mode (reranking/graph) with
+      // a tier-1 timeout will silently drop memories on tier-2/3 backends.
+      // Downgrade to "fast" until the tier is confirmed.
+      const preferredMode = profileParams.mode ?? "full";
+      const retrieveMode = (preferredMode === "full" && knowledgeState?.pipelineTier === 1)
+        ? "fast"
+        : preferredMode;
+      logger.debug?.(`Cortex recall: mode=${retrieveMode}${retrieveMode !== preferredMode ? ` (downgraded from ${preferredMode}, tier unknown)` : ""}`);
 
       let rawResponse;
       try {
@@ -476,10 +483,17 @@ export function createRecallHandler(
         echoStore.storeRecalled(memories.map((m) => m.content));
       }
 
+      // Apply profile-aware display limits: factual/planning queries get more
+      // per-memory chars and a larger block budget to preserve causal detail.
+      const effectiveTopK = profileParams.topKMultiplier
+        ? Math.min(Math.ceil(config.recallTopK * profileParams.topKMultiplier), 50)
+        : config.recallTopK;
       const formatOpts: FormatMemoriesOptions = {
-        topK: config.recallTopK,
+        topK: effectiveTopK,
         totalSessions: knowledgeState?.totalSessions,
         maturity: knowledgeState?.maturity,
+        maxLineChars: profileParams.maxLineChars,
+        maxBlockChars: profileParams.maxBlockChars,
       };
       const { text: formatted, collapsedCount } = formatMemoriesWithStats(memories, formatOpts);
       if (!formatted) return;

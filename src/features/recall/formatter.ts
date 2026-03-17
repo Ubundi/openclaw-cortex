@@ -284,6 +284,10 @@ export interface FormatMemoriesOptions {
   totalSessions?: number;
   /** Knowledge store maturity — adapts guidance in the memories block. */
   maturity?: "cold" | "warming" | "mature" | "unknown";
+  /** Per-memory character limit override (default: MAX_MEMORY_LINE_CHARS). */
+  maxLineChars?: number;
+  /** Total block character limit override (default: MAX_MEMORY_BLOCK_CHARS). */
+  maxBlockChars?: number;
 }
 
 export interface FormatMemoriesResult {
@@ -339,7 +343,10 @@ function buildMaturityGuidance(opts?: FormatMemoriesOptions): string | undefined
   if (!opts?.maturity || opts.maturity === "unknown") return undefined;
 
   if (opts.maturity === "mature" && (opts.totalSessions ?? 0) >= 5) {
-    return "You have extensive memory. Before answering history/decision/preference questions, search explicitly with cortex_search_memory.";
+    return "These are context clues, not complete answers. Before answering detailed questions or saying \"I'm not sure\", search with cortex_search_memory to verify and fill in specifics.";
+  }
+  if (opts.maturity === "warming") {
+    return "These are partial context clues. Use cortex_search_memory to find additional details before answering.";
   }
   return undefined;
 }
@@ -350,6 +357,8 @@ export function formatMemoriesWithStats(
 ): FormatMemoriesResult {
   const opts = typeof topKOrOpts === "number" ? { topK: topKOrOpts } : topKOrOpts;
   const topK = opts.topK ?? DEFAULT_TOP_K;
+  const effectiveLineChars = opts.maxLineChars ?? MAX_MEMORY_LINE_CHARS;
+  const effectiveBlockChars = opts.maxBlockChars ?? MAX_MEMORY_BLOCK_CHARS;
 
   const cleaned = filterNoisyMemories(memories);
   if (!cleaned.length) return { text: "", collapsedCount: 0 };
@@ -375,11 +384,11 @@ export function formatMemoriesWithStats(
   let displayedCount = 0;
   const displayed: RecallMemory[] = [];
   for (const memory of candidates) {
-    const content = truncateMemory(memory.content, MAX_MEMORY_LINE_CHARS);
+    const content = truncateMemory(memory.content, effectiveLineChars);
     const displayScore = memory.relevance ?? memory.confidence;
     const line = `- [${displayScore.toFixed(2)}] ${sanitizeMemoryContent(content)}`;
     const addedChars = (lines.length > 0 ? 1 : 0) + line.length;
-    if (totalChars + addedChars > MAX_MEMORY_BLOCK_CHARS) break;
+    if (totalChars + addedChars > effectiveBlockChars) break;
     lines.push(line);
     totalChars += addedChars;
     displayedCount++;
@@ -412,7 +421,7 @@ export function formatMemoriesWithStats(
       footer = footer ? `${footer}\n${searchHint}` : searchHint;
     }
     const footerChars = (lines.length > 0 ? 1 : 0) + footer.length;
-    if (totalChars + footerChars <= MAX_MEMORY_BLOCK_CHARS) {
+    if (totalChars + footerChars <= effectiveBlockChars) {
       lines.push(footer);
     }
   }
