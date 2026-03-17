@@ -359,6 +359,158 @@ describe("plugin lifecycle contract", () => {
     expect(SessionStateStore.prototype.readDirtyFromPriorLifecycle).toHaveBeenCalledTimes(1);
   });
 
+  it("adds linked TooToo guidance before turns and submits bridge Q&A after a qualifying exchange", async () => {
+    vi.spyOn(CortexClient.prototype, "getLinkStatus").mockResolvedValue({
+      linked: true,
+      link: {
+        tootoo_user_id: "tt-user-1",
+        linked_at: "2026-03-01T10:00:00Z",
+      },
+    });
+    const submitBridgeQA = vi.spyOn(CortexClient.prototype, "submitBridgeQA").mockResolvedValue({
+      accepted: true,
+      forwarded: true,
+      queued_for_retry: false,
+      entries_sent: 1,
+      tootoo_user_id: "tt-user-1",
+      bridge_event_id: "bridge-event-1",
+      suggestions_created: 2,
+    });
+
+    const { api, hooks } = makeApi({
+      userId: "agent-user-1",
+    });
+
+    plugin.register(api as any);
+    await flushMicrotasks();
+
+    const beforeTurn = await hooks.before_agent_start[0](
+      {
+        prompt: "keep going with this conversation",
+        messages: [
+          {
+            role: "user",
+            content: "keep going with this conversation",
+            provenance: { kind: "external_user" },
+          },
+        ],
+      },
+      { sessionKey: "sess-bridge" },
+    );
+
+    expect(beforeTurn?.prependContext).toContain("<tootoo_bridge>");
+
+    await hooks.agent_end[0]({
+      messages: [
+        { role: "user", content: "I want my work to feel more aligned this year." },
+        { role: "assistant", content: "That sounds important. What do you value most in your work?" },
+        { role: "user", content: "Autonomy and creative freedom." },
+        { role: "assistant", content: "That gives us a strong anchor for future decisions." },
+      ],
+      aborted: false,
+      sessionKey: "sess-bridge",
+    });
+
+    await vi.waitFor(() => expect(submitBridgeQA).toHaveBeenCalledTimes(1));
+    expect(submitBridgeQA).toHaveBeenCalledWith({
+      user_id: "agent-user-1",
+      request_id: expect.stringMatching(/^openclaw-bridge-/),
+      entries: [
+        {
+          question: "What do you value most in your work?",
+          answer: "Autonomy and creative freedom.",
+          target_section: "coreValues",
+        },
+      ],
+    });
+  });
+
+  it("leaves unlinked users unchanged for bridge behavior", async () => {
+    vi.spyOn(CortexClient.prototype, "getLinkStatus").mockResolvedValue({ linked: false });
+    const submitBridgeQA = vi.spyOn(CortexClient.prototype, "submitBridgeQA").mockResolvedValue({
+      accepted: true,
+      forwarded: true,
+      queued_for_retry: false,
+      entries_sent: 1,
+      tootoo_user_id: "tt-user-1",
+      bridge_event_id: "bridge-event-1",
+      suggestions_created: 2,
+    });
+
+    const { api, hooks } = makeApi({
+      userId: "agent-user-1",
+    });
+
+    plugin.register(api as any);
+    await flushMicrotasks();
+
+    const beforeTurn = await hooks.before_agent_start[0](
+      { prompt: "keep going with this conversation" },
+      { sessionKey: "sess-unlinked" },
+    );
+
+    expect(beforeTurn).toBeUndefined();
+
+    await hooks.agent_end[0]({
+      messages: [
+        { role: "assistant", content: "What do you value most in your work?" },
+        { role: "user", content: "Autonomy and creative freedom." },
+        { role: "assistant", content: "That helps a lot." },
+      ],
+      aborted: false,
+      sessionKey: "sess-unlinked",
+    });
+
+    expect(submitBridgeQA).not.toHaveBeenCalled();
+  });
+
+  it("does not inject bridge guidance for heartbeat or synthetic user turns", async () => {
+    vi.spyOn(CortexClient.prototype, "getLinkStatus").mockResolvedValue({
+      linked: true,
+      link: {
+        tootoo_user_id: "tt-user-1",
+        linked_at: "2026-03-01T10:00:00Z",
+      },
+    });
+
+    const { api, hooks } = makeApi({
+      userId: "agent-user-1",
+    });
+
+    plugin.register(api as any);
+    await flushMicrotasks();
+
+    const heartbeatTurn = await hooks.before_agent_start[0](
+      {
+        prompt: "HEARTBEAT_OK - if nothing needs attention, reply with a short status only.",
+        messages: [
+          {
+            role: "user",
+            content: "HEARTBEAT_OK - if nothing needs attention, reply with a short status only.",
+            provenance: { kind: "external_user" },
+          },
+        ],
+      },
+      { sessionKey: "sess-heartbeat" },
+    );
+    expect(heartbeatTurn).toBeUndefined();
+
+    const syntheticTurn = await hooks.before_agent_start[0](
+      {
+        prompt: "system-routed turn",
+        messages: [
+          {
+            role: "user",
+            content: "Synthetic routing hint",
+            provenance: { kind: "internal_system" },
+          },
+        ],
+      },
+      { sessionKey: "sess-synthetic" },
+    );
+    expect(syntheticTurn).toBeUndefined();
+  });
+
   it("registers Gateway RPC method", async () => {
     const { api, rpcMethods } = makeApi({});
 
@@ -467,16 +619,16 @@ describe("plugin lifecycle contract", () => {
     mockClientKnowledge({ total_memories: 142, total_sessions: 18, maturity: "warming" });
     vi.spyOn(CortexClient.prototype, "stats").mockResolvedValue({ pipeline_tier: 2, pipeline_maturity: "warming" });
 
-    const { api, logger, services } = makeApi({});
+    const { api, logger, services } = makeApi({ userId: "agent-user-1" });
 
     plugin.register(api as any);
     // Bootstrap runs in start(), not register()
     services[0].start?.({});
-    await new Promise((r) => setTimeout(r, 50));
-
-    expect(logger.info).toHaveBeenCalledWith(
-      "Cortex connected — 142 memories, 18 sessions (warming), tier 2",
-    );
+    await vi.waitFor(() => {
+      expect(logger.info).toHaveBeenCalledWith(
+        "Cortex connected — 142 memories, 18 sessions (warming), tier 2",
+      );
+    });
   });
 
   it("proceeds without knowledge when endpoint is unavailable", async () => {

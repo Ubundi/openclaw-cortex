@@ -8,6 +8,7 @@ import { CortexConfigSchema, configSchema, type CortexConfig } from "./config.js
 import { CortexClient } from "../cortex/client.js";
 import { createRecallHandler } from "../features/recall/handler.js";
 import { createCaptureHandler } from "../features/capture/handler.js";
+import { createBridgeHandler } from "../features/bridge/handler.js";
 import { RetryQueue } from "../internal/retry-queue.js";
 import { LatencyMetrics } from "../internal/latency-metrics.js";
 import { loadOrCreateUserId } from "../internal/user-id.js";
@@ -18,6 +19,8 @@ import { RecallEchoStore } from "../internal/recall-echo-store.js";
 import { CaptureWatermarkStore } from "../internal/capture-watermark-store.js";
 import { injectAgentInstructions } from "../internal/agent-instructions.js";
 import { createHeartbeatHandler } from "../features/heartbeat/handler.js";
+import { isHeartbeatTurn } from "../internal/heartbeat-detect.js";
+import { shouldUseUserMessageForMemory } from "../internal/message-provenance.js";
 import {
   buildSessionSummaryFromMessages,
   formatRecoveryContext,
@@ -108,6 +111,24 @@ function resolveSessionKey(
 function mergePrependContext(recoveryContext: string | undefined, recallContext: string | undefined): string | undefined {
   if (recoveryContext && recallContext) return `${recoveryContext}\n\n${recallContext}`;
   return recoveryContext ?? recallContext;
+}
+
+function shouldInjectBridgePrompt(event: { prompt: string; messages?: unknown[] }): boolean {
+  if (isHeartbeatTurn(event.prompt ?? "")) return false;
+  if (!Array.isArray(event.messages) || event.messages.length === 0) return false;
+
+  for (let i = event.messages.length - 1; i >= 0; i--) {
+    const message = event.messages[i];
+    if (typeof message !== "object" || message === null) continue;
+    const typed = message as Record<string, unknown>;
+    if (typed.role !== "user") {
+      if (typed.role === "assistant") return false;
+      continue;
+    }
+    return shouldUseUserMessageForMemory(typed);
+  }
+
+  return false;
 }
 
 function isAbortError(err: unknown): boolean {
@@ -542,6 +563,18 @@ const plugin = {
       sessionGoalStore,
       () => rolePreset?.recallContext,
     );
+    const bridgeHandler = createBridgeHandler(client, {
+      logger: api.logger,
+      retryQueue,
+      getUserId: () => userId,
+      userIdReady,
+      pluginSessionId: sessionId,
+      auditLogger: auditLoggerProxy,
+    });
+
+    if (!isCliInvocation) {
+      void userIdReady.then(() => bridgeHandler.refreshLinkStatus(true));
+    }
 
     // Auto-Recall: inject relevant memories before every agent turn
     registerHookCompat(
@@ -585,7 +618,13 @@ const plugin = {
         }
 
         const recallResult = await recallHandler(event, ctx);
-        const combined = mergePrependContext(recoveryContext, recallResult?.prependContext);
+        const bridgePromptContext = shouldInjectBridgePrompt(event)
+          ? await bridgeHandler.getPromptContext()
+          : undefined;
+        const combined = mergePrependContext(
+          mergePrependContext(recoveryContext, recallResult?.prependContext),
+          bridgePromptContext,
+        );
         if (!combined) return recallResult;
         return { prependContext: combined };
       },
@@ -624,6 +663,7 @@ const plugin = {
           }
         }
         const ingested = await captureHandler(event as any);
+        await bridgeHandler.handleAgentEnd(event as any);
         if (ingested) capturesSinceReflect++;
       },
       {

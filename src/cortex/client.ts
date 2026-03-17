@@ -141,6 +141,38 @@ export interface GeneratePairingCodeResponse {
   expires_at: string;
 }
 
+export type BridgeTargetSection =
+  | "coreValues"
+  | "beliefs"
+  | "principles"
+  | "ideas"
+  | "dreams"
+  | "practices"
+  | "shadows"
+  | "legacy";
+
+export interface BridgeQAEntry {
+  question: string;
+  answer: string;
+  target_section: BridgeTargetSection;
+}
+
+export interface BridgeQARequest {
+  user_id: string;
+  request_id: string;
+  entries: BridgeQAEntry[];
+}
+
+export interface BridgeQAResponse {
+  accepted: boolean;
+  forwarded: boolean;
+  queued_for_retry: boolean;
+  entries_sent: number;
+  tootoo_user_id: string;
+  bridge_event_id: string;
+  suggestions_created: number | null;
+}
+
 export interface LinkStatusLink {
   tootoo_user_id: string;
   linked_at: string;
@@ -278,6 +310,7 @@ const DEFAULT_SUBMIT_TIMEOUT_MS = 10_000;
 const DEFAULT_REFLECT_TIMEOUT_MS = 30_000;
 const DEFAULT_HEALTH_TIMEOUT_MS = 5_000;
 const DEFAULT_WARMUP_TIMEOUT_MS = 60_000;
+const DEFAULT_BRIDGE_TIMEOUT_MS = 15_000;
 
 // --- Agent API Defaults ---
 const DEFAULT_REMEMBER_TIMEOUT_MS = 45_000;
@@ -750,6 +783,18 @@ export class CortexClient {
       { agent_user_id: agentUserId },
       timeoutMs,
       "auth/code",
+    );
+  }
+
+  async submitBridgeQA(
+    request: BridgeQARequest,
+    timeoutMs = DEFAULT_BRIDGE_TIMEOUT_MS,
+  ): Promise<BridgeQAResponse> {
+    return this.fetchJsonWithTimeout<BridgeQAResponse>(
+      `${this.baseUrl}/v1/bridge/qa`,
+      request,
+      timeoutMs,
+      "bridge/qa",
     );
   }
 

@@ -542,6 +542,73 @@ describe("CortexClient", () => {
     });
   });
 
+  describe("submitBridgeQA", () => {
+    it("sends the discovery Q&A payload to the bridge endpoint", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          accepted: true,
+          forwarded: true,
+          queued_for_retry: false,
+          entries_sent: 1,
+          tootoo_user_id: "tt-user-1",
+          bridge_event_id: "bridge-event-1",
+          suggestions_created: 2,
+        }),
+      });
+
+      const result = await client.submitBridgeQA({
+        user_id: "agent-user-1",
+        request_id: "openclaw-bridge-123",
+        entries: [
+          {
+            question: "What do you value most in your work?",
+            answer: "Autonomy and creative freedom.",
+            target_section: "coreValues",
+          },
+        ],
+      });
+
+      expect(mockFetch).toHaveBeenCalledWith(
+        "https://api.example.com/v1/bridge/qa",
+        expect.objectContaining({
+          method: "POST",
+          body: JSON.stringify({
+            user_id: "agent-user-1",
+            request_id: "openclaw-bridge-123",
+            entries: [
+              {
+                question: "What do you value most in your work?",
+                answer: "Autonomy and creative freedom.",
+                target_section: "coreValues",
+              },
+            ],
+          }),
+        }),
+      );
+      expect(result.accepted).toBe(true);
+      expect(result.suggestions_created).toBe(2);
+    });
+
+    it("throws on bridge endpoint errors", async () => {
+      mockFetch.mockResolvedValueOnce({ ok: false, status: 503 });
+
+      await expect(
+        client.submitBridgeQA({
+          user_id: "agent-user-1",
+          request_id: "openclaw-bridge-123",
+          entries: [
+            {
+              question: "What do you value most in your work?",
+              answer: "Autonomy and creative freedom.",
+              target_section: "coreValues",
+            },
+          ],
+        }),
+      ).rejects.toThrow("Cortex bridge/qa failed: 503");
+    });
+  });
+
   describe("reflect", () => {
     it("sends empty body to jobs/reflect", async () => {
       mockFetch.mockResolvedValueOnce({
