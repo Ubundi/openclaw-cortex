@@ -61,6 +61,7 @@ interface BridgeSessionState {
   lastQuestionTurn?: number;
   lastQuestionAt?: number;
   lastAnsweredTurn?: number;
+  questionPending?: boolean;
 }
 
 export interface CreateBridgeHandlerOptions {
@@ -105,6 +106,11 @@ const SECTION_HINTS: Array<{ section: BridgeTargetSection; patterns: RegExp[]; k
       /\bwhat do you care about(?: most)?\b/i,
       /\bwhat feels most important to you\b/i,
       /\bwhat makes .* feel meaningful\b/i,
+      /\bwhat (?:are you|do you find yourself) (?:\w+ )?(?:saying|drawn to|pulled toward)\b/i,
+      /\bwhat (?:draws|pulls|calls) you\b/i,
+      /\bwhat would you (?:fight|sacrifice|give up .+) for\b/i,
+      /\bwhat do you (?:keep coming|always come) back to\b/i,
+      /\bwhat (?:lights you up|energizes you|fills you up)\b/i,
     ],
     keywords: [
       "value",
@@ -119,6 +125,15 @@ const SECTION_HINTS: Array<{ section: BridgeTargetSection; patterns: RegExp[]; k
       "motivates",
       "motivate",
       "purpose",
+      "drawn to",
+      "pulled toward",
+      "saying yes",
+      "say yes",
+      "lights you up",
+      "energizes",
+      "fills you",
+      "come back to",
+      "keeps you going",
     ],
   },
   {
@@ -129,8 +144,21 @@ const SECTION_HINTS: Array<{ section: BridgeTargetSection; patterns: RegExp[]; k
       /\bwhat feels true to you\b/i,
       /\bwhat assumption(?:s)? do you carry\b/i,
       /\bwhat worldview\b/i,
+      /\bwhat do you (?:know|hold) to be true\b/i,
+      /\bwhat truth(?:s)? (?:guide|anchor|ground) you\b/i,
     ],
-    keywords: ["believe", "belief", "beliefs", "true to you", "assumption", "assumptions", "worldview", "conviction"],
+    keywords: [
+      "believe",
+      "belief",
+      "beliefs",
+      "true to you",
+      "assumption",
+      "assumptions",
+      "worldview",
+      "conviction",
+      "know to be true",
+      "hold to be true",
+    ],
   },
   {
     section: "principles",
@@ -140,6 +168,10 @@ const SECTION_HINTS: Array<{ section: BridgeTargetSection; patterns: RegExp[]; k
       /\bwhat line won't you cross\b/i,
       /\bwhat standard do you hold yourself to\b/i,
       /\bwhat principle(?:s)? matter most\b/i,
+      /\bwhat (?:are you|do you find yourself) saying (?:no|'no') to\b/i,
+      /\bwhat do you (?:refuse|reject|resist|protect)\b/i,
+      /\bwhat (?:won't|wouldn't) you compromise\b/i,
+      /\bwhere do you draw the line\b/i,
     ],
     keywords: [
       "principle",
@@ -153,6 +185,12 @@ const SECTION_HINTS: Array<{ section: BridgeTargetSection; patterns: RegExp[]; k
       "boundaries",
       "non-negotiable",
       "non-negotiables",
+      "saying no",
+      "say no",
+      "refuse",
+      "protect",
+      "compromise",
+      "draw the line",
     ],
   },
   {
@@ -174,8 +212,23 @@ const SECTION_HINTS: Array<{ section: BridgeTargetSection; patterns: RegExp[]; k
       /\bwhat do you want your (?:life|work|future)\b/i,
       /\bwhat would your ideal\b/i,
       /\bwhat future are you trying to build\b/i,
+      /\bwhat would you (?:change|do differently)\b/i,
+      /\bif you could (?:design|redesign|rebuild|reshape)\b/i,
     ],
-    keywords: ["dream", "dreams", "hope", "future", "ideal", "aspire", "aspiration", "want your life", "want your work"],
+    keywords: [
+      "dream",
+      "dreams",
+      "hope",
+      "future",
+      "ideal",
+      "aspire",
+      "aspiration",
+      "want your life",
+      "want your work",
+      "change about",
+      "do differently",
+      "if you could",
+    ],
   },
   {
     section: "practices",
@@ -186,8 +239,31 @@ const SECTION_HINTS: Array<{ section: BridgeTargetSection; patterns: RegExp[]; k
       /\bhow do you stay grounded\b/i,
       /\bhow do you keep yourself aligned\b/i,
       /\bwhat helps you reset\b/i,
+      /\bwhat (?:are|do) (?:your|you) (?:top|main|biggest) (?:\w+ )?obligation/i,
+      /\bwhat (?:takes|occupies|fills|consumes) (?:most of )?your (?:time|energy|day)\b/i,
+      /\bhow do you (?:spend|structure|organize) your (?:time|day|week)\b/i,
+      /\bwhat does your (?:daily|typical|average) (?:routine|rhythm|day) look like\b/i,
     ],
-    keywords: ["practice", "practices", "habit", "habits", "routine", "routines", "ritual", "grounded", "aligned", "reset"],
+    keywords: [
+      "practice",
+      "practices",
+      "habit",
+      "habits",
+      "routine",
+      "routines",
+      "ritual",
+      "grounded",
+      "aligned",
+      "reset",
+      "obligation",
+      "obligations",
+      "commitment",
+      "commitments",
+      "daily rhythm",
+      "takes your time",
+      "occupies your",
+      "spend your time",
+    ],
   },
   {
     section: "shadows",
@@ -198,6 +274,8 @@ const SECTION_HINTS: Array<{ section: BridgeTargetSection; patterns: RegExp[]; k
       /\bwhere do you hold yourself back\b/i,
       /\bwhat insecurity\b/i,
       /\bwhat part of yourself is hard to face\b/i,
+      /\bwhat (?:are you|do you keep) (?:resisting|running from|hiding from)\b/i,
+      /\bwhat (?:drains|exhausts|depletes) you\b/i,
     ],
     keywords: [
       "fear",
@@ -210,6 +288,11 @@ const SECTION_HINTS: Array<{ section: BridgeTargetSection; patterns: RegExp[]; k
       "insecurity",
       "shadow",
       "self-sabotage",
+      "resisting",
+      "running from",
+      "hiding from",
+      "drains you",
+      "exhausts you",
     ],
   },
   {
@@ -557,19 +640,44 @@ export function detectBridgeExchange(input: {
   return detectBridgeExchanges(input).at(-1);
 }
 
+export type BridgePromptMode = "full" | "followup" | false;
+
 export function buildTooTooBridgePrompt(): string {
   return [
     "<tootoo_bridge>",
     "[NOTE: The current user linked this agent to TooToo. Treat this as behavioral guidance.]",
     "When a linked user opens in a reflective or personal way, your first move should usually be exactly one short, direct discovery question.",
     "Ask it plainly and naturally, like a thoughtful human. Do not lead with frameworks, bullet lists, option menus, worksheets, or multi-step coaching exercises.",
-    "Prefer canonical question shapes that map cleanly, especially for work reflection: \"What do you value most in your work?\" \"What matters most to you in your work?\" \"What are your non-negotiables?\"",
+    "IMPORTANT: Use one of these exact question shapes (or very close paraphrases):",
+    "- \"What do you value most in your work?\"",
+    "- \"What matters most to you in your work?\"",
+    "- \"What are your non-negotiables?\"",
+    "- \"What do you care about most?\"",
+    "- \"What principle guides you most?\"",
+    "- \"How do you want to be remembered?\"",
+    "- \"What are you afraid of?\"",
+    "- \"What do you dream about?\"",
+    "- \"What practice keeps you grounded?\"",
+    "Do NOT rephrase these into creative or abstract alternatives. The exact wording matters for downstream processing.",
     "Keep it grounded in what the user is already discussing and do not derail practical help when the user is asking for concrete help.",
     "Prefer reflective questions about values, beliefs, principles, ideas, dreams, practices, shadows, or legacy.",
     "Do not force a questionnaire or ask repeated discovery questions in back-to-back turns.",
     "After the user answers, use the answer to return to grounded practical help.",
     "Only explicit user answers count. Do not infer or restate personal content the user did not clearly say.",
     "</tootoo_bridge>",
+  ].join("\n");
+}
+
+export function buildBridgeFollowUpPrompt(): string {
+  return [
+    "<tootoo_bridge_followup>",
+    "[NOTE: The user just answered a personal discovery question. Treat this as behavioral guidance.]",
+    "Acknowledge their answer warmly but briefly (one sentence).",
+    "Then return to grounded, practical help related to what they originally came to discuss.",
+    "Do NOT launch into frameworks, coaching exercises, multi-step reflections, or follow-up discovery questions.",
+    "Do NOT expand on their answer with bullet points, worksheets, or structured exercises.",
+    "The discovery moment is complete. Resume being a helpful assistant.",
+    "</tootoo_bridge_followup>",
   ].join("\n");
 }
 
@@ -676,7 +784,7 @@ export function createBridgeHandler(
     return status.linked ? buildTooTooBridgePrompt() : undefined;
   }
 
-  async function shouldInjectPrompt(event: BridgePromptEvent): Promise<boolean> {
+  async function shouldInjectPrompt(event: BridgePromptEvent): Promise<BridgePromptMode> {
     if (isHeartbeatTurn(event.prompt ?? "")) return false;
     if (!Array.isArray(event.messages) || event.messages.length === 0) return false;
 
@@ -697,27 +805,50 @@ export function createBridgeHandler(
     const sessionState = getSessionState(sessionKey);
     sessionState.userTurns += 1;
 
+    // Answer cooldown takes precedence: if a bridge answer was already captured
+    // recently, suppress everything (including follow-up prompts).
     if (
       sessionState.lastAnsweredTurn != null &&
       sessionState.userTurns - sessionState.lastAnsweredTurn < BRIDGE_ANSWER_COOLDOWN_TURNS
     ) {
+      sessionState.questionPending = false;
       logger.debug?.(`Cortex bridge: prompt suppressed by answer cooldown sessionId=${sessionKey}`);
       return false;
     }
 
-    if (
+    // Turn/time cooldowns: suppress the full bridge prompt but check if we
+    // should inject a lighter follow-up prompt instead. The follow-up fires
+    // exactly once on the turn immediately after the bridge question (the turn
+    // where the user is answering it).
+    const suppressedByTurnCooldown =
       sessionState.lastQuestionTurn != null &&
-      sessionState.userTurns - sessionState.lastQuestionTurn < BRIDGE_QUESTION_COOLDOWN_TURNS
-    ) {
-      logger.debug?.(`Cortex bridge: prompt suppressed by turn cooldown sessionId=${sessionKey}`);
-      return false;
-    }
-
-    if (
+      sessionState.userTurns - sessionState.lastQuestionTurn < BRIDGE_QUESTION_COOLDOWN_TURNS;
+    const suppressedByTimeCooldown =
       sessionState.lastQuestionAt != null &&
-      Date.now() - sessionState.lastQuestionAt < BRIDGE_QUESTION_COOLDOWN_MS
-    ) {
-      logger.debug?.(`Cortex bridge: prompt suppressed by time cooldown sessionId=${sessionKey}`);
+      Date.now() - sessionState.lastQuestionAt < BRIDGE_QUESTION_COOLDOWN_MS;
+
+    if (suppressedByTurnCooldown || suppressedByTimeCooldown) {
+      // If a bridge question is pending AND this is the very next turn,
+      // inject the follow-up prompt to guide the model back to practical help.
+      if (
+        sessionState.questionPending &&
+        sessionState.lastQuestionTurn != null &&
+        sessionState.userTurns - sessionState.lastQuestionTurn === 1 &&
+        isExplicitAnswer(latestUser.content) &&
+        !isReflectiveOpportunity(latestUser.content, normalizedMessages)
+      ) {
+        sessionState.questionPending = false;
+        const status = await refreshLinkStatus();
+        if (status.linked) {
+          logger.debug?.(`Cortex bridge: injecting follow-up prompt sessionId=${sessionKey}`);
+          return "followup";
+        }
+      }
+
+      sessionState.questionPending = false;
+      logger.debug?.(
+        `Cortex bridge: prompt suppressed by ${suppressedByTurnCooldown ? "turn" : "time"} cooldown sessionId=${sessionKey}`,
+      );
       return false;
     }
 
@@ -725,7 +856,7 @@ export function createBridgeHandler(
 
     const status = await refreshLinkStatus();
     if (!status.linked) return false;
-    return true;
+    return "full";
   }
 
   async function handleAgentEnd(event: AgentEndEvent): Promise<boolean> {
@@ -753,6 +884,7 @@ export function createBridgeHandler(
       handledQuestionIds.set(latestNewQuestion.questionId, Date.now());
       sessionState.lastQuestionTurn = sessionState.userTurns;
       sessionState.lastQuestionAt = Date.now();
+      sessionState.questionPending = true;
     }
 
     const exchanges = detectBridgeExchanges({

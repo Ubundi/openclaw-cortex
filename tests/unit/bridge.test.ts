@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { CortexClient } from "../../src/cortex/client.js";
 import {
   buildTooTooBridgePrompt,
+  buildBridgeFollowUpPrompt,
   createBridgeHandler,
   detectBridgeExchange,
   detectBridgeExchanges,
@@ -75,6 +76,76 @@ describe("TooToo bridge handler", () => {
     expect(prompt).toContain("\"What matters most to you in your work?\"");
     expect(prompt).toContain("\"What are your non-negotiables?\"");
     expect(prompt).toContain("After the user answers, use the answer to return to grounded practical help.");
+    expect(prompt).toContain("Do NOT rephrase these into creative or abstract alternatives.");
+  });
+
+  it("builds a follow-up prompt that guides model back to practical help", () => {
+    const prompt = buildBridgeFollowUpPrompt();
+
+    expect(prompt).toContain("<tootoo_bridge_followup>");
+    expect(prompt).toContain("Acknowledge their answer warmly but briefly");
+    expect(prompt).toContain("return to grounded, practical help");
+    expect(prompt).toContain("Do NOT launch into frameworks");
+    expect(prompt).toContain("The discovery moment is complete");
+  });
+
+  it("injects follow-up prompt when user answers a pending bridge question", async () => {
+    const client = makeClient();
+    const handler = createBridgeHandler(client, {
+      logger,
+      getUserId: () => "agent-user-1",
+      userIdReady: Promise.resolve(),
+      pluginSessionId: "plugin-session-1",
+    });
+
+    // Turn 1: reflective opening triggers full bridge prompt
+    await expect(handler.shouldInjectPrompt({
+      prompt: "I've been rethinking what kind of work I want this year.",
+      messages: [
+        {
+          role: "user",
+          content: "I've been rethinking what kind of work I want this year and what would feel meaningful.",
+          provenance: { kind: "external_user" },
+        },
+      ],
+      sessionKey: "sess-followup",
+    })).resolves.toBe("full");
+
+    // Simulate agent_end where the assistant asked a qualifying question
+    await handler.handleAgentEnd({
+      messages: [
+        { role: "user", content: "I've been rethinking what kind of work I want this year." },
+        { role: "assistant", content: "What do you value most in your work?" },
+      ],
+      aborted: false,
+      sessionKey: "sess-followup",
+    });
+
+    // Turn 2: user answers the question — should get follow-up prompt
+    await expect(handler.shouldInjectPrompt({
+      prompt: "Autonomy and creative freedom.",
+      messages: [
+        {
+          role: "user",
+          content: "Autonomy and creative freedom. Those are the things that keep me going.",
+          provenance: { kind: "external_user" },
+        },
+      ],
+      sessionKey: "sess-followup",
+    })).resolves.toBe("followup");
+
+    // Turn 3: follow-up is consumed, next turn should not get follow-up again
+    await expect(handler.shouldInjectPrompt({
+      prompt: "I'm also wondering about my long-term direction.",
+      messages: [
+        {
+          role: "user",
+          content: "I'm also wondering about my long-term direction and what I should optimize for next.",
+          provenance: { kind: "external_user" },
+        },
+      ],
+      sessionKey: "sess-followup",
+    })).resolves.toBe(false);
   });
 
   it("only invites bridge prompts on reflective turns", async () => {
@@ -96,7 +167,7 @@ describe("TooToo bridge handler", () => {
         },
       ],
       sessionKey: "sess-reflective",
-    })).resolves.toBe(true);
+    })).resolves.toBe("full");
 
     await expect(handler.shouldInjectPrompt({
       prompt: "Fix the Redis cache TTL bug and add a regression test.",
@@ -120,7 +191,7 @@ describe("TooToo bridge handler", () => {
         },
       ],
       sessionKey: "sess-punctuation",
-    })).resolves.toBe(true);
+    })).resolves.toBe("full");
 
     await expect(handler.shouldInjectPrompt({
       prompt: "I want to simplify the migration path this week.",
@@ -154,7 +225,7 @@ describe("TooToo bridge handler", () => {
         },
       ],
       sessionKey: "sess-cooldown",
-    })).resolves.toBe(true);
+    })).resolves.toBe("full");
 
     await expect(handler.shouldInjectPrompt({
       prompt: "I'm still trying to figure out what matters most to me in my work.",
@@ -166,7 +237,7 @@ describe("TooToo bridge handler", () => {
         },
       ],
       sessionKey: "sess-cooldown",
-    })).resolves.toBe(true);
+    })).resolves.toBe("full");
   });
 
   it("starts cooldown only after the assistant actually asks a qualifying question", async () => {
@@ -188,7 +259,7 @@ describe("TooToo bridge handler", () => {
         },
       ],
       sessionKey: "sess-question-cooldown",
-    })).resolves.toBe(true);
+    })).resolves.toBe("full");
 
     await expect(handler.shouldInjectPrompt({
       prompt: "I'm still trying to figure out what matters most to me.",
@@ -200,7 +271,7 @@ describe("TooToo bridge handler", () => {
         },
       ],
       sessionKey: "sess-question-cooldown",
-    })).resolves.toBe(true);
+    })).resolves.toBe("full");
 
     await handler.handleAgentEnd({
       messages: [
@@ -243,7 +314,7 @@ describe("TooToo bridge handler", () => {
         },
       ],
       sessionKey: "sess-after-answer",
-    })).resolves.toBe(true);
+    })).resolves.toBe("full");
 
     await handler.handleAgentEnd({
       messages: discoveryExchangeMessages(),
@@ -513,6 +584,16 @@ describe("TooToo bridge handler", () => {
     expect(inferTargetSection("What are your non-negotiables?")).toBe("principles");
     expect(inferTargetSection("How do you want to be remembered?")).toBe("legacy");
     expect(inferTargetSection("What is the default Redis cache TTL we use?")).toBeUndefined();
+  });
+
+  it("maps creative question variants to target sections", () => {
+    expect(inferTargetSection("What are you currently saying 'yes' to in your life?")).toBe("coreValues");
+    expect(inferTargetSection("What are you saying no to right now?")).toBe("principles");
+    expect(inferTargetSection("What are the top three obligations that take most of your time?")).toBe("practices");
+    expect(inferTargetSection("What draws you most in your work?")).toBe("coreValues");
+    expect(inferTargetSection("What would you change about your daily routine?")).toBe("dreams");
+    expect(inferTargetSection("What drains you the most?")).toBe("shadows");
+    expect(inferTargetSection("What do you keep coming back to?")).toBe("coreValues");
   });
 
   it("extracts the last question from assistant text directly", () => {

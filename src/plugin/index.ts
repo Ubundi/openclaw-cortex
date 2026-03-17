@@ -8,7 +8,7 @@ import { CortexConfigSchema, configSchema, type CortexConfig } from "./config.js
 import { CortexClient } from "../cortex/client.js";
 import { createRecallHandler } from "../features/recall/handler.js";
 import { createCaptureHandler } from "../features/capture/handler.js";
-import { createBridgeHandler } from "../features/bridge/handler.js";
+import { createBridgeHandler, buildBridgeFollowUpPrompt } from "../features/bridge/handler.js";
 import { RetryQueue } from "../internal/retry-queue.js";
 import { LatencyMetrics } from "../internal/latency-metrics.js";
 import { loadOrCreateUserId } from "../internal/user-id.js";
@@ -598,12 +598,15 @@ const plugin = {
         }
 
         const recallResult = await recallHandler(event, ctx);
-        const bridgePromptContext = await bridgeHandler.shouldInjectPrompt({
+        const bridgePromptMode = await bridgeHandler.shouldInjectPrompt({
           ...event,
           sessionKey: activeSessionKey,
-        })
+        });
+        const bridgePromptContext = bridgePromptMode === "full"
           ? await bridgeHandler.getPromptContext()
-          : undefined;
+          : bridgePromptMode === "followup"
+            ? buildBridgeFollowUpPrompt()
+            : undefined;
         const combined = mergePrependContext(
           mergePrependContext(recoveryContext, recallResult?.prependContext),
           bridgePromptContext,
