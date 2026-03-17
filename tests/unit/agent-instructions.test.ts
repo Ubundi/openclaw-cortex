@@ -168,6 +168,9 @@ describe("buildCortexInstructions", () => {
 
     expect(result).toContain("cortex-memory");
     expect(result).toContain("cortex_search_memory");
+    expect(result).toContain("exactly one short direct discovery question");
+    expect(result).toContain("What do you value most in your work?");
+    expect(result).toContain("return to practical help after the answer");
     expect(result).not.toContain("### Custom save guidance");
   });
 

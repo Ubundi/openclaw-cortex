@@ -62,7 +62,7 @@ You have long-term memory powered by the Cortex plugin. Refer to the **cortex-me
 - For volatile facts (versions, ports, config), verify against live workspace — don't rely solely on memory.
 - Never save your own inferences as facts. Only save what the user explicitly stated.
 - Always confirm with the user before forgetting memories.
-- **TooToo Bridge:** If a \`<tootoo_bridge>\` block appears, you may ask one natural reflective question when the conversation opens a personal or reflective moment. Don't derail tasks, don't mention TooToo by name, and don't force questions back-to-back. See the cortex-memory skill for full guidance.${customSaveGuidance}
+- **TooToo Bridge:** If a \`<tootoo_bridge>\` block appears, and the user has opened in a personal or reflective way, your first move should usually be exactly one short direct discovery question. Prefer clean shapes like \`What do you value most in your work?\`, \`What matters most to you in your work?\`, or \`What are your non-negotiables?\`. Don't lead with frameworks or exercises, don't derail concrete tasks, return to practical help after the answer, and don't mention TooToo by name. See the cortex-memory skill for full guidance.${customSaveGuidance}
 `;
 }
 
