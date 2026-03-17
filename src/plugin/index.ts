@@ -157,7 +157,7 @@ async function checkForUpdate(logger: Logger): Promise<void> {
       const latest = data.version;
       if (latest && latest !== version) {
         logger.info(
-          `Cortex: update available ${version} → ${latest} — run \`openclaw install ${PACKAGE_NAME}@latest\` to update`,
+          `Cortex: update available ${version} → ${latest} — run \`openclaw plugins update openclaw-cortex\` to update`,
         );
       }
     } finally {
