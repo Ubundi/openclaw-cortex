@@ -23,6 +23,8 @@ These are non-negotiable. Violating them produces incorrect answers.
 
 **5. CONFIDENCE CALIBRATION.** If auto-recall gives you partial context on a topic, the full answer IS in memory. Search harder — don't hedge.
 
+**6. SAVE IMPLEMENTATION DETAILS EXPLICITLY.** Auto-capture extracts topic-level summaries, not specifics. When the conversation contains concrete implementation details — key patterns, exact metrics, SQL statements, config values, CLI commands, library choices with rationale, migration decisions, bug root causes with debugging chains, performance numbers (before/after) — you MUST save them explicitly using `cortex_save_memory`. If a detail is specific enough that someone could ask about it later and need the exact answer, save it proactively. One well-structured save with full context beats three fragments. Don't save every sentence — general topic mentions and status updates are fine for auto-capture.
+
 ## Session Goals
 
 At session start, call `cortex_set_session_goal` with the user's primary objective. This biases recall and tags captures. Update if the goal shifts fundamentally; don't update for sub-tasks.
@@ -43,7 +45,22 @@ If your config includes `agentRole` (developer | researcher | manager | support 
 
 ## Save & Capture
 
-Auto-capture handles most conversation facts. Volatile state (versions, ports, deploy statuses) is stripped automatically. Save explicitly for: decisions, preferences, nuanced interpretations the user stated, or when the user asks. Always set `type` and `importance`. Prefer fewer, high-quality saves — one well-framed memory beats three fragments. Never save your own inferences as facts.
+Auto-capture handles general conversation facts at the topic level. Volatile state (versions, ports, deploy statuses) is stripped automatically. **Auto-capture does NOT preserve specific implementation details** — it produces summaries like "User is setting up Redis caching" instead of the actual key pattern and strategy.
+
+**Save explicitly when you encounter:**
+- Specific patterns, schemas, or key formats (e.g. `arclight:user:{userId}`)
+- Exact metrics and performance numbers (before/after)
+- SQL statements, CLI commands, config values
+- Architecture/migration decisions with specific rationale (e.g. "chose SendGrid over Resend because SOC 2 Type 2")
+- Bug root causes with the full debugging chain
+- Library/package choices with version-specific context
+
+**Auto-capture handles fine (no explicit save needed):**
+- General topic mentions ("we're working on caching")
+- Conversational context ("user asked about performance")
+- Status updates ("deployment went well")
+
+Always set `type` and `importance`. Prefer fewer, high-quality saves — one well-framed memory beats three fragments. Never save your own inferences as facts.
 
 ## What NOT to Do
 

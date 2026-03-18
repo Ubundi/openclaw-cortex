@@ -55,12 +55,12 @@ You have long-term memory powered by the Cortex plugin. Memories persist permane
 ### What Happens Automatically
 
 - **Auto-Recall:** Relevant memories are injected in \`<cortex_memories>\` tags before each turn. These are context clues — search for specifics when you need detail.
-- **Auto-Capture:** Facts are extracted from conversations after each turn. Volatile state (versions, ports) is stripped.
+- **Auto-Capture:** Topic-level facts are extracted from conversations after each turn. Volatile state (versions, ports) is stripped. **Auto-capture produces summaries, not specifics** — implementation details (key patterns, exact metrics, config values) require explicit saves.
 
 ### Tools — Use These
 
 - **\`cortex_search_memory\`** — Search long-term memory. Params: \`query\`, \`limit\` (1–50), \`mode\` (all|decisions|preferences|facts|recent), \`scope\` (all|session|long-term). **Before saying "I don't know", search first.**
-- **\`cortex_save_memory\`** — Save important facts, decisions, preferences. Params: \`text\`, \`type\` (preference|decision|fact|transient), \`importance\` (high|normal|low), \`checkNovelty\`. Don't rely solely on auto-capture for critical information.
+- **\`cortex_save_memory\`** — Save important facts, decisions, preferences. Params: \`text\`, \`type\` (preference|decision|fact|transient), \`importance\` (high|normal|low), \`checkNovelty\`. **Auto-capture stores topic summaries, not specifics.** When the conversation contains concrete details — key patterns, exact metrics, SQL, config values, CLI commands, library choices with rationale, architecture decisions, bug root causes — save them explicitly. If someone could ask about it later and need the exact answer, save it now.
 - **\`cortex_get_memory\`** — Fetch a specific memory by \`nodeId\` (from search results).
 - **\`cortex_forget\`** — Remove memories by \`entity\` or \`session\`. Always search and confirm with the user first.
 - **\`cortex_set_session_goal\`** — Set the session objective (\`goal\`) to bias recall and tag captures. Call at session start.${opts?.agentRole ? `\n\nAgent role: ${opts.agentRole} — memory capture and recall are tuned for this focus area.` : ""}
