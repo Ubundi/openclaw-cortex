@@ -63,7 +63,7 @@ describe("TooToo bridge handler", () => {
     const prompt = await handler.getPromptContext();
 
     expect(prompt).toContain("<tootoo_bridge>");
-    expect(prompt).toContain("exactly one short, direct discovery question");
+    expect(prompt).toContain("one short discovery question");
     expect((client.getLinkStatus as any)).toHaveBeenCalledWith("agent-user-1");
     expect(buildTooTooBridgePrompt()).toContain("explicit user answers");
   });
@@ -71,13 +71,15 @@ describe("TooToo bridge handler", () => {
   it("nudges the model toward one direct discovery question before frameworks", () => {
     const prompt = buildTooTooBridgePrompt();
 
-    expect(prompt).toContain("Do not lead with frameworks, bullet lists, option menus, worksheets, or multi-step coaching exercises.");
+    expect(prompt).toContain("No advice, no frameworks, no bullet points");
     expect(prompt).toContain("\"What do you value most in your work?\"");
     expect(prompt).toContain("\"What do you believe to be true?\"");
     expect(prompt).toContain("\"What are your non-negotiables?\"");
     expect(prompt).toContain("\"What are you curious about right now?\"");
-    expect(prompt).toContain("After the user answers, use the answer to return to grounded practical help.");
-    expect(prompt).toContain("Do NOT rephrase these into creative or abstract alternatives.");
+    expect(prompt).toContain("acknowledge briefly and return to practical help");
+    expect(prompt).toContain("Do NOT rephrase into creative or abstract alternatives");
+    expect(prompt).toContain("WRONG: giving advice");
+    expect(prompt).toContain("RIGHT: just the question, by itself");
   });
 
   it("builds a follow-up prompt that guides model back to practical help", () => {

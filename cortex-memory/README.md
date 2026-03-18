@@ -215,3 +215,10 @@ These commands are available to the agent during conversation:
 - Memories are stored in the Cortex API backend
 - Audit logs are stored locally at `<workspace>/.cortex/audit/`
 - Session state is stored locally in the OpenClaw data directory
+
+## Support
+
+For issues or questions:
+- Work Stream: Skills
+- Platform: Kwanda
+- Repository: kwanda-skills

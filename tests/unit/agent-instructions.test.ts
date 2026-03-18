@@ -172,9 +172,9 @@ describe("buildCortexInstructions", () => {
     expect(result).toContain("cortex_get_memory");
     expect(result).toContain("cortex_forget");
     expect(result).toContain("cortex_set_session_goal");
-    expect(result).toContain("exactly one short direct discovery question");
+    expect(result).toContain("MUST respond with ONLY one short discovery question");
     expect(result).toContain("What do you value most in your work?");
-    expect(result).toContain("Return to practical help after the answer");
+    expect(result).toContain("return to practical help");
     expect(result).not.toContain("### Custom save guidance");
   });
 

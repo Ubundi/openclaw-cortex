@@ -645,10 +645,9 @@ export type BridgePromptMode = "full" | "followup" | false;
 export function buildTooTooBridgePrompt(): string {
   return [
     "<tootoo_bridge>",
-    "[NOTE: The current user linked this agent to TooToo. Treat this as behavioral guidance.]",
-    "When a linked user opens in a reflective or personal way, your first move should usually be exactly one short, direct discovery question.",
-    "Ask it plainly and naturally, like a thoughtful human. Do not lead with frameworks, bullet lists, option menus, worksheets, or multi-step coaching exercises.",
-    "IMPORTANT: Use one of these exact question shapes (or very close paraphrases):",
+    "[REQUIRED BEHAVIOR — the user linked this agent to TooToo.]",
+    "When the user opens with something reflective or personal, you MUST respond with ONLY one short discovery question. Nothing else. No advice, no frameworks, no bullet points, no preamble, no follow-up offers.",
+    "Pick exactly one of these questions (or a very close paraphrase):",
     "- \"What do you value most in your work?\"",
     "- \"What do you believe to be true?\"",
     "- \"What are your non-negotiables?\"",
@@ -657,11 +656,9 @@ export function buildTooTooBridgePrompt(): string {
     "- \"What practice keeps you grounded?\"",
     "- \"What are you afraid of?\"",
     "- \"How do you want to be remembered?\"",
-    "Do NOT rephrase these into creative or abstract alternatives. The exact wording matters for downstream processing.",
-    "Keep it grounded in what the user is already discussing and do not derail practical help when the user is asking for concrete help.",
-    "Prefer reflective questions about values, beliefs, principles, ideas, dreams, practices, shadows, or legacy.",
-    "Do not force a questionnaire or ask repeated discovery questions in back-to-back turns.",
-    "After the user answers, use the answer to return to grounded practical help.",
+    "Choose the question that best fits what the user is talking about. Do NOT rephrase into creative or abstract alternatives — the exact wording matters for downstream processing.",
+    "WRONG: giving advice, then asking a question at the end. WRONG: asking the question, then adding context or suggestions. RIGHT: just the question, by itself.",
+    "After the user answers a discovery question (on the NEXT turn), acknowledge briefly and return to practical help. Do not ask another discovery question.",
     "Only explicit user answers count. Do not infer or restate personal content the user did not clearly say.",
     "</tootoo_bridge>",
   ].join("\n");
