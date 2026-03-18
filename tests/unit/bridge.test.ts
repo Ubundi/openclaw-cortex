@@ -76,7 +76,7 @@ describe("TooToo bridge handler", () => {
     expect(prompt).toContain("\"What do you believe to be true?\"");
     expect(prompt).toContain("\"What are your non-negotiables?\"");
     expect(prompt).toContain("\"What are you curious about right now?\"");
-    expect(prompt).toContain("acknowledge briefly and return to practical help");
+    expect(prompt).toContain("acknowledge in one plain sentence and move on");
     expect(prompt).toContain("Do NOT rephrase into creative or abstract alternatives");
     expect(prompt).toContain("WRONG: giving advice");
     expect(prompt).toContain("RIGHT: just the question, by itself");
@@ -86,10 +86,11 @@ describe("TooToo bridge handler", () => {
     const prompt = buildBridgeFollowUpPrompt();
 
     expect(prompt).toContain("<tootoo_bridge_followup>");
-    expect(prompt).toContain("Acknowledge their answer warmly but briefly");
-    expect(prompt).toContain("return to grounded, practical help");
-    expect(prompt).toContain("Do NOT launch into frameworks");
-    expect(prompt).toContain("The discovery moment is complete");
+    expect(prompt).toContain("one plain sentence");
+    expect(prompt).toContain("No superlatives, no praise, no coaching tone");
+    expect(prompt).toContain("Do NOT: offer plans, frameworks, exercises");
+    expect(prompt).toContain("'That's powerful', 'That's beautiful'");
+    expect(prompt).toContain("The discovery moment is complete. Move on.");
   });
 
   it("injects follow-up prompt when user answers a pending bridge question", async () => {

@@ -3,6 +3,7 @@
   "name": "Cortex Memory",
   "description": "Long-term memory powered by Cortex — Auto-Recall, Auto-Capture, agent memory tools, and deduplication",
   "version": "2.10.4",
+  "skills": ["./cortex-memory"],
   "configSchema": {
     "type": "object",
     "properties": {

@@ -174,7 +174,7 @@ describe("buildCortexInstructions", () => {
     expect(result).toContain("cortex_set_session_goal");
     expect(result).toContain("MUST respond with ONLY one short discovery question");
     expect(result).toContain("What do you value most in your work?");
-    expect(result).toContain("return to practical help");
+    expect(result).toContain("acknowledge in one plain sentence and move on");
     expect(result).not.toContain("### Custom save guidance");
   });
 

@@ -1,7 +1,6 @@
-import { basename, dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { basename, join } from "node:path";
 import { createHash, randomUUID } from "node:crypto";
-import { readFileSync, writeFileSync, statSync, mkdirSync, copyFileSync, chmodSync } from "node:fs";
+import { readFileSync, writeFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import packageJson from "../../package.json" with { type: "json" };
 import { CortexConfigSchema, configSchema, type CortexConfig } from "./config.js";
@@ -291,47 +290,6 @@ function ensurePluginsAllowlist(logger: Logger): void {
 }
 
 /**
- * Installs the cortex-memory skill to ~/skills/cortex-memory/.
- * OpenClaw resolves global skills from ~/skills/ (home directory level),
- * not ~/.openclaw/skills/. Copies SKILL.md from the package if it's missing
- * or has a different hash (version upgrade). Idempotent and non-fatal.
- */
-function installSkill(logger: Logger): void {
-  try {
-    const packageRoot = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
-    const srcSkillPath = join(packageRoot, "skill", "SKILL.md");
-    const destDir = join(homedir(), "skills", "cortex-memory");
-    const destPath = join(destDir, "SKILL.md");
-
-    // Check if source skill file exists
-    let srcContent: string;
-    try {
-      srcContent = readFileSync(srcSkillPath, "utf-8");
-    } catch {
-      logger.debug?.("Cortex: skill/SKILL.md not found in package, skipping skill install");
-      return;
-    }
-
-    // Check if destination already matches (avoid unnecessary writes)
-    try {
-      const destContent = readFileSync(destPath, "utf-8");
-      const srcHash = createHash("sha256").update(srcContent).digest("hex").slice(0, 12);
-      const destHash = createHash("sha256").update(destContent).digest("hex").slice(0, 12);
-      if (srcHash === destHash) return; // Already up to date
-    } catch {
-      // Destination doesn't exist — proceed with install
-    }
-
-    mkdirSync(destDir, { recursive: true });
-    copyFileSync(srcSkillPath, destPath);
-    try { chmodSync(destPath, 0o644); } catch { /* best-effort */ }
-    logger.info("Cortex: installed cortex-memory skill");
-  } catch (err) {
-    logger.debug?.(`Cortex: skill install failed (non-fatal): ${String(err)}`);
-  }
-}
-
-/**
  * Ensures `tools.alsoAllow` in the OpenClaw config includes our tool names.
  * Without this, profiles like "coding" silently filter out plugin tools —
  * auto-recall/capture hooks still work, but the agent can't explicitly
@@ -420,8 +378,6 @@ const plugin = {
     ensurePluginsAllowlist(api.logger);
     // Ensure our tools survive the profile allowlist filter (one-time config patch)
     ensureToolsAllowlist(api.logger);
-    // Install the cortex-memory skill (idempotent, updates on version change)
-    installSkill(api.logger);
 
     // Resolve agent role preset — fills in captureCategories and captureInstructions
     // unless the user explicitly provided them in their config.

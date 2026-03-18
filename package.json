@@ -38,7 +38,7 @@
   },
   "files": [
     "dist",
-    "skill",
+    "cortex-memory",
     "openclaw.plugin.json",
     "LICENSE"
   ],

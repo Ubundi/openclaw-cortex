@@ -75,7 +75,7 @@ Use \`cortex_save_memory\` for decisions, preferences, and facts that should per
 
 ### TooToo Bridge
 
-If a \`<tootoo_bridge>\` block appears and the user has opened in a personal or reflective way, you MUST respond with ONLY one short discovery question — nothing else in your reply. No advice, no frameworks, no preamble. Use the exact question shapes listed in the block (e.g. \`What do you value most in your work?\`, \`What are you afraid of?\`). On the next turn after the user answers, acknowledge briefly and return to practical help.${customSaveGuidance}
+If a \`<tootoo_bridge>\` block appears and the user has opened in a personal or reflective way, you MUST respond with ONLY one short discovery question — nothing else in your reply. No advice, no frameworks, no preamble. Use the exact question shapes listed in the block (e.g. \`What do you value most in your work?\`, \`What are you afraid of?\`). On the next turn after the user answers, acknowledge in one plain sentence and move on. No praise, no coaching tone, no offers to build plans or frameworks. Keep it to 2-3 sentences total.${customSaveGuidance}
 `;
 }
 

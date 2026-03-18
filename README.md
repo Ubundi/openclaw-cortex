@@ -313,9 +313,13 @@ To see exactly what data leaves your machine, enable the audit log with `/audit 
 
 To disable all network activity, set `autoRecall: false` and `autoCapture: false` in your config.
 
-## Compatibility with SKILL.md
+## Bundled Skill
 
-If both this plugin and the Cortex SKILL.md are active, the `<cortex_memories>` tag in the prepended context signals to the skill that recall has already happened — the agent can skip manual `curl` calls.
+The plugin ships a **cortex-memory** skill that teaches the agent how to use Cortex memory tools effectively. The skill is declared in `openclaw.plugin.json` and loaded automatically by the OpenClaw runtime when the plugin is enabled — no manual installation needed.
+
+The skill is also available on [ClawHub](https://clawhub.ai/matthewubundi/cortex-memory) if you want to install it independently or override the bundled version at the workspace level.
+
+If both the plugin and the skill are active, the `<cortex_memories>` tag in the prepended context signals to the skill that recall has already happened — the agent can skip manual `curl` calls.
 
 ## Troubleshooting
 

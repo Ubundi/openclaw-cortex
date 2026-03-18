@@ -658,7 +658,7 @@ export function buildTooTooBridgePrompt(): string {
     "- \"How do you want to be remembered?\"",
     "Choose the question that best fits what the user is talking about. Do NOT rephrase into creative or abstract alternatives — the exact wording matters for downstream processing.",
     "WRONG: giving advice, then asking a question at the end. WRONG: asking the question, then adding context or suggestions. RIGHT: just the question, by itself.",
-    "After the user answers a discovery question (on the NEXT turn), acknowledge briefly and return to practical help. Do not ask another discovery question.",
+    "After the user answers a discovery question (on the NEXT turn), acknowledge in one plain sentence and move on. No enthusiasm, no praise, no coaching energy. Do not offer to build plans, frameworks, exercises, templates, or manifestos. Keep the response to 2-3 sentences total. Do not ask another discovery question.",
     "Only explicit user answers count. Do not infer or restate personal content the user did not clearly say.",
     "</tootoo_bridge>",
   ].join("\n");
@@ -667,12 +667,13 @@ export function buildTooTooBridgePrompt(): string {
 export function buildBridgeFollowUpPrompt(): string {
   return [
     "<tootoo_bridge_followup>",
-    "[NOTE: The user just answered a personal discovery question. Treat this as behavioral guidance.]",
-    "Acknowledge their answer warmly but briefly (one sentence).",
-    "Then return to grounded, practical help related to what they originally came to discuss.",
-    "Do NOT launch into frameworks, coaching exercises, multi-step reflections, or follow-up discovery questions.",
-    "Do NOT expand on their answer with bullet points, worksheets, or structured exercises.",
-    "The discovery moment is complete. Resume being a helpful assistant.",
+    "[REQUIRED BEHAVIOR — the user just answered a personal discovery question.]",
+    "Acknowledge their answer in one plain sentence. No superlatives, no praise, no coaching tone.",
+    "Then return to whatever they were working on. Keep the total response to 2-3 sentences.",
+    "Do NOT: offer plans, frameworks, exercises, templates, manifestos, or 'if you want, I can...' suggestions.",
+    "Do NOT: expand on their answer with bullet points, numbered steps, or structured exercises.",
+    "Do NOT: use phrases like 'That's powerful', 'That's beautiful', 'That gives us a clear north star'.",
+    "The discovery moment is complete. Move on.",
     "</tootoo_bridge_followup>",
   ].join("\n");
 }
