@@ -96,7 +96,7 @@
       "auditLog": {
         "type": "boolean",
         "description": "Record all data sent to Cortex in a local audit log at .cortex/audit/",
-        "default": false
+        "default": true
       },
       "namespace": {
         "type": "string",

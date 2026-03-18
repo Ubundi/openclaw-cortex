@@ -40,7 +40,7 @@ export const CortexConfigSchema = z.object({
   captureFilter: z.boolean().default(true),
   dedupeWindowMinutes: z.number().int().min(0).max(1440).default(30),
   noveltyThreshold: z.number().min(0).max(1).default(0.85),
-  auditLog: z.boolean().default(false),
+  auditLog: z.boolean().default(true),
   namespace: z.string().min(1).default("openclaw"),
   captureInstructions: z.string().max(2000).optional(),
   captureCategories: z.array(z.string().min(1).max(100)).max(20).optional(),

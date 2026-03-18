@@ -73,8 +73,9 @@ describe("TooToo bridge handler", () => {
 
     expect(prompt).toContain("Do not lead with frameworks, bullet lists, option menus, worksheets, or multi-step coaching exercises.");
     expect(prompt).toContain("\"What do you value most in your work?\"");
-    expect(prompt).toContain("\"What matters most to you in your work?\"");
+    expect(prompt).toContain("\"What do you believe to be true?\"");
     expect(prompt).toContain("\"What are your non-negotiables?\"");
+    expect(prompt).toContain("\"What are you curious about right now?\"");
     expect(prompt).toContain("After the user answers, use the answer to return to grounded practical help.");
     expect(prompt).toContain("Do NOT rephrase these into creative or abstract alternatives.");
   });
