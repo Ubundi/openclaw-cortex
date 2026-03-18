@@ -23,7 +23,21 @@ These are non-negotiable. Violating them produces incorrect answers.
 
 **5. CONFIDENCE CALIBRATION.** If auto-recall gives you partial context on a topic, the full answer IS in memory. Search harder — don't hedge.
 
-**6. SAVE IMPLEMENTATION DETAILS EXPLICITLY.** Auto-capture extracts topic-level summaries, not specifics. When the conversation contains concrete implementation details — key patterns, exact metrics, SQL statements, config values, CLI commands, library choices with rationale, migration decisions, bug root causes with debugging chains, performance numbers (before/after) — you MUST save them explicitly using `cortex_save_memory`. If a detail is specific enough that someone could ask about it later and need the exact answer, save it proactively. One well-structured save with full context beats three fragments. Don't save every sentence — general topic mentions and status updates are fine for auto-capture.
+**6. SAVE IMPLEMENTATION DETAILS EXPLICITLY.** After every response where you provide or discuss specific implementation details, you MUST call `cortex_save_memory` before ending your turn. Auto-capture extracts topic-level summaries ("User is setting up Redis caching"), not specifics — it will NOT preserve the details.
+
+**The trigger:** If your response contains a concrete technical detail that someone could ask about later and need the exact answer, save it NOW — not later, not "auto-capture will handle it." Call `cortex_save_memory` as the last action in your turn.
+
+**What requires an explicit save:**
+- Key patterns, schemas, or formats (e.g. `arclight:user:{userId}`, cache-aside strategy)
+- Exact metrics and performance numbers (before/after)
+- SQL statements, CLI commands, config values
+- Library/package choices with version-specific rationale (e.g. "chose SendGrid over Resend because SOC 2 Type 2")
+- Architecture/migration decisions with specific reasoning
+- Bug root causes with the full debugging chain
+
+**Format saves for recall:** Structure each save as a self-contained fact with context. Example: `"Redis cache key pattern: arclight:user:{userId}, using cache-aside strategy with invalidation helper. Chosen 2026-01-15."` NOT `"User discussed Redis caching."`
+
+**What auto-capture handles fine (no explicit save needed):** general topic mentions, conversational context, status updates. One well-structured save with full context beats three fragments.
 
 ## Session Goals
 
