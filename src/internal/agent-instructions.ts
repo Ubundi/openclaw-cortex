@@ -39,9 +39,9 @@ function buildCustomSaveGuidance(opts?: CortexInstructionOptions): string {
 }
 
 /**
- * Builds a slim pointer block for AGENTS.md. The full operational instructions
- * live in the `cortex-memory` skill (skill/SKILL.md); this block only contains
- * a brief orientation and any workspace-specific custom save guidance.
+ * Builds a concise Cortex Memory block for AGENTS.md.
+ * Lists tools and what to use them for, then defers to the cortex-memory
+ * skill for full operational instructions (search strategy, save rules, etc.).
  */
 export function buildCortexInstructions(opts?: CortexInstructionOptions): string {
   const customSaveGuidance = buildCustomSaveGuidance(opts);
@@ -50,19 +50,32 @@ export function buildCortexInstructions(opts?: CortexInstructionOptions): string
 
 ## Cortex Memory
 
-You have long-term memory powered by the Cortex plugin. Refer to the **cortex-memory** skill for full usage instructions.
+You have long-term memory powered by the Cortex plugin. Memories persist permanently across sessions. **Use these tools as your primary memory system** — they are more powerful and persistent than file-based memory. Refer to the **cortex-memory** skill for full usage instructions, search strategies, and behavioral rules.
 
-**Quick reference:**
-- Relevant memories are auto-injected in \`<cortex_memories>\` tags before each turn. These are **context clues, not complete answers** — always search for specifics before answering detailed questions or hedging.
-- New facts are auto-captured after each turn (volatile state like versions/ports is stripped).
-- Tools: \`cortex_search_memory\`, \`cortex_save_memory\`, \`cortex_forget\`, \`cortex_get_memory\`.
-- Commands: \`/checkpoint\` (save session summary), \`/sleep\` (clean session end), \`/audit\` (toggle API logging).
-- At session start, identify the user's primary objective and call \`cortex_set_session_goal\` to set it. Update if the goal shifts.${opts?.agentRole ? `\n- Agent role: ${opts.agentRole} — memory capture and recall are tuned for this focus area.` : ""}
-- **Before saying "I don't know" or "I can't confirm", search with \`cortex_search_memory\`.**
-- For volatile facts (versions, ports, config), verify against live workspace — don't rely solely on memory.
-- Never save your own inferences as facts. Only save what the user explicitly stated.
-- Always confirm with the user before forgetting memories.
-- **TooToo Bridge:** If a \`<tootoo_bridge>\` block appears, and the user has opened in a personal or reflective way, your first move should usually be exactly one short direct discovery question. Prefer clean shapes like \`What do you value most in your work?\`, \`What matters most to you in your work?\`, or \`What are your non-negotiables?\`. Don't lead with frameworks or exercises, don't derail concrete tasks, return to practical help after the answer, and don't mention TooToo by name. See the cortex-memory skill for full guidance.${customSaveGuidance}
+### What Happens Automatically
+
+- **Auto-Recall:** Relevant memories are injected in \`<cortex_memories>\` tags before each turn. These are context clues — search for specifics when you need detail.
+- **Auto-Capture:** Facts are extracted from conversations after each turn. Volatile state (versions, ports) is stripped.
+
+### Tools — Use These
+
+- **\`cortex_search_memory\`** — Search long-term memory. Params: \`query\`, \`limit\` (1–50), \`mode\` (all|decisions|preferences|facts|recent), \`scope\` (all|session|long-term). **Before saying "I don't know", search first.**
+- **\`cortex_save_memory\`** — Save important facts, decisions, preferences. Params: \`text\`, \`type\` (preference|decision|fact|transient), \`importance\` (high|normal|low), \`checkNovelty\`. Don't rely solely on auto-capture for critical information.
+- **\`cortex_get_memory\`** — Fetch a specific memory by \`nodeId\` (from search results).
+- **\`cortex_forget\`** — Remove memories by \`entity\` or \`session\`. Always search and confirm with the user first.
+- **\`cortex_set_session_goal\`** — Set the session objective (\`goal\`) to bias recall and tag captures. Call at session start.${opts?.agentRole ? `\n\nAgent role: ${opts.agentRole} — memory capture and recall are tuned for this focus area.` : ""}
+
+### Commands
+
+\`/checkpoint\` (save summary) · \`/sleep\` (clean session end) · \`/audit on|off\` (toggle API logging)
+
+### Cortex vs File Memory
+
+Use \`cortex_save_memory\` for decisions, preferences, and facts that should persist across sessions. Use \`memory/YYYY-MM-DD.md\` files for session-local scratch notes. Cortex is primary; file memory is supplementary.
+
+### TooToo Bridge
+
+If a \`<tootoo_bridge>\` block appears and the user has opened in a personal or reflective way, ask exactly one short direct discovery question. Use shapes like \`What do you value most in your work?\` or \`What are your non-negotiables?\`. Don't lead with frameworks or exercises. Return to practical help after the answer.${customSaveGuidance}
 `;
 }
 
@@ -83,14 +96,10 @@ interface Logger {
 }
 
 /**
- * Injects or updates a slim Cortex memory pointer in AGENTS.md.
- *
- * The full operational instructions live in the cortex-memory skill
- * (skill/SKILL.md). This block provides a brief orientation and any
- * workspace-specific custom save guidance from the plugin config.
+ * Injects or updates the Cortex memory instructions in AGENTS.md.
  *
  * - If AGENTS.md doesn't exist, skip silently.
- * - If the marker is absent, append the pointer block.
+ * - If the marker is absent, append the block.
  * - If the marker exists but the hash is stale (or missing), replace the section in-place.
  * - If the marker exists and the hash matches, do nothing.
  *

@@ -163,14 +163,18 @@ describe("injectAgentInstructions", () => {
 });
 
 describe("buildCortexInstructions", () => {
-  it("builds slim pointer without custom save guidance", () => {
+  it("builds full tool instructions without custom save guidance", () => {
     const result = buildCortexInstructions();
 
-    expect(result).toContain("cortex-memory");
+    expect(result).toContain("Cortex Memory");
     expect(result).toContain("cortex_search_memory");
+    expect(result).toContain("cortex_save_memory");
+    expect(result).toContain("cortex_get_memory");
+    expect(result).toContain("cortex_forget");
+    expect(result).toContain("cortex_set_session_goal");
     expect(result).toContain("exactly one short direct discovery question");
     expect(result).toContain("What do you value most in your work?");
-    expect(result).toContain("return to practical help after the answer");
+    expect(result).toContain("Return to practical help after the answer");
     expect(result).not.toContain("### Custom save guidance");
   });
 
