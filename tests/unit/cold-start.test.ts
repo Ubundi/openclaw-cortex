@@ -133,6 +133,44 @@ describe("cold-start detection", () => {
     expect(recallMock).toHaveBeenCalled();
   });
 
+  it("downgrades from full to fast mode on server timeout (500/504)", async () => {
+    let callCount = 0;
+    const retrieveMock = vi.fn().mockImplementation(async (_q: string, _topK: number, mode: string) => {
+      callCount++;
+      if (mode === "full") throw new Error("Cortex retrieve failed: 500 — {\"message\":\"Internal Server Error\"}");
+      // "fast" mode succeeds
+      return { results: [{ node_id: "1", type: "FACT", content: "fast mode memory", score: 0.8, confidence: 0.8 }] };
+    });
+    const client = { retrieve: retrieveMock } as unknown as CortexClient;
+
+    const knowledgeState = { hasMemories: true, lastChecked: Date.now(), totalSessions: 5, maturity: "mature" as const, pipelineTier: 3 as const };
+    const handler = createRecallHandler(client, makeConfig(), logger, undefined, knowledgeState);
+
+    const result = await handler({ prompt: "what database did we choose" }, {});
+
+    // Should have been called twice: first full (fails), then fast (succeeds)
+    expect(retrieveMock).toHaveBeenCalledTimes(2);
+    expect(retrieveMock.mock.calls[0][2]).toBe("full");
+    expect(retrieveMock.mock.calls[1][2]).toBe("fast");
+    expect(result?.prependContext).toContain("fast mode memory");
+  });
+
+  it("does not trigger cold-start from server 500/504 timeouts", async () => {
+    const retrieveMock = vi.fn().mockRejectedValue(new Error("Cortex retrieve failed: 504 — {\"detail\":\"Request timed out\"}"));
+    const client = { retrieve: retrieveMock } as unknown as CortexClient;
+
+    const handler = createRecallHandler(client, makeConfig(), logger);
+
+    // 3 consecutive 504s should NOT trigger cold-start (they're timeouts, not dead service)
+    await handler({ prompt: "query one here" }, {});
+    await handler({ prompt: "query two here" }, {});
+    await handler({ prompt: "query three here" }, {});
+
+    expect(logger.warn).not.toHaveBeenCalledWith(
+      expect.stringContaining("consecutive failures"),
+    );
+  });
+
   it("exposes metrics on the handler", async () => {
     const client = {
       retrieve: vi.fn().mockResolvedValue({ results: [] }),

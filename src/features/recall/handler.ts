@@ -434,24 +434,47 @@ export function createRecallHandler(
           retrieveOptions,
         );
       } catch (retryErr) {
-        // On transient 502/503 (cold start, gateway blip), retry once after
-        // a short delay. Dropping recall entirely on a single failure is a
-        // direct answer-quality regression — most cold starts resolve in ~1-2s.
-        if (/50[23]/.test(String(retryErr))) {
-          logger.debug?.("Cortex recall: transient 502/503, retrying once after 1.5s");
-          await new Promise((r) => setTimeout(r, 1500));
-          try {
-            rawResponse = await client.retrieve(
-              retrieveQuery,
-              profileParams.limit,
-              retrieveMode,
-              effectiveTimeout,
-              profileParams.queryType,
-              retrieveOptions,
-            );
-          } catch (retryErr2) {
-            logger.debug?.("Cortex recall: retry failed, proceeding without memories");
-            return;
+        const errStr = String(retryErr);
+        const isServerTimeout = /50[0234]/.test(errStr) || (retryErr as Error).name === "AbortError";
+
+        if (isServerTimeout) {
+          // If we were in "full" mode, downgrade to "fast" — the backend's
+          // graph traversal + reranking pipeline may exceed the server-side
+          // timeout (25s) for large memory stores.  "fast" skips the heavy
+          // stages and typically completes in <5s.
+          if (retrieveMode === "full") {
+            logger.debug?.("Cortex recall: full mode timed out, downgrading to fast mode");
+            try {
+              rawResponse = await client.retrieve(
+                retrieveQuery,
+                profileParams.limit,
+                "fast",
+                effectiveTimeout,
+                profileParams.queryType,
+                retrieveOptions,
+              );
+            } catch (fastErr) {
+              logger.debug?.("Cortex recall: fast mode fallback also failed, proceeding without memories");
+              return;
+            }
+          } else {
+            // Already in fast mode — retry once after a short delay
+            // (cold start, gateway blip).
+            logger.debug?.("Cortex recall: transient server error, retrying once after 1.5s");
+            await new Promise((r) => setTimeout(r, 1500));
+            try {
+              rawResponse = await client.retrieve(
+                retrieveQuery,
+                profileParams.limit,
+                retrieveMode,
+                effectiveTimeout,
+                profileParams.queryType,
+                retrieveOptions,
+              );
+            } catch (retryErr2) {
+              logger.debug?.("Cortex recall: retry failed, proceeding without memories");
+              return;
+            }
           }
         } else {
           throw retryErr;
@@ -519,9 +542,10 @@ export function createRecallHandler(
       }
 
       // Silent degradation — proceed without memories.
-      // Timeouts indicate a slow-but-running service, not a dead one —
-      // don't count them toward the cold-start gate.
-      if ((err as Error).name === "AbortError") {
+      // Timeouts (client AbortError or server 500/504) indicate a slow-but-running
+      // service, not a dead one — don't count them toward the cold-start gate.
+      const isTimeout = (err as Error).name === "AbortError" || /50[04]/.test(String(err));
+      if (isTimeout) {
         logger.debug?.("Cortex recall timed out, proceeding without memories");
         consecutiveFailures = Math.max(consecutiveFailures - 1, 0); // undo the increment above
       } else {
