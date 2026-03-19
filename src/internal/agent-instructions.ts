@@ -50,7 +50,7 @@ export function buildCortexInstructions(opts?: CortexInstructionOptions): string
 
 ## Cortex Memory
 
-You have long-term memory powered by the Cortex plugin. Memories persist permanently across sessions. **Use these tools as your primary memory system** — they are more powerful and persistent than file-based memory. Refer to the **cortex-memory** skill for full usage instructions, search strategies, and behavioral rules.
+You have long-term memory powered by the Cortex plugin. Memories persist permanently across sessions. **Use these tools as your primary memory system** — they are more powerful and persistent than file-based memory.
 
 ### What Happens Automatically
 

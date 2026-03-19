@@ -110,6 +110,19 @@ describe("stripRuntimeMetadata", () => {
     expect(stripRuntimeMetadata(input)).toBe("Hello world");
   });
 
+  it("strips timestamp-wrapped conversation info metadata blocks", () => {
+    const input = [
+      "[Thu 2026-03-19 09:28 UTC] conversation info:",
+      "```json",
+      '{"chatId":"abc123","sender":"benchmark","timestamp":"2026-03-19T09:30:00Z"}',
+      "```",
+      "",
+      "RPCSAN-20260319 durable business fact goes here.",
+    ].join("\n");
+
+    expect(stripRuntimeMetadata(input)).toBe("RPCSAN-20260319 durable business fact goes here.");
+  });
+
   it("strips both metadata blocks together", () => {
     const input = [
       "Conversation info (untrusted metadata):",
@@ -214,6 +227,20 @@ describe("sanitizeConversationText", () => {
     ].join("\n");
 
     expect(sanitizeConversationText(input)).toBe("What is an apple?");
+  });
+
+  it("strips timestamp-wrapped metadata fences before preserving user-authored content", () => {
+    const input = [
+      "[Thu 2026-03-19 09:28 UTC] conversation info:",
+      "```json",
+      '{"chatId":"abc123","sender":"benchmark","timestamp":"2026-03-19T09:30:00Z"}',
+      "```",
+      "",
+      "[telegram group chat]",
+      "RPCSAN-20260319 durable business fact goes here.",
+    ].join("\n");
+
+    expect(sanitizeConversationText(input)).toBe("RPCSAN-20260319 durable business fact goes here.");
   });
 
   it("preserves literal cortex tags when they are part of the user-authored body", () => {

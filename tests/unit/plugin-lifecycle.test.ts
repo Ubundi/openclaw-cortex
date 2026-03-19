@@ -257,6 +257,45 @@ describe("plugin lifecycle contract", () => {
     );
   });
 
+  it("sanitizes transcript content through before_message_write", async () => {
+    const { api, hooks } = makeApi({});
+
+    plugin.register(api as any);
+    await flushMicrotasks();
+
+    const result = hooks.before_message_write[0]({
+      message: {
+        role: "user",
+        content: [
+          {
+            type: "text",
+            text: [
+              "[Thu 2026-03-19 09:28 UTC] conversation info:",
+              "```json",
+              '{"chatId":"abc123","sender":"benchmark","timestamp":"2026-03-19T09:30:00Z"}',
+              "```",
+              "",
+              "[telegram group chat]",
+              "RPCSAN-20260319 durable business fact goes here.",
+            ].join("\n"),
+          },
+        ],
+      },
+    });
+
+    expect(result).toEqual({
+      message: {
+        role: "user",
+        content: [
+          {
+            type: "text",
+            text: "RPCSAN-20260319 durable business fact goes here.",
+          },
+        ],
+      },
+    });
+  });
+
   it("registers agent tools", async () => {
     const { api, tools } = makeApi({});
 

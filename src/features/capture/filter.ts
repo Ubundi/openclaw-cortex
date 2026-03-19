@@ -76,8 +76,15 @@ function isAuditStatusBoilerplate(content: string): boolean {
  *
  * Pattern: `<Label> (untrusted metadata):\n```json\n{...}\n```\n`
  */
-const RUNTIME_METADATA_RE = /^\s*[\w ]+\(untrusted metadata\):\s*```json\s*\{[\s\S]*?\}\s*```[ \t]*/i;
-const GENERIC_METADATA_FENCE_RE = /^\s*(?:conversation info|sender|chat info|thread info|message info|context info):\s*```json\s*\{[\s\S]*?\}\s*```[ \t]*/i;
+const OPTIONAL_TIMESTAMP_PREFIX_RE = String.raw`(?:\[[A-Za-z]{3}\s+\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}(?::\d{2})?\s+[A-Z]{2,6}\]\s*)?`;
+const RUNTIME_METADATA_RE = new RegExp(
+  "^\\s*" + OPTIONAL_TIMESTAMP_PREFIX_RE + "[\\w ]+\\(untrusted metadata\\):\\s*```json\\s*\\{[\\s\\S]*?\\}\\s*```[ \\t]*",
+  "i",
+);
+const GENERIC_METADATA_FENCE_RE = new RegExp(
+  "^\\s*" + OPTIONAL_TIMESTAMP_PREFIX_RE + "(?:conversation info|sender|chat info|thread info|message info|context info):\\s*```json\\s*\\{[\\s\\S]*?\\}\\s*```[ \\t]*",
+  "i",
+);
 const INJECTED_CORTEX_BLOCK_RE = /^\s*<(?:cortex_memories|cortex_recovery)>[\s\S]*?<\/(?:cortex_memories|cortex_recovery)>\s*/i;
 const SOURCE_RECEIPT_BLOCK_RE = /^\s*\[Source Receipt\][\s\S]*?\[\/Source Receipt\]\s*/i;
 const BLOCK_WRAPPER_START_RE = /^\[(replying to|quoting)\b[^\]]*\]$/i;

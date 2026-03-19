@@ -56,7 +56,7 @@ const MAX_QUERY_LENGTH = 2000;
  * plugin instance ingested memories or the initial check failed.
  */
 const KNOWLEDGE_RECHECK_INTERVAL_MS = 5 * 60_000; // 5 minutes
-const FALLBACK_RECALL_MIN_SCORE = 0.15;
+const FALLBACK_RECALL_MIN_SCORE = 0.005;
 const FALLBACK_RECALL_SCORE_WINDOW = 0.2;
 
 /**
@@ -206,6 +206,7 @@ export function deriveEffectiveTimeout(configuredMs: number, pipelineTier: 1 | 2
 
 export function mapRetrieveToRecallMemories(results: RetrieveResult[]): RecallMemory[] {
   return results.map((r): RecallMemory => ({
+    node_id: r.node_id,
     content: r.content,
     confidence: r.confidence ?? r.score,
     relevance: r.score,

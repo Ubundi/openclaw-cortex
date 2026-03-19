@@ -164,8 +164,8 @@ describe("createRecallHandler", () => {
       retrieve: vi.fn().mockResolvedValue({ results: [] }),
       recall: vi.fn().mockResolvedValue({
         memories: [
-          { content: "User uses Neovim", confidence: 0.19, when: null, session_id: null, entities: ["Neovim"] },
-          { content: "Weak tail", confidence: 0.06, when: null, session_id: null, entities: [] },
+          { content: "User uses Neovim", confidence: 0.55, when: null, session_id: null, entities: ["Neovim"] },
+          { content: "Weak tail", confidence: 0.10, when: null, session_id: null, entities: [] },
         ],
       }),
     } as unknown as CortexClient;
