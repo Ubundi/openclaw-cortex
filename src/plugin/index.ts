@@ -632,19 +632,16 @@ const plugin = {
       },
     );
 
-    // Heartbeat: periodic health + knowledge refresh
-    registerHookCompat(
-      api,
-      "gateway:heartbeat",
-      createHeartbeatHandler(
-        client, api.logger, knowledgeState, retryQueue, () => userId,
-        () => capturesSinceReflect,
-        () => { capturesSinceReflect = 0; },
-      ),
-      {
-        name: "openclaw-cortex.heartbeat",
-        description: "Periodic health check and knowledge state refresh",
-      },
+    // Newer OpenClaw runtimes no longer expose a plugin-level gateway heartbeat
+    // hook, so heartbeat refresh runs from our own service timer instead.
+    const heartbeatHandler = createHeartbeatHandler(
+      client,
+      api.logger,
+      knowledgeState,
+      retryQueue,
+      () => userId,
+      () => capturesSinceReflect,
+      () => { capturesSinceReflect = 0; },
     );
 
     // --- Session Stats ---
@@ -763,6 +760,8 @@ const plugin = {
     // --- Services: retry queue, audit, workspace metadata ---
 
     const WARMUP_INITIAL_INTERVAL_MS = 5 * 60_000; // 5 minutes
+    const HEARTBEAT_POLL_INTERVAL_MS = 60_000; // 1 minute
+    let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
     let warmupTimer: ReturnType<typeof setTimeout> | null = null;
 
     api.registerService({
@@ -775,6 +774,13 @@ const plugin = {
         started = true;
 
         retryQueue.start();
+
+        if (config.autoCapture || config.autoRecall) {
+          heartbeatTimer = setInterval(() => {
+            void heartbeatHandler();
+          }, HEARTBEAT_POLL_INTERVAL_MS);
+          heartbeatTimer.unref?.();
+        }
 
         // Periodic warmup ping with exponential backoff. Stops once the
         // tenant reports already_warm or maturity reaches "mature".
@@ -868,6 +874,11 @@ const plugin = {
         started = false;
 
         retryQueue.stop();
+
+        if (heartbeatTimer) {
+          clearInterval(heartbeatTimer);
+          heartbeatTimer = null;
+        }
 
         if (warmupTimer) {
           clearTimeout(warmupTimer);

@@ -193,12 +193,13 @@ describe("plugin lifecycle contract", () => {
       expect.any(Function),
     );
     expect(api.on).toHaveBeenCalledWith(
-      "gateway:heartbeat",
+      "before_message_write",
       expect.any(Function),
     );
     expect(hooks.before_agent_start).toHaveLength(1);
     expect(hooks.agent_end).toHaveLength(1);
-    expect(hooks["gateway:heartbeat"]).toHaveLength(1);
+    expect(hooks.before_message_write).toHaveLength(1);
+    expect(hooks["gateway:heartbeat"]).toBeUndefined();
 
     expect(api.registerService).toHaveBeenCalledTimes(1);
     expect(services[0]?.id).toBe("cortex-services");
@@ -227,19 +228,33 @@ describe("plugin lifecycle contract", () => {
       { name: "openclaw-cortex.capture", description: expect.any(String) },
     );
     expect(api.registerHook).toHaveBeenCalledWith(
-      "gateway:heartbeat",
-      expect.any(Function),
-      { name: "openclaw-cortex.heartbeat", description: expect.any(String) },
-    );
-    expect(api.registerHook).toHaveBeenCalledWith(
       "before_message_write",
       expect.any(Function),
       { name: "openclaw-cortex.sanitize", description: expect.any(String) },
     );
     expect(hooks.before_agent_start).toHaveLength(1);
     expect(hooks.agent_end).toHaveLength(1);
-    expect(hooks["gateway:heartbeat"]).toHaveLength(1);
     expect(hooks.before_message_write).toHaveLength(1);
+    expect(hooks["gateway:heartbeat"]).toBeUndefined();
+  });
+
+  it("starts a service-owned heartbeat timer instead of registering a gateway heartbeat hook", async () => {
+    const { api, services } = makeApi({});
+    const setIntervalSpy = vi.spyOn(globalThis, "setInterval");
+
+    plugin.register(api as any);
+    services[0].start?.({});
+
+    expect(setIntervalSpy).toHaveBeenCalledWith(expect.any(Function), 60_000);
+    expect(api.on).not.toHaveBeenCalledWith(
+      "gateway:heartbeat",
+      expect.any(Function),
+    );
+    expect(api.registerHook).not.toHaveBeenCalledWith(
+      "gateway:heartbeat",
+      expect.any(Function),
+      expect.anything(),
+    );
   });
 
   it("registers agent tools", async () => {
@@ -699,7 +714,7 @@ describe("plugin lifecycle contract", () => {
     await flushMicrotasks();
 
     // Should still register hooks and service without errors
-    expect(api.registerHook).toHaveBeenCalledTimes(4);
+    expect(api.registerHook).toHaveBeenCalledTimes(3);
     expect(api.registerService).toHaveBeenCalledTimes(1);
   });
 
