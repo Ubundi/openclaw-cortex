@@ -103,30 +103,33 @@ function collectEntityNames(memories: RecallMemory[]): string[] {
   return [...entities];
 }
 
-function extractRelatedEntityNames(node: NodeDetailResponse): string[] {
+function extractRelatedEntityNames(response: NodeDetailResponse): string[] {
   const entities = new Set<string>();
 
-  for (const entity of node.entities ?? []) {
-    const trimmed = entity.trim();
-    if (trimmed) entities.add(trimmed);
+  const metadata = response.node.metadata;
+  if (metadata) {
+    const refs = metadata.entity_refs;
+    if (Array.isArray(refs)) {
+      for (const ref of refs) {
+        const trimmed = String(ref).trim();
+        if (trimmed) entities.add(trimmed);
+      }
+    }
   }
 
-  for (const relatedNode of node.related_nodes ?? []) {
-    if (relatedNode.type !== "ENTITY") continue;
-    const label = typeof relatedNode.content === "string" && relatedNode.content.trim().length > 0
-      ? relatedNode.content.trim()
-      : typeof relatedNode.name === "string" && relatedNode.name.trim().length > 0
-        ? relatedNode.name.trim()
-        : relatedNode.node_id;
+  for (const related of response.related ?? []) {
+    if (related.node.type !== "ENTITY") continue;
+    const label = related.node.content.trim();
     if (label) entities.add(label);
   }
 
   return [...entities];
 }
 
-function formatNodeDetail(node: NodeDetailResponse): string {
+function formatNodeDetail(response: NodeDetailResponse): string {
+  const { node } = response;
   const lines = [
-    `ID: ${node.node_id}`,
+    `ID: ${node.id}`,
     `Type: ${node.type}`,
   ];
 
@@ -134,17 +137,13 @@ function formatNodeDetail(node: NodeDetailResponse): string {
     lines.push(`Confidence: ${node.confidence.toFixed(2)}`);
   }
 
-  const relatedEntities = extractRelatedEntityNames(node);
+  const relatedEntities = extractRelatedEntityNames(response);
   if (relatedEntities.length > 0) {
     lines.push(`Related entities: ${relatedEntities.join(", ")}`);
   }
 
   if (node.created_at) {
     lines.push(`Created: ${node.created_at}`);
-  }
-
-  if (node.updated_at) {
-    lines.push(`Updated: ${node.updated_at}`);
   }
 
   return `${lines.join("\n")}\n\n${node.content}`;

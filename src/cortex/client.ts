@@ -265,44 +265,36 @@ export interface StatsResponse {
   [key: string]: unknown;
 }
 
-export interface NodeDetailRelatedNode {
-  node_id: string;
-  type?: NodeType;
-  content?: string;
-  name?: string;
-  confidence?: number | null;
+export interface NodeOut {
+  id: string;
+  type: string;
+  content: string;
+  confidence: number;
+  metadata?: Record<string, unknown> | null;
   created_at?: string | null;
-  updated_at?: string | null;
-  relationship?: string;
-  metadata?: Record<string, unknown>;
-  [key: string]: unknown;
 }
 
-export interface NodeDetailRelatedEdge {
-  edge_id?: string;
-  type?: string;
-  relationship?: string;
-  source_node_id?: string;
-  target_node_id?: string;
-  created_at?: string | null;
-  updated_at?: string | null;
-  metadata?: Record<string, unknown>;
-  [key: string]: unknown;
+export interface EdgeOut {
+  type: string;
+  strength: number;
+  reason?: string | null;
+}
+
+export interface RelatedNodeOut {
+  node: NodeOut;
+  edge: EdgeOut;
 }
 
 export interface NodeDetailResponse {
-  node_id: string;
-  type: NodeType;
-  content: string;
-  confidence?: number | null;
-  session_id?: string | null;
-  created_at?: string | null;
-  updated_at?: string | null;
-  entities?: string[];
-  related_nodes?: NodeDetailRelatedNode[];
-  related_edges?: NodeDetailRelatedEdge[];
-  metadata?: Record<string, unknown>;
-  [key: string]: unknown;
+  node: NodeOut;
+  related: RelatedNodeOut[];
+  confidence_explanation?: {
+    base_confidence: number;
+    supporting_nodes: number;
+    contradicting_nodes: number;
+    temporal_decay: number;
+    final_confidence: number;
+  } | null;
 }
 
 // --- Internal API Defaults ---

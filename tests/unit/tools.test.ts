@@ -350,17 +350,21 @@ describe("buildGetMemoryTool", () => {
   it("returns formatted node details for a valid memory id", async () => {
     const { client, deps } = makeDeps();
     client.getNode.mockResolvedValue({
-      node_id: "node-1",
-      type: "FACT",
-      content: "User prefers TypeScript",
-      confidence: 0.81,
-      entities: ["TypeScript"],
-      related_nodes: [
-        { node_id: "entity-1", type: "ENTITY", content: "TypeScript" },
+      node: {
+        id: "node-1",
+        type: "FACT",
+        content: "User prefers TypeScript",
+        confidence: 0.81,
+        metadata: { entity_refs: ["TypeScript"] },
+        created_at: "2026-03-01T10:00:00Z",
+      },
+      related: [
+        {
+          node: { id: "entity-1", type: "ENTITY", content: "TypeScript", confidence: 1.0 },
+          edge: { type: "MENTIONS", strength: 1.0 },
+        },
       ],
-      related_edges: [],
-      created_at: "2026-03-01T10:00:00Z",
-      updated_at: "2026-03-02T10:00:00Z",
+      confidence_explanation: null,
     } satisfies NodeDetailResponse);
 
     const tool = buildGetMemoryTool(deps);
