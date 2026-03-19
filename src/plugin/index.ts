@@ -649,7 +649,7 @@ const plugin = {
 
     // --- Session Stats ---
 
-    const sessionStats = {
+    const sessionStats: SessionStats = loadPersistedStats() ?? {
       saves: 0,
       savesSkippedDedupe: 0,
       savesSkippedNovelty: 0,
@@ -658,10 +658,6 @@ const plugin = {
       recallMemoriesTotal: 0,
       recallDuplicatesCollapsed: 0,
     };
-
-    // Don't eagerly reset the stats file here — the dual-instance runtime
-    // means [plugins] would clobber stats that [gateway] already persisted.
-    // In-memory counters start at zero and get persisted on first real activity.
 
     // --- Agent Tools ---
 

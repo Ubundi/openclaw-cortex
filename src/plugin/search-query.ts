@@ -11,7 +11,12 @@ export interface PreparedSearchQuery {
   memoryType?: "decision" | "preference" | "fact";
 }
 
-const BROAD_SEARCH_MIN_SCORE = 0.15;
+// Tier 1 pipelines (semantic + BM25, no reranker) produce scores in the
+// 0.02–0.08 range.  The previous floor of 0.15 silently dropped every result
+// from tier 1 tenants when mode was "all" or "recent".  Lowered to 0.005 so
+// only truly irrelevant noise is removed; the sliding window still trims the
+// weak tail relative to the top result.
+const BROAD_SEARCH_MIN_SCORE = 0.005;
 const BROAD_SEARCH_SCORE_WINDOW = 0.35;
 
 export function getMemoryDisplayScore(memory: Pick<RecallMemory, "relevance" | "confidence">): number {

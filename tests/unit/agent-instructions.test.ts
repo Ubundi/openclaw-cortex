@@ -175,6 +175,8 @@ describe("buildCortexInstructions", () => {
     expect(result).toContain("MUST respond with ONLY one short discovery question");
     expect(result).toContain("What do you value most in your work?");
     expect(result).toContain("acknowledge in one plain sentence and move on");
+    expect(result).toContain("run the relevant `openclaw cortex ...` command yourself");
+    expect(result).toContain("openclaw cortex reset");
     expect(result).not.toContain("### Custom save guidance");
   });
 

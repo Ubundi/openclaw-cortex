@@ -63,6 +63,21 @@ Use `cortex_set_session_goal` to set or clear (`clear: true`) the session object
 ### 6. Agent Commands
 `/checkpoint` (save summary before reset) · `/sleep` (clean session end) · `/audit on|off` (toggle API logging)
 
+### 7. Live CLI Actions
+When the user asks for **live Cortex state** or a **pairing/code/setup action** and you have terminal access, run the relevant `openclaw cortex ...` command yourself instead of telling the user to open a terminal.
+
+Prefer the CLI for:
+- Current health and connection checks: `openclaw cortex status`
+- Recent memory summaries: `openclaw cortex memories`
+- Memory lookups from the terminal: `openclaw cortex search ...`
+- Current plugin settings: `openclaw cortex config`
+- TooToo pairing codes: `openclaw cortex pair`
+- Plugin overview/help text: `openclaw cortex info`
+
+After running a command, summarize the important output for the user. Only fall back to describing the command when shell execution is unavailable in the current environment.
+
+**Confirmation required:** `openclaw cortex reset` is destructive. Never run it unless the user has explicitly asked for the reset in the current turn.
+
 ## Guardrails and Security
 
 **Never do:**

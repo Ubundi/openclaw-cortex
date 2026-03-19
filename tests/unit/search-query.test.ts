@@ -67,6 +67,17 @@ describe("search-query helpers", () => {
     expect(filtered.map((memory) => memory.content)).toEqual(["strong", "still relevant"]);
   });
 
+  it("preserves tier 1 results with low but valid scores", () => {
+    const filtered = filterSearchResults([
+      { content: "fact A", confidence: 0.05, relevance: 0.05, when: null, session_id: null, entities: [] },
+      { content: "fact B", confidence: 0.03, relevance: 0.03, when: null, session_id: null, entities: [] },
+      { content: "fact C", confidence: 0.02, relevance: 0.02, when: null, session_id: null, entities: [] },
+    ], "all");
+
+    // All three are within the 0.35 score window of the top result (0.05)
+    expect(filtered).toHaveLength(3);
+  });
+
   it("does not filter explicit mode searches", () => {
     const filtered = filterSearchResults([
       { content: "decision A", confidence: 0.21, relevance: 0.21, when: null, session_id: null, entities: [] },

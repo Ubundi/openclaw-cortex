@@ -69,6 +69,10 @@ You have long-term memory powered by the Cortex plugin. Memories persist permane
 
 \`/checkpoint\` (save summary) · \`/sleep\` (clean session end) · \`/audit on|off\` (toggle API logging)
 
+### Live CLI Actions
+
+If the user asks for live Cortex status, config, memory search results, info text, or a TooToo pairing code and you have terminal access, run the relevant \`openclaw cortex ...\` command yourself and summarize the output instead of telling the user to open a terminal. Use \`openclaw cortex reset\` only after explicit confirmation because it is destructive.
+
 ### Cortex vs File Memory
 
 Use \`cortex_save_memory\` for decisions, preferences, and facts that should persist across sessions. Use \`memory/YYYY-MM-DD.md\` files for session-local scratch notes. Cortex is primary; file memory is supplementary.

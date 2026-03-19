@@ -134,6 +134,8 @@ openclaw cortex info        # Show plugin and API info
 openclaw cortex reset       # Reset plugin state
 ```
 
+When the agent is running in a terminal-capable environment, it should prefer executing these commands for the user and summarizing the output instead of replying with "run this in terminal." The exception is `openclaw cortex reset`, which should only be run after explicit confirmation because it is destructive.
+
 ## Agent Commands
 
 These commands are available to the agent during conversation:

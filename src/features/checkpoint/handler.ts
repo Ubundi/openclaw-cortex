@@ -1,6 +1,8 @@
 import type { CortexClient } from "../../cortex/client.js";
 import type { CortexConfig } from "../../plugin/config.js";
 import type { AuditLogger } from "../../internal/audit-logger.js";
+import { sanitizeConversationText } from "../capture/filter.js";
+import { filterConversationMessagesForMemory } from "../../internal/message-provenance.js";
 
 type Logger = {
   debug?(...args: unknown[]): void;
@@ -15,6 +17,10 @@ interface CommandContext {
 
 const MAX_SUMMARY_MESSAGES = 5;
 const MAX_MESSAGE_CHARS = 500;
+const MIN_SUMMARY_MESSAGE_CHARS = 20;
+const LEADING_TIMESTAMP_RE = /^\[[A-Za-z]{3}\s+\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}(?::\d{2})?\s+[A-Z]{2,6}\]\s*/;
+const COMMAND_RE = /^\/[\w-]+(?:\s|$)/;
+const INLINE_CORTEX_BLOCK_RE = /<cortex_(?:memories|recovery)>[\s\S]*?<\/cortex_(?:memories|recovery)>/gi;
 
 function extractContent(content: unknown): string {
   if (typeof content === "string") return content;
@@ -32,26 +38,49 @@ function extractContent(content: unknown): string {
   return "";
 }
 
+function normalizeSummaryCandidate(text: string): string {
+  return text
+    .replace(INLINE_CORTEX_BLOCK_RE, " ")
+    .replace(LEADING_TIMESTAMP_RE, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function buildSummaryFromMessages(messages: unknown[]): string | null {
-  const userMessages = messages
-    .filter(
-      (msg): msg is { role: string; content: unknown } =>
+  const candidates = filterConversationMessagesForMemory(
+    messages.filter(
+      (msg): msg is { role: string; content: unknown; provenance?: unknown } =>
         typeof msg === "object" &&
         msg !== null &&
         "role" in msg &&
+        "content" in msg &&
         (msg as Record<string, unknown>).role === "user",
-    )
-    .slice(-MAX_SUMMARY_MESSAGES);
+    ),
+  );
 
-  if (userMessages.length === 0) return null;
+  if (candidates.length === 0) return null;
 
-  const bullets = userMessages
-    .map((msg) => {
-      const text = extractContent(msg.content).trim();
-      const truncated = text.length > MAX_MESSAGE_CHARS ? text.slice(0, MAX_MESSAGE_CHARS) + "…" : text;
-      return `- ${truncated}`;
-    })
-    .filter((b) => b.length > 2);
+  const seen = new Set<string>();
+  const bullets: string[] = [];
+
+  for (let i = candidates.length - 1; i >= 0 && bullets.length < MAX_SUMMARY_MESSAGES; i--) {
+    const raw = extractContent(candidates[i].content);
+    const sanitized = sanitizeConversationText(raw);
+    const normalized = normalizeSummaryCandidate(sanitized);
+    if (!normalized || normalized.length < MIN_SUMMARY_MESSAGE_CHARS) continue;
+    if (COMMAND_RE.test(normalized)) continue;
+
+    const dedupeKey = normalized.toLowerCase();
+    if (seen.has(dedupeKey)) continue;
+    seen.add(dedupeKey);
+
+    const truncated = normalized.length > MAX_MESSAGE_CHARS
+      ? normalized.slice(0, MAX_MESSAGE_CHARS) + "…"
+      : normalized;
+    bullets.push(`- ${truncated}`);
+  }
+
+  bullets.reverse();
 
   if (bullets.length === 0) return null;
   return bullets.join("\n");
