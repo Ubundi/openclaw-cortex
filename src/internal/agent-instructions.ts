@@ -50,36 +50,28 @@ export function buildCortexInstructions(opts?: CortexInstructionOptions): string
 
 ## Cortex Memory
 
-You have long-term memory powered by the Cortex plugin. Memories persist permanently across sessions. **Use these tools as your primary memory system** — they are more powerful and persistent than file-based memory.
+You have long-term memory powered by the Cortex plugin. Memories persist permanently across sessions. Refer to the **cortex-memory** skill for full usage rules, search strategies, and behavioral guidelines.
 
 ### What Happens Automatically
 
-- **Auto-Recall:** Relevant memories are injected in \`<cortex_memories>\` tags before each turn. These are context clues — search for specifics when you need detail.
-- **Auto-Capture:** Topic-level facts are extracted from conversations after each turn. Volatile state (versions, ports) is stripped. **Auto-capture produces summaries, not specifics** — implementation details (key patterns, exact metrics, config values) require explicit saves.
+- **Auto-Recall:** Relevant memories appear in \`<cortex_memories>\` tags before each turn — context clues, not exhaustive.
+- **Auto-Capture:** Topic-level summaries extracted after turns. Implementation specifics require explicit saves.
 
-### Tools — Use These
+### Available Tools
 
-- **\`cortex_search_memory\`** — Search long-term memory. Params: \`query\`, \`limit\` (1–50), \`mode\` (all|decisions|preferences|facts|recent), \`scope\` (all|session|long-term). **Before saying "I don't know", search first.**
-- **\`cortex_save_memory\`** — Save important facts, decisions, preferences. Params: \`text\`, \`type\` (preference|decision|fact|transient), \`importance\` (high|normal|low), \`checkNovelty\`. **TRIGGER: After every response where you provide or discuss specific implementation details, call this tool before ending your turn.** Auto-capture stores summaries like "User is setting up Redis caching" — it will NOT preserve the key pattern, strategy, or rationale. If your response contains a detail someone could ask about later and need the exact answer, save it NOW. Format as self-contained facts: \`"Redis cache key: arclight:user:{userId}, cache-aside with invalidation helper. Chosen 2026-01-15."\` NOT \`"User discussed Redis caching."\`
-- **\`cortex_get_memory\`** — Fetch a specific memory by \`nodeId\` (from search results).
-- **\`cortex_forget\`** — Remove memories by \`entity\` or \`session\`. Always search and confirm with the user first.
-- **\`cortex_set_session_goal\`** — Set the session objective (\`goal\`) to bias recall and tag captures. Call at session start.${opts?.agentRole ? `\n\nAgent role: ${opts.agentRole} — memory capture and recall are tuned for this focus area.` : ""}
+- \`cortex_search_memory\` — Search long-term memory (query, limit, mode, scope)
+- \`cortex_save_memory\` — Save facts, decisions, preferences (text, type, importance, checkNovelty)
+- \`cortex_get_memory\` — Fetch full memory details by node ID
+- \`cortex_forget\` — Remove memories by entity or session
+- \`cortex_set_session_goal\` — Set session objective to bias recall and tag captures${opts?.agentRole ? `\n\nAgent role: ${opts.agentRole}` : ""}
 
 ### Commands
 
 \`/checkpoint\` (save summary) · \`/sleep\` (clean session end) · \`/audit on|off\` (toggle API logging)
 
-### Live CLI Actions
-
-If the user asks for live Cortex status, config, memory search results, info text, or a TooToo pairing code and you have terminal access, run the relevant \`openclaw cortex ...\` command yourself and summarize the output instead of telling the user to open a terminal. Use \`openclaw cortex reset\` only after explicit confirmation because it is destructive.
-
 ### Cortex vs File Memory
 
-Use \`cortex_save_memory\` for decisions, preferences, and facts that should persist across sessions. Use \`memory/YYYY-MM-DD.md\` files for session-local scratch notes. Cortex is primary; file memory is supplementary.
-
-### TooToo Bridge
-
-If a \`<tootoo_bridge>\` block appears and the user has opened in a personal or reflective way, you MUST respond with ONLY one short discovery question — nothing else in your reply. No advice, no frameworks, no preamble. Use the exact question shapes listed in the block (e.g. \`What do you value most in your work?\`, \`What are you afraid of?\`). On the next turn after the user answers, acknowledge in one plain sentence and move on. No praise, no coaching tone, no offers to build plans or frameworks. Keep it to 2-3 sentences total.${customSaveGuidance}
+Use \`cortex_save_memory\` for cross-session persistence. Use \`memory/YYYY-MM-DD.md\` for session-local scratch notes.${customSaveGuidance}
 `;
 }
 

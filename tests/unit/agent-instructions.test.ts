@@ -163,20 +163,21 @@ describe("injectAgentInstructions", () => {
 });
 
 describe("buildCortexInstructions", () => {
-  it("builds full tool instructions without custom save guidance", () => {
+  it("builds slim summary that defers to skill", () => {
     const result = buildCortexInstructions();
 
     expect(result).toContain("Cortex Memory");
+    expect(result).toContain("cortex-memory");
     expect(result).toContain("cortex_search_memory");
     expect(result).toContain("cortex_save_memory");
     expect(result).toContain("cortex_get_memory");
     expect(result).toContain("cortex_forget");
     expect(result).toContain("cortex_set_session_goal");
-    expect(result).toContain("MUST respond with ONLY one short discovery question");
-    expect(result).toContain("What do you value most in your work?");
-    expect(result).toContain("acknowledge in one plain sentence and move on");
-    expect(result).toContain("run the relevant `openclaw cortex ...` command yourself");
-    expect(result).toContain("openclaw cortex reset");
+    // Should NOT contain verbose behavioral rules — those live in the skill now
+    expect(result).not.toContain("TRIGGER: After every response");
+    expect(result).not.toContain("Before saying \"I don't know\", search first");
+    expect(result).not.toContain("TooToo Bridge");
+    expect(result).not.toContain("Live CLI Actions");
     expect(result).not.toContain("### Custom save guidance");
   });
 
