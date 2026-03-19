@@ -295,6 +295,19 @@ export function buildSearchMemoryTool(deps: ToolsDeps): ToolDefinition {
         }
 
         logger.debug?.(`Cortex search returned ${filteredMemories.length} memories after filtering`);
+
+        // Format search results with node IDs (when available) so the agent
+        // can chain cortex_search_memory → cortex_get_memory.
+        const hasNodeIds = filteredMemories.some((m) => m.node_id);
+        if (hasNodeIds) {
+          const lines = filteredMemories.map((m) => {
+            const score = (m.relevance ?? m.confidence).toFixed(2);
+            const idTag = m.node_id ? ` id=${m.node_id}` : "";
+            return `- [${score}${idTag}] ${m.content}`;
+          });
+          return { content: [{ type: "text", text: lines.join("\n") }] };
+        }
+
         const formatted = formatMemories(filteredMemories, config.recallTopK);
         return { content: [{ type: "text", text: formatted }] };
       } catch (err) {

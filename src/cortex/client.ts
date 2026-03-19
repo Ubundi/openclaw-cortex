@@ -195,6 +195,7 @@ export interface JobSubmitResponse {
 // --- Agent API Types ---
 
 export interface RecallMemory {
+  node_id?: string;
   content: string;
   confidence: number;
   relevance?: number;
