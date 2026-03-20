@@ -55,7 +55,7 @@ const MAX_QUERY_LENGTH = 2000;
  * interval. Prevents the plugin from being permanently stuck when a different
  * plugin instance ingested memories or the initial check failed.
  */
-const KNOWLEDGE_RECHECK_INTERVAL_MS = 5 * 60_000; // 5 minutes
+const KNOWLEDGE_RECHECK_INTERVAL_MS = 60_000; // 1 minute
 const FALLBACK_RECALL_MIN_SCORE = 0.005;
 const FALLBACK_RECALL_SCORE_WINDOW = 0.2;
 

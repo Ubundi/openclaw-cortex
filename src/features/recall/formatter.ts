@@ -12,6 +12,13 @@ export const MAX_MEMORY_LINE_CHARS = 220;
 export const MAX_MEMORY_BLOCK_CHARS = 4500;
 
 /**
+ * Memories with relevance below this threshold get a warning tag appended
+ * so the agent knows not to cite specific values from them.
+ */
+export const LOW_CONFIDENCE_THRESHOLD = 0.5;
+const LOW_CONFIDENCE_TAG = " [PARTIAL — do not cite specifics]";
+
+/**
  * Patterns that match recalled memories too noisy / repetitive to inject.
  * These fire against the extracted *memory content* returned by the API,
  * NOT the raw conversation text (that's the capture-side filter's job).
@@ -343,10 +350,10 @@ function buildMaturityGuidance(opts?: FormatMemoriesOptions): string | undefined
   if (!opts?.maturity || opts.maturity === "unknown") return undefined;
 
   if (opts.maturity === "mature" && (opts.totalSessions ?? 0) >= 5) {
-    return "These are context clues, not complete answers. Before answering detailed questions or saying \"I'm not sure\", search with cortex_search_memory to verify and fill in specifics.";
+    return "These are context clues, not complete answers. Search with cortex_search_memory for specifics before answering. If search results lack the exact detail asked for (a number, name, date), say what you recall and what you don't — never guess.";
   }
   if (opts.maturity === "warming") {
-    return "These are partial context clues. Use cortex_search_memory to find additional details before answering.";
+    return "These are partial context clues. Use cortex_search_memory to find additional details. Do not fabricate specifics not found in search results.";
   }
   return undefined;
 }
@@ -386,7 +393,8 @@ export function formatMemoriesWithStats(
   for (const memory of candidates) {
     const content = truncateMemory(memory.content, effectiveLineChars);
     const displayScore = memory.relevance ?? memory.confidence;
-    const line = `- [${displayScore.toFixed(2)}] ${sanitizeMemoryContent(content)}`;
+    const confidenceWarning = displayScore < LOW_CONFIDENCE_THRESHOLD ? LOW_CONFIDENCE_TAG : "";
+    const line = `- [${displayScore.toFixed(2)}] ${sanitizeMemoryContent(content)}${confidenceWarning}`;
     const addedChars = (lines.length > 0 ? 1 : 0) + line.length;
     if (totalChars + addedChars > effectiveBlockChars) break;
     lines.push(line);

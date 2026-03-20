@@ -1,6 +1,6 @@
 # Cortex Memory - Deployment Guide
 
-Long-term memory system for OpenClaw agents. Automatically recalls relevant past context before each turn and captures new facts after each turn. Provides tools for explicit search, save, forget, and lookup.
+Long-term memory system for OpenClaw agents. Automatically recalls relevant past context before each turn and captures new facts after each turn. Provides tools for explicit search, save, forget, and lookup. Operates in two modes: automatic (recall/capture handled by the runtime) and explicit (agent calls tools directly for detailed retrieval or structured saves).
 
 ## Requirements
 
@@ -134,7 +134,7 @@ openclaw cortex info        # Show plugin and API info
 openclaw cortex reset       # Reset plugin state
 ```
 
-When the agent is running in a terminal-capable environment, it should prefer executing these commands for the user and summarizing the output instead of replying with "run this in terminal." The exception is `openclaw cortex reset`, which should only be run after explicit confirmation because it is destructive.
+The agent prefers executing these commands directly and summarizing output when running in a terminal-capable environment. `openclaw cortex reset` is destructive and requires explicit user confirmation.
 
 ## Agent Commands
 
@@ -146,10 +146,11 @@ These commands are available to the agent during conversation:
 
 ## Testing Checklist
 
-### Auto-recall
-- [ ] Start a conversation and verify `<cortex_memories>` tags appear
+### Connection & Modes
+- [ ] Start a conversation and verify `<cortex_memories>` tags appear (confirms Cortex connected)
 - [ ] Memories are relevant to conversation topic
 - [ ] Confidence scores are included
+- [ ] Agent correctly identifies automatic vs explicit mode context
 
 ### Tools
 - [ ] `cortex_search_memory` returns results for known topics
