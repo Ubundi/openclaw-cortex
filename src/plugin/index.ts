@@ -174,53 +174,56 @@ async function checkForUpdate(logger: Logger): Promise<void> {
 }
 
 /**
- * Returns the scoped user_id from whoami if the key is scoped, so the caller
- * can adopt it instead of the locally generated install ID.
+ * Resolves the scoped user_id from the API key via whoami.
+ * Returns the scoped user_id when the key is user-scoped, undefined otherwise.
+ * Fatal auth errors (mis-scoped key) are re-thrown so callers can halt bootstrap.
  */
-async function bootstrapClient(
+async function resolveScopedIdentity(
   client: CortexClient,
   logger: Logger,
-  knowledgeState: KnowledgeState,
-  userId: string,
-): Promise<{ scopedUserId?: string }> {
-  try {
-    const healthy = await client.healthCheck();
-    if (!healthy) {
-      logger.info("Cortex offline — API unreachable");
-      return {};
-    }
-  } catch {
-    logger.info("Cortex offline — API unreachable");
-    return {};
-  }
-
-  let effectiveUserId = userId;
-
+): Promise<string | undefined> {
   try {
     const whoami = await client.whoami();
     const perms = whoami.permissions?.join(", ") ?? "none";
     logger.info(`[Cortex] Authenticated as user: ${whoami.user_id ?? "unscoped"} (permissions: ${perms})`);
-    // Adopt the scoped key's user_id — the backend will reject requests
-    // using any other user_id, so the locally generated install ID won't work.
-    if (whoami.user_id) {
-      effectiveUserId = whoami.user_id;
-    }
+    return whoami.user_id ?? undefined;
   } catch (err) {
-    // Surface auth failures clearly — a mis-scoped or under-permissioned key
-    // will fail on every subsequent call, so a silent swallow here misleads.
     const msg = err instanceof Error ? err.message : String(err);
     if (msg.includes("API key is scoped to a different user") || msg.includes("Key lacks")) {
       logger.warn(`[Cortex] ${msg}`);
-      return {};
+      throw err; // Fatal — caller should abort bootstrap
     }
     // Other errors (network, old backend without whoami) are non-fatal
     logger.debug?.(`Cortex whoami unavailable: ${msg}`);
+    return undefined;
+  }
+}
+
+/**
+ * Fetches knowledge state and pre-warms the ECS task.
+ * Must be called after identity resolution so userId is final.
+ */
+async function bootstrapKnowledge(
+  client: CortexClient,
+  logger: Logger,
+  knowledgeState: KnowledgeState,
+  userId: string,
+): Promise<void> {
+  try {
+    const healthy = await client.healthCheck();
+    if (!healthy) {
+      logger.info("Cortex offline — API unreachable");
+      return;
+    }
+  } catch {
+    logger.info("Cortex offline — API unreachable");
+    return;
   }
 
   try {
     const [knowledge, stats] = await Promise.all([
-      client.knowledge(effectiveUserId),
-      client.stats(effectiveUserId).catch(() => null),
+      client.knowledge(userId),
+      client.stats(userId).catch(() => null),
     ]);
     knowledgeState.hasMemories = knowledge.total_memories > 0;
     knowledgeState.totalSessions = knowledge.total_sessions;
@@ -249,12 +252,9 @@ async function bootstrapClient(
         },
       );
     }
-
-    return effectiveUserId !== userId ? { scopedUserId: effectiveUserId } : {};
   } catch {
     // Knowledge endpoint unavailable — health check passed so API is reachable
     logger.info("Cortex connected");
-    return effectiveUserId !== userId ? { scopedUserId: effectiveUserId } : {};
   }
 }
 
@@ -451,8 +451,9 @@ const plugin = {
     // userId: use explicit config value if provided, otherwise load/create a
     // stable UUID persisted at ~/.openclaw/cortex-user-id. Resolved eagerly so
     // commands and hooks work even if start() is never called (e.g. [plugins]
-    // instances in multi-process runtimes). The capture handler awaits
-    // userIdReady before firing — user_id is required by the API.
+    // instances in multi-process runtimes). All consumers (capture, tools, CLI,
+    // bridge) await identityReady, which chains through whoami to adopt scoped
+    // key user_id before any API calls are made.
     let userId: string | undefined = config.userId;
     const userIdReady: Promise<void> = userId
       ? Promise.resolve()
@@ -466,19 +467,31 @@ const plugin = {
             api.logger.warn("Cortex: could not persist user ID, using ephemeral ID for this session");
           });
 
-    // Health check + knowledge probe — runs after userId resolves so recall
-    // knows whether memories exist. Must happen in register() because some
-    // runtime instances never call start().
-    // Skip when running CLI commands (e.g. `openclaw cortex status`) — the
-    // async log races with command output and CLI commands fetch their own data.
-    const isCliInvocation = process.argv.some((a) => a === "cortex");
-    if (!isCliInvocation) {
-      void userIdReady.then(async () => {
-        const result = await bootstrapClient(client, api.logger, knowledgeState, userId!);
-        if (result.scopedUserId) {
-          userId = result.scopedUserId;
+    // Identity resolution: load local ID, then check for scoped key override.
+    // Runs for ALL paths (CLI and non-CLI) so every consumer uses the correct ID.
+    let identityAborted = false;
+    const identityReady: Promise<void> = userIdReady.then(async () => {
+      try {
+        const scopedId = await resolveScopedIdentity(client, api.logger);
+        if (scopedId) {
+          userId = scopedId;
           api.logger.debug?.(`Cortex: adopted scoped user ID from API key: ${userId}`);
         }
+      } catch {
+        // Fatal auth error already logged by resolveScopedIdentity.
+        // userId remains the local install ID; scoped-key calls will 403.
+        identityAborted = true;
+      }
+    });
+
+    // Knowledge probe + warmup — only for interactive sessions (not CLI commands).
+    // CLI commands fetch their own data and the async log races with command output.
+    // Skipped when identity resolution hit a fatal auth error (mis-scoped key).
+    const isCliInvocation = process.argv.some((a) => a === "cortex");
+    if (!isCliInvocation) {
+      void identityReady.then(() => {
+        if (identityAborted) return;
+        return bootstrapKnowledge(client, api.logger, knowledgeState, userId!);
       });
       void checkForUpdate(api.logger);
     }
@@ -526,13 +539,13 @@ const plugin = {
       logger: api.logger,
       retryQueue,
       getUserId: () => userId,
-      userIdReady,
+      userIdReady: identityReady,
       pluginSessionId: sessionId,
       auditLogger: auditLoggerProxy,
     });
 
     if (!isCliInvocation) {
-      void userIdReady.then(() => bridgeHandler.refreshLinkStatus(true));
+      void identityReady.then(() => bridgeHandler.refreshLinkStatus(true));
     }
 
     // Auto-Recall: inject relevant memories before every agent turn
@@ -609,7 +622,7 @@ const plugin = {
     // Auto-Capture: extract facts after agent responses
     const watermarkStore = new CaptureWatermarkStore();
     void watermarkStore.load().catch((err) => api.logger.debug?.(`Cortex watermark load failed: ${String(err)}`));
-    const captureHandler = createCaptureHandler(client, config, api.logger, retryQueue, knowledgeState, () => userId, userIdReady, sessionId, auditLoggerProxy, echoStore, watermarkStore, sessionGoalStore);
+    const captureHandler = createCaptureHandler(client, config, api.logger, retryQueue, knowledgeState, () => userId, identityReady, sessionId, auditLoggerProxy, echoStore, watermarkStore, sessionGoalStore);
     registerHookCompat(
       api,
       "agent_end",
@@ -692,7 +705,7 @@ const plugin = {
         logger: api.logger,
         getUserId: () => userId,
         getActiveSessionKey: () => currentSessionKey,
-        userIdReady,
+        userIdReady: identityReady,
         sessionId,
         sessionStats,
         persistStats,
@@ -720,7 +733,7 @@ const plugin = {
         config,
         logger: api.logger,
         getUserId: () => userId,
-        userIdReady,
+        userIdReady: identityReady,
         getLastMessages: () => lastMessages,
         sessionId,
         auditLoggerProxy,
@@ -769,7 +782,7 @@ const plugin = {
         config,
         version,
         getUserId: () => userId,
-        userIdReady,
+        userIdReady: identityReady,
         getNamespace: () => namespace,
         sessionStats,
         loadPersistedStats,
