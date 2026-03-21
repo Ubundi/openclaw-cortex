@@ -160,9 +160,9 @@ describe("plugin lifecycle contract", () => {
     mockClientKnowledge();
     vi.spyOn(CortexClient.prototype, "stats").mockResolvedValue({ pipeline_tier: 1, pipeline_maturity: "cold" });
     vi.spyOn(CortexClient.prototype, "whoami").mockResolvedValue({
-      key_type: "scoped",
+      key_type: "tenant",
       tenant_id: "test-tenant",
-      user_id: "test-user",
+      user_id: null,
       permissions: ["read", "write"],
     });
     // Default: ensureToolsAllowlist silently skips (no config file found)
@@ -666,6 +666,12 @@ describe("plugin lifecycle contract", () => {
     vi.restoreAllMocks();
     mockClientHealth();
     mockClientKnowledge({ total_memories: 10, total_sessions: 5, maturity: "warming" });
+    vi.spyOn(CortexClient.prototype, "whoami").mockResolvedValue({
+      key_type: "scoped",
+      tenant_id: "test-tenant",
+      user_id: "user-1",
+      permissions: ["read", "write"],
+    });
     vi.spyOn(RetryQueue.prototype, "stop").mockImplementation(() => {});
     vi.spyOn(CortexClient.prototype, "retrieve").mockResolvedValue({
       results: [
@@ -732,6 +738,12 @@ describe("plugin lifecycle contract", () => {
     mockClientHealth();
     mockClientKnowledge({ total_memories: 142, total_sessions: 18, maturity: "warming" });
     vi.spyOn(CortexClient.prototype, "stats").mockResolvedValue({ pipeline_tier: 2, pipeline_maturity: "warming" });
+    vi.spyOn(CortexClient.prototype, "whoami").mockResolvedValue({
+      key_type: "scoped",
+      tenant_id: "test-tenant",
+      user_id: "agent-user-1",
+      permissions: ["read", "write"],
+    });
 
     const { api, logger, services } = makeApi({ userId: "agent-user-1" });
 
@@ -745,9 +757,64 @@ describe("plugin lifecycle contract", () => {
     });
   });
 
+  it("adopts scoped user_id from whoami when key is user-scoped", async () => {
+    vi.restoreAllMocks();
+    mockClientHealth();
+    vi.spyOn(CortexClient.prototype, "whoami").mockResolvedValue({
+      key_type: "scoped",
+      tenant_id: "test-tenant",
+      user_id: "scoped-user-from-key",
+      permissions: ["read", "write"],
+    });
+    const knowledgeSpy = vi.spyOn(CortexClient.prototype, "knowledge").mockResolvedValue({
+      total_memories: 5,
+      total_sessions: 1,
+      maturity: "cold",
+      entities: [],
+    });
+    vi.spyOn(CortexClient.prototype, "stats").mockResolvedValue({ pipeline_tier: 1, pipeline_maturity: "cold" });
+    mockReadFileSync.mockImplementation(() => { throw new Error("ENOENT"); });
+
+    const { api, logger } = makeApi({});
+
+    plugin.register(api as any);
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(knowledgeSpy).toHaveBeenCalledWith("scoped-user-from-key");
+    expect(logger.debug).toHaveBeenCalledWith(
+      expect.stringContaining("adopted scoped user ID"),
+    );
+  });
+
+  it("warns on whoami 403 for mis-scoped key and stops bootstrap", async () => {
+    vi.restoreAllMocks();
+    mockClientHealth();
+    vi.spyOn(CortexClient.prototype, "whoami").mockRejectedValue(
+      new Error("Cortex keys/whoami: API key is scoped to a different user. Your key cannot access this user_id."),
+    );
+    const knowledgeSpy = vi.spyOn(CortexClient.prototype, "knowledge").mockResolvedValue({
+      total_memories: 0,
+      total_sessions: 0,
+      maturity: "cold",
+      entities: [],
+    });
+    mockReadFileSync.mockImplementation(() => { throw new Error("ENOENT"); });
+
+    const { api, logger } = makeApi({});
+
+    plugin.register(api as any);
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.stringContaining("API key is scoped to a different user"),
+    );
+    expect(knowledgeSpy).not.toHaveBeenCalled();
+  });
+
   it("proceeds without knowledge when endpoint is unavailable", async () => {
     vi.restoreAllMocks();
     mockClientHealth();
+    vi.spyOn(CortexClient.prototype, "whoami").mockRejectedValue(new Error("Not found"));
     vi.spyOn(CortexClient.prototype, "knowledge").mockRejectedValue(new Error("Not found"));
 
     const { api, logger } = makeApi({});

@@ -173,37 +173,54 @@ async function checkForUpdate(logger: Logger): Promise<void> {
   }
 }
 
+/**
+ * Returns the scoped user_id from whoami if the key is scoped, so the caller
+ * can adopt it instead of the locally generated install ID.
+ */
 async function bootstrapClient(
   client: CortexClient,
   logger: Logger,
   knowledgeState: KnowledgeState,
   userId: string,
-): Promise<void> {
+): Promise<{ scopedUserId?: string }> {
   try {
     const healthy = await client.healthCheck();
     if (!healthy) {
       logger.info("Cortex offline — API unreachable");
-      return;
+      return {};
     }
   } catch {
     logger.info("Cortex offline — API unreachable");
-    return;
+    return {};
   }
 
+  let effectiveUserId = userId;
+
   try {
-    const whoami = await client.whoami().catch(() => null);
-    if (whoami) {
-      const perms = whoami.permissions?.join(", ") ?? "none";
-      logger.info(`[Cortex] Authenticated as user: ${whoami.user_id ?? "unscoped"} (permissions: ${perms})`);
+    const whoami = await client.whoami();
+    const perms = whoami.permissions?.join(", ") ?? "none";
+    logger.info(`[Cortex] Authenticated as user: ${whoami.user_id ?? "unscoped"} (permissions: ${perms})`);
+    // Adopt the scoped key's user_id — the backend will reject requests
+    // using any other user_id, so the locally generated install ID won't work.
+    if (whoami.user_id) {
+      effectiveUserId = whoami.user_id;
     }
-  } catch {
-    // Non-fatal — whoami is informational only
+  } catch (err) {
+    // Surface auth failures clearly — a mis-scoped or under-permissioned key
+    // will fail on every subsequent call, so a silent swallow here misleads.
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.includes("API key is scoped to a different user") || msg.includes("Key lacks")) {
+      logger.warn(`[Cortex] ${msg}`);
+      return {};
+    }
+    // Other errors (network, old backend without whoami) are non-fatal
+    logger.debug?.(`Cortex whoami unavailable: ${msg}`);
   }
 
   try {
     const [knowledge, stats] = await Promise.all([
-      client.knowledge(userId),
-      client.stats(userId).catch(() => null),
+      client.knowledge(effectiveUserId),
+      client.stats(effectiveUserId).catch(() => null),
     ]);
     knowledgeState.hasMemories = knowledge.total_memories > 0;
     knowledgeState.totalSessions = knowledge.total_sessions;
@@ -232,9 +249,12 @@ async function bootstrapClient(
         },
       );
     }
+
+    return effectiveUserId !== userId ? { scopedUserId: effectiveUserId } : {};
   } catch {
     // Knowledge endpoint unavailable — health check passed so API is reachable
     logger.info("Cortex connected");
+    return effectiveUserId !== userId ? { scopedUserId: effectiveUserId } : {};
   }
 }
 
@@ -453,7 +473,13 @@ const plugin = {
     // async log races with command output and CLI commands fetch their own data.
     const isCliInvocation = process.argv.some((a) => a === "cortex");
     if (!isCliInvocation) {
-      void userIdReady.then(() => bootstrapClient(client, api.logger, knowledgeState, userId!));
+      void userIdReady.then(async () => {
+        const result = await bootstrapClient(client, api.logger, knowledgeState, userId!);
+        if (result.scopedUserId) {
+          userId = result.scopedUserId;
+          api.logger.debug?.(`Cortex: adopted scoped user ID from API key: ${userId}`);
+        }
+      });
       void checkForUpdate(api.logger);
     }
 
