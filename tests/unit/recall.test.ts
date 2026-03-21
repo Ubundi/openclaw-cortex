@@ -659,4 +659,133 @@ describe("mapRetrieveToRecallMemories", () => {
     expect(memory.relevance).toBe(0.18);
     expect(memory.confidence).toBe(0.18);
   });
+
+  it("maps query_alignment from retrieve result", () => {
+    const [memory] = mapRetrieveToRecallMemories([
+      {
+        node_id: "1",
+        type: "FACT",
+        content: "Redis cache pattern",
+        score: 0.75,
+        query_alignment: 0.62,
+      },
+    ]);
+
+    expect(memory.query_alignment).toBe(0.62);
+    expect(memory.source).toBe("retrieve");
+  });
+
+  it("sets source to retrieve for all mapped memories", () => {
+    const memories = mapRetrieveToRecallMemories([
+      { node_id: "1", type: "FACT", content: "fact 1", score: 0.9 },
+      { node_id: "2", type: "FACT", content: "fact 2", score: 0.8 },
+    ]);
+
+    expect(memories[0].source).toBe("retrieve");
+    expect(memories[1].source).toBe("retrieve");
+  });
+
+  it("leaves query_alignment undefined when not provided by backend", () => {
+    const [memory] = mapRetrieveToRecallMemories([
+      { node_id: "1", type: "FACT", content: "test", score: 0.5 },
+    ]);
+
+    expect(memory.query_alignment).toBeUndefined();
+  });
+});
+
+describe("fallback memories source tagging", () => {
+  it("tags fallback memories with source: fallback", async () => {
+    const client = {
+      retrieve: vi.fn().mockResolvedValue({ results: [] }),
+      recall: vi.fn().mockResolvedValue({
+        memories: [
+          { content: "Broad match memory", confidence: 0.7, when: null, session_id: null, entities: [] },
+        ],
+      }),
+    } as unknown as CortexClient;
+
+    const handler = createRecallHandler(client, makeConfig(), logger);
+    const result = await handler(
+      { prompt: "What database do we use?" },
+      {},
+    );
+
+    expect(result?.prependContext).toContain("broad recall");
+  });
+});
+
+describe("coverage pass-through to formatter", () => {
+  it("passes coverage from retrieve response to formatted output", async () => {
+    const client = {
+      retrieve: vi.fn().mockResolvedValue({
+        results: [
+          { node_id: "1", type: "FACT", content: "User likes TypeScript", score: 0.92, confidence: 0.92 },
+        ],
+        coverage: "partial",
+      }),
+    } as unknown as CortexClient;
+
+    const handler = createRecallHandler(client, makeConfig(), logger);
+    const result = await handler({ prompt: "Tell me about the project" }, {});
+
+    expect(result?.prependContext).toContain("IMPORTANT");
+    expect(result?.prependContext).toContain("may NOT contain the specific answer");
+  });
+
+  it("uses maturity fallback when coverage is absent from response", async () => {
+    const client = {
+      retrieve: vi.fn().mockResolvedValue({
+        results: [
+          { node_id: "1", type: "FACT", content: "test memory", score: 0.92, confidence: 0.92 },
+        ],
+      }),
+    } as unknown as CortexClient;
+    const ks: KnowledgeState = { hasMemories: true, totalSessions: 10, pipelineTier: 1, maturity: "mature", lastChecked: Date.now() };
+
+    const handler = createRecallHandler(client, makeConfig(), logger, undefined, ks);
+    const result = await handler({ prompt: "Tell me about the project" }, {});
+
+    expect(result?.prependContext).toContain("context clues, not complete answers");
+  });
+
+  it("propagates coverage from /v1/recall fallback when retrieve had none", async () => {
+    const client = {
+      retrieve: vi.fn().mockResolvedValue({ results: [] }),
+      recall: vi.fn().mockResolvedValue({
+        coverage: "low",
+        memories: [
+          { content: "Fallback memory", confidence: 0.7, when: null, session_id: null, entities: [] },
+        ],
+      }),
+    } as unknown as CortexClient;
+
+    const handler = createRecallHandler(client, makeConfig(), logger);
+    const result = await handler({ prompt: "What database do we use?" }, {});
+
+    expect(result?.prependContext).toContain("weak relevance");
+    expect(result?.prependContext).toContain("Do NOT cite specific details");
+  });
+
+  it("fallback coverage replaces stale retrieve coverage", async () => {
+    // If /v1/retrieve ever returns coverage for an empty result set (e.g. "none"),
+    // the fallback's coverage should still take precedence since the displayed
+    // memories came entirely from /v1/recall.
+    const client = {
+      retrieve: vi.fn().mockResolvedValue({ results: [], coverage: "none" }),
+      recall: vi.fn().mockResolvedValue({
+        coverage: "partial",
+        memories: [
+          { content: "Fallback with partial coverage", confidence: 0.8, when: null, session_id: null, entities: [] },
+        ],
+      }),
+    } as unknown as CortexClient;
+
+    const handler = createRecallHandler(client, makeConfig(), logger);
+    const result = await handler({ prompt: "What auth flow do we use?" }, {});
+
+    // Should use fallback's "partial" coverage, not retrieve's stale "none"
+    expect(result?.prependContext).toContain("IMPORTANT");
+    expect(result?.prependContext).toContain("may NOT contain the specific answer");
+  });
 });

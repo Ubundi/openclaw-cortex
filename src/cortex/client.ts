@@ -29,10 +29,14 @@ export interface RetrieveResult {
   source?: string;
   confidence?: number;
   metadata?: RetrieveResultMetadata;
+  query_alignment?: number;
 }
+
+export type RetrieveCoverage = "high" | "partial" | "low" | "none";
 
 export interface RetrieveResponse {
   results: RetrieveResult[];
+  coverage?: RetrieveCoverage;
 }
 
 export interface IngestFact {
@@ -208,9 +212,12 @@ export interface RecallMemory {
   source_origin?: string;
   derivation_mode?: string;
   source_app?: string;
+  query_alignment?: number;
+  source?: "retrieve" | "fallback";
 }
 
 export interface RecallResponse {
+  coverage?: RetrieveCoverage;
   memories: RecallMemory[];
 }
 

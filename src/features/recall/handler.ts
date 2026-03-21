@@ -1,4 +1,4 @@
-import type { CortexClient, RetrieveResult, RecallMemory } from "../../cortex/client.js";
+import type { CortexClient, RetrieveResult, RecallMemory, RetrieveCoverage } from "../../cortex/client.js";
 import type { CortexConfig } from "../../plugin/config.js";
 import type { KnowledgeState } from "../../plugin/index.js";
 import type { AuditLogger } from "../../internal/audit-logger.js";
@@ -217,6 +217,8 @@ export function mapRetrieveToRecallMemories(results: RetrieveResult[]): RecallMe
     source_origin: typeof r.metadata?.source_origin === "string" ? r.metadata.source_origin : undefined,
     derivation_mode: typeof r.metadata?.derivation_mode === "string" ? r.metadata.derivation_mode : undefined,
     source_app: typeof r.metadata?.source_app === "string" ? r.metadata.source_app : undefined,
+    query_alignment: r.query_alignment,
+    source: "retrieve",
   }));
 }
 
@@ -265,8 +267,8 @@ export function createRecallHandler(
     userId: string | undefined,
     logger: Logger,
     auditLogger: AuditLogger | undefined,
-  ): Promise<RecallMemory[]> {
-    if (typeof client.recall !== "function") return [];
+  ): Promise<{ memories: RecallMemory[]; coverage?: RetrieveCoverage }> {
+    if (typeof client.recall !== "function") return { memories: [] };
 
     logger.debug?.("Cortex recall: retrieve returned no memories, falling back to broad recall");
 
@@ -287,10 +289,13 @@ export function createRecallHandler(
         userId,
         queryType: profileParams.queryType,
       });
-      return filterFallbackRecallMemories(response.memories ?? []);
+      return {
+        memories: filterFallbackRecallMemories(response.memories ?? []),
+        coverage: response.coverage,
+      };
     } catch (err) {
       logger.debug?.(`Cortex recall fallback failed: ${String(err)}`);
-      return [];
+      return { memories: [] };
     }
   }
 
@@ -488,8 +493,11 @@ export function createRecallHandler(
 
       let memories = applyProfileFilters(mapRetrieveToRecallMemories(rawResponse.results), profileParams);
 
+      // /v1/retrieve may return coverage (forward-compat); default to unknown.
+      let coverage: RetrieveCoverage | "unknown" = rawResponse.coverage ?? "unknown";
+
       if (!memories.length) {
-        memories = await fallbackToBroadRecall(
+        const fallback = await fallbackToBroadRecall(
           prompt,
           effectiveTimeout,
           profileParams,
@@ -497,6 +505,16 @@ export function createRecallHandler(
           logger,
           auditLogger,
         );
+        memories = fallback.memories;
+        for (const m of memories) {
+          m.source = "fallback";
+        }
+        // All displayed memories now come from the fallback path — the retrieve
+        // coverage (if any) described an empty result set and doesn't apply.
+        // Always adopt the fallback coverage when available.
+        if (fallback.coverage) {
+          coverage = fallback.coverage;
+        }
       }
 
       if (!memories.length) return;
@@ -518,6 +536,7 @@ export function createRecallHandler(
         maturity: knowledgeState?.maturity,
         maxLineChars: profileParams.maxLineChars,
         maxBlockChars: profileParams.maxBlockChars,
+        coverage,
       };
       const { text: formatted, collapsedCount } = formatMemoriesWithStats(memories, formatOpts);
       if (!formatted) return;

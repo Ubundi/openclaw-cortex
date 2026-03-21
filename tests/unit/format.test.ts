@@ -383,3 +383,190 @@ describe("formatMemoriesWithStats near-duplicate collapsing", () => {
     expect(result).toContain("cortex_memories");
   });
 });
+
+describe("coverage-aware recall guidance", () => {
+  const makeMem = (content: string, confidence = 0.9): RecallMemory => ({
+    content, confidence, when: null, session_id: null, entities: [],
+  });
+
+  it("shows high-coverage guidance when coverage is high", () => {
+    const result = formatMemoriesWithStats(
+      [makeMem("User prefers dark mode", 0.95)],
+      { coverage: "high" },
+    );
+    expect(result.text).toContain("Recalled memories are relevant");
+    expect(result.text).toContain("cortex_search_memory");
+  });
+
+  it("shows strong partial-coverage warning", () => {
+    const result = formatMemoriesWithStats(
+      [makeMem("User prefers dark mode", 0.95)],
+      { coverage: "partial" },
+    );
+    expect(result.text).toContain("IMPORTANT");
+    expect(result.text).toContain("may NOT contain the specific answer");
+    expect(result.text).toContain("MUST use cortex_search_memory");
+  });
+
+  it("shows low-coverage guidance for low coverage", () => {
+    const result = formatMemoriesWithStats(
+      [makeMem("User prefers dark mode", 0.95)],
+      { coverage: "low" },
+    );
+    expect(result.text).toContain("weak relevance");
+    expect(result.text).toContain("Do NOT cite specific details");
+  });
+
+  it("shows low-coverage guidance for none coverage", () => {
+    const result = formatMemoriesWithStats(
+      [makeMem("User prefers dark mode", 0.95)],
+      { coverage: "none" },
+    );
+    expect(result.text).toContain("weak relevance");
+  });
+
+  it("falls back to maturity guidance when coverage is unknown", () => {
+    const result = formatMemoriesWithStats(
+      [makeMem("User prefers dark mode", 0.95)],
+      { coverage: "unknown", maturity: "mature", totalSessions: 10 },
+    );
+    expect(result.text).toContain("context clues, not complete answers");
+  });
+
+  it("falls back to maturity guidance when coverage is absent", () => {
+    const result = formatMemoriesWithStats(
+      [makeMem("User prefers dark mode", 0.95)],
+      { maturity: "warming" },
+    );
+    expect(result.text).toContain("partial context clues");
+  });
+
+  it("shows no guidance when both coverage and maturity are unknown", () => {
+    const result = formatMemoriesWithStats(
+      [makeMem("User prefers dark mode", 0.95)],
+      {},
+    );
+    // No guidance line, just the memory
+    expect(result.text).not.toContain("IMPORTANT");
+    expect(result.text).not.toContain("context clues");
+    expect(result.text).toContain("User prefers dark mode");
+  });
+});
+
+describe("per-memory query_alignment annotations", () => {
+  const makeMem = (
+    content: string,
+    confidence: number,
+    query_alignment?: number,
+  ): RecallMemory => ({
+    content, confidence, when: null, session_id: null, entities: [], query_alignment,
+  });
+
+  it("annotates weak alignment (<0.4) with do-not-cite warning", () => {
+    const result = formatMemoriesWithStats(
+      [makeMem("Some vague context", 0.8, 0.3)],
+      { topK: 10 },
+    );
+    expect(result.text).toContain("[weak match — do not cite specifics from this memory]");
+  });
+
+  it("annotates topic-level alignment (0.4-0.6) with verify warning", () => {
+    const result = formatMemoriesWithStats(
+      [makeMem("Redis is used for caching", 0.8, 0.5)],
+      { topK: 10 },
+    );
+    expect(result.text).toContain("[topic match — verify details before citing]");
+  });
+
+  it("adds no annotation for strong alignment (>=0.6)", () => {
+    const result = formatMemoriesWithStats(
+      [makeMem("API runs on port 4000", 0.9, 0.75)],
+      { topK: 10 },
+    );
+    expect(result.text).toContain("- [0.90] API runs on port 4000");
+    expect(result.text).not.toContain("[weak match");
+    expect(result.text).not.toContain("[topic match");
+    expect(result.text).not.toContain("PARTIAL");
+  });
+
+  it("falls back to relevance threshold when alignment is absent", () => {
+    const result = formatMemoriesWithStats(
+      [makeMem("Low relevance memory", 0.45)],
+      { topK: 10 },
+    );
+    expect(result.text).toContain("[PARTIAL — do not cite specifics]");
+  });
+
+  it("uses raised threshold (0.6) for relevance-based fallback", () => {
+    const result = formatMemoriesWithStats(
+      [makeMem("Borderline memory", 0.55)],
+      { topK: 10 },
+    );
+    expect(result.text).toContain("[PARTIAL — do not cite specifics]");
+  });
+
+  it("warns when alignment is strong but retrieval score is low", () => {
+    const result = formatMemoriesWithStats(
+      [makeMem("Deprioritized memory", 0.12, 0.75)],
+      { topK: 10 },
+    );
+    // High alignment but low retrieval score — pipeline deprioritized it
+    expect(result.text).toContain("[PARTIAL — do not cite specifics]");
+  });
+
+  it("no PARTIAL tag for memories at or above 0.6 without alignment", () => {
+    const result = formatMemoriesWithStats(
+      [makeMem("Solid memory", 0.65)],
+      { topK: 10 },
+    );
+    expect(result.text).not.toContain("PARTIAL");
+    expect(result.text).not.toContain("[weak match");
+    expect(result.text).not.toContain("[topic match");
+  });
+});
+
+describe("fallback source tagging", () => {
+  it("annotates fallback memories with broad-recall warning regardless of score", () => {
+    const memory: RecallMemory = {
+      content: "User discussed Redis caching",
+      confidence: 0.9,
+      when: null,
+      session_id: null,
+      entities: [],
+      source: "fallback",
+    };
+    const result = formatMemoriesWithStats([memory], { topK: 10 });
+    expect(result.text).toContain("[broad recall — verify before citing specifics]");
+  });
+
+  it("fallback tag takes precedence over query_alignment annotation", () => {
+    const memory: RecallMemory = {
+      content: "User discussed Redis caching",
+      confidence: 0.9,
+      when: null,
+      session_id: null,
+      entities: [],
+      source: "fallback",
+      query_alignment: 0.8,
+    };
+    const result = formatMemoriesWithStats([memory], { topK: 10 });
+    expect(result.text).toContain("[broad recall");
+    expect(result.text).not.toContain("[weak match");
+    expect(result.text).not.toContain("[topic match");
+  });
+
+  it("retrieve-sourced memories use alignment annotations normally", () => {
+    const memory: RecallMemory = {
+      content: "API runs on port 4000",
+      confidence: 0.9,
+      when: null,
+      session_id: null,
+      entities: [],
+      source: "retrieve",
+      query_alignment: 0.45,
+    };
+    const result = formatMemoriesWithStats([memory], { topK: 10 });
+    expect(result.text).toContain("[topic match — verify details before citing]");
+    expect(result.text).not.toContain("[broad recall");
+  });
+});

@@ -20,6 +20,19 @@ Before your first explicit tool call in a session, confirm Cortex is reachable b
 **Explicit mode** — you call tools directly:
 - Use when auto-recall doesn't surface enough detail, when you need to save specific values auto-capture would lose, or when the user asks to search/forget/inspect memories.
 
+## Memory Verification Protocol
+
+Auto-recalled memories (shown in `<cortex_memories>`) are **context clues, not authoritative answers**.
+
+When a user asks for a specific detail — a number, name, date, file path, config value, or technology choice:
+
+1. Check if the recalled memories contain the **exact** detail asked for
+2. If YES and the memory has no `[weak match]` or `[topic match]` annotation: you may cite it
+3. If NO or the detail is **inferred** rather than explicitly stated in a memory: use `cortex_search_memory` with a targeted query to find the specific fact
+4. If `cortex_search_memory` also doesn't return the exact detail: say what you recall about the topic and explicitly flag what you don't have stored — never fabricate a specific value
+
+This is especially important for: port numbers, directory paths, library/tool names, API endpoint paths, configuration values, dates, and version numbers. These are the details most likely to be close-but-wrong in recalled context.
+
 ## Mandatory Behavioral Rules
 
 These are non-negotiable. Violating them produces incorrect answers.
