@@ -11,7 +11,6 @@ import { createBridgeHandler, buildBridgeFollowUpPrompt } from "../features/brid
 import { RetryQueue } from "../internal/retry-queue.js";
 import { LatencyMetrics } from "../internal/latency-metrics.js";
 import { loadOrCreateUserId } from "../internal/user-id.js";
-import { BAKED_API_KEY } from "../internal/api-key.js";
 import { AuditLogger } from "../internal/audit-logger.js";
 import { RecentSaves } from "../internal/dedupe.js";
 import { RecallEchoStore } from "../internal/recall-echo-store.js";
@@ -192,6 +191,16 @@ async function bootstrapClient(
   }
 
   try {
+    const whoami = await client.whoami().catch(() => null);
+    if (whoami) {
+      const perms = whoami.permissions?.join(", ") ?? "none";
+      logger.info(`[Cortex] Authenticated as user: ${whoami.user_id ?? "unscoped"} (permissions: ${perms})`);
+    }
+  } catch {
+    // Non-fatal — whoami is informational only
+  }
+
+  try {
     const [knowledge, stats] = await Promise.all([
       client.knowledge(userId),
       client.stats(userId).catch(() => null),
@@ -352,25 +361,13 @@ const plugin = {
 
     const config: CortexConfig = parsed.data;
 
-    // Resolve API key: plugin config → CORTEX_API_KEY env var → baked build key.
-    // The baked key is a placeholder ("__OPENCLAW_API_KEY__") in source and may
-    // be empty in published builds, so user-provided keys take priority.
-    const resolvedApiKey =
-      config.apiKey ||
-      process.env.CORTEX_API_KEY ||
-      (BAKED_API_KEY !== "__OPENCLAW_API_KEY__" && BAKED_API_KEY) ||
-      "";
+    // Resolve API key: plugin config → CORTEX_API_KEY env var.
+    const resolvedApiKey = config.apiKey || process.env.CORTEX_API_KEY || "";
 
     if (!resolvedApiKey) {
-      api.logger.warn(
-        "[Cortex] This plugin is currently in early testing and requires an API key to use.",
-      );
-      api.logger.warn(
-        '[Cortex] Set "apiKey" in your plugin config (openclaw.json) or export the CORTEX_API_KEY environment variable.',
-      );
-      api.logger.warn(
-        "[Cortex] To request access, reach out to the Ubundi team: https://ubundi.com",
-      );
+      api.logger.warn("[Cortex] No API key configured.");
+      api.logger.warn("[Cortex] Generate your personal key at: https://cortex.ubundi.com");
+      api.logger.warn('[Cortex] Then set "apiKey" in your plugin config (openclaw.json) or export CORTEX_API_KEY.');
       return;
     }
 

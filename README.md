@@ -155,7 +155,6 @@ src/
     recall/                 # Before-turn memory injection + context profiles
   internal/                 # Shared utilities (not stable public API)
     agent-instructions.ts
-    api-key.ts
     audit-logger.ts
     capture-watermark-store.ts
     cleaner.ts
@@ -336,7 +335,7 @@ npm install
 npm run build      # TypeScript → dist/
 npm test           # Run vitest (504 tests)
 npm run test:watch # Watch mode
-npm run test:integration # Live Cortex API tests (uses the baked-in API key)
+npm run test:integration # Live Cortex API tests (requires CORTEX_API_KEY env var)
 ```
 
 Manual proof scripts live under `tests/manual/`.

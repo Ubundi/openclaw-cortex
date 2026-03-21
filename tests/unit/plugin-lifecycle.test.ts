@@ -159,6 +159,12 @@ describe("plugin lifecycle contract", () => {
     mockClientHealth();
     mockClientKnowledge();
     vi.spyOn(CortexClient.prototype, "stats").mockResolvedValue({ pipeline_tier: 1, pipeline_maturity: "cold" });
+    vi.spyOn(CortexClient.prototype, "whoami").mockResolvedValue({
+      key_type: "scoped",
+      tenant_id: "test-tenant",
+      user_id: "test-user",
+      permissions: ["read", "write"],
+    });
     // Default: ensureToolsAllowlist silently skips (no config file found)
     mockReadFileSync.mockImplementation((...args: any[]) => {
       const path = String(args[0]);
@@ -698,6 +704,24 @@ describe("plugin lifecycle contract", () => {
     expect(logger.error).toHaveBeenCalledWith(
       "Cortex plugin config invalid:",
       expect.stringContaining("baseUrl"),
+    );
+    expect(Object.keys(hooks)).toHaveLength(0);
+    expect(services).toHaveLength(0);
+  });
+
+  it("logs setup instructions and returns early when no API key is configured", () => {
+    delete process.env.CORTEX_API_KEY;
+
+    const { api, hooks, services, logger } = makeApi({});
+
+    plugin.register(api as any);
+
+    expect(logger.warn).toHaveBeenCalledWith("[Cortex] No API key configured.");
+    expect(logger.warn).toHaveBeenCalledWith(
+      "[Cortex] Generate your personal key at: https://cortex.ubundi.com",
+    );
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.stringContaining('set "apiKey" in your plugin config'),
     );
     expect(Object.keys(hooks)).toHaveLength(0);
     expect(services).toHaveLength(0);
