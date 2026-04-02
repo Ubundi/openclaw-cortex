@@ -668,6 +668,7 @@ describe("plugin lifecycle contract", () => {
     });
 
     const { api, hooks, services, logger } = makeApi({
+      autoRecall: true,
       recallTimeoutMs: 500,
       userId: "user-1",
     });

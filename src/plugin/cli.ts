@@ -341,8 +341,8 @@ export function registerCliCommands(
                   facts, decisions, and context from the exchange and
                   stores them in a knowledge graph.
 
-  Auto-Recall     Before the agent responds, Cortex searches your
-                  memory for anything relevant to the current query
+  Auto-Recall     On cold start, if the workspace has no daily notes
+                  yet, Cortex searches memory for relevant history
                   and injects it into the agent's context.
 
   The more you use your agent, the smarter recall gets. Cortex

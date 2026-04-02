@@ -54,8 +54,8 @@ You have long-term memory powered by the Cortex plugin. Memories persist permane
 
 ### What Happens Automatically
 
-- **Auto-Recall:** Relevant memories appear in \`<cortex_memories>\` tags before each turn — context clues, not exhaustive.
-- **Auto-Capture:** Topic-level summaries extracted after turns. Implementation specifics require explicit saves.
+- **Auto-Capture (always on):** Topic-level summaries extracted after turns. Implementation specifics require explicit saves.
+- **Auto-Recall (off by default):** If enabled, relevant memories appear in \`<cortex_memories>\` tags before each turn — supplementary context, not exhaustive.
 
 ### Available Tools
 
@@ -71,7 +71,7 @@ You have long-term memory powered by the Cortex plugin. Memories persist permane
 
 ### Cortex vs File Memory
 
-Use \`cortex_save_memory\` for cross-session persistence. Use \`memory/YYYY-MM-DD.md\` for session-local scratch notes.${customSaveGuidance}
+Your daily notes (\`memory/YYYY-MM-DD.md\`) contain detailed facts from recent conversations — read them first for exact values and specifics. Use \`cortex_search_memory\` for cross-session or older memories your notes don't cover. Use \`cortex_save_memory\` for important facts that should persist beyond daily notes (decisions, architecture choices, key metrics).${customSaveGuidance}
 `;
 }
 

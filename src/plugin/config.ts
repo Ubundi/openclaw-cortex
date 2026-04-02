@@ -28,7 +28,7 @@ export const CortexConfigSchema = z.object({
     "https://q5p64iw9c9.execute-api.us-east-1.amazonaws.com/prod",
   ),
   userId: z.string().min(1).optional(),
-  autoRecall: z.boolean().default(true),
+  autoRecall: z.boolean().default(false),
   autoCapture: z.boolean().default(true),
   recallLimit: z.number().int().min(1).max(50).default(20),
   recallTopK: z.number().int().min(1).max(50).default(10),

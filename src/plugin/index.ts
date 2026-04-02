@@ -333,7 +333,7 @@ const plugin = {
   id: PLUGIN_ID,
   name: "Cortex Memory",
   description:
-    "Long-term memory powered by Cortex — Auto-Recall, Auto-Capture, and agent memory tools",
+    "Long-term memory powered by Cortex — cold-start recall, auto-capture, and agent memory tools",
   version,
   // No `kind` — cortex supplements the built-in memory system rather than replacing it
   configSchema,
@@ -498,6 +498,7 @@ const plugin = {
       echoStore,
       sessionGoalStore,
       () => rolePreset?.recallContext,
+      () => workspaceDirResolved,
     );
     const bridgeHandler = createBridgeHandler(client, {
       logger: api.logger,

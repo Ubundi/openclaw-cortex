@@ -1,3 +1,5 @@
+import { readdir } from "node:fs/promises";
+import { join } from "node:path";
 import type { CortexClient, RetrieveResult, RecallMemory, RetrieveCoverage } from "../../cortex/client.js";
 import type { CortexConfig } from "../../plugin/config.js";
 import type { KnowledgeState } from "../../plugin/index.js";
@@ -255,10 +257,49 @@ export function createRecallHandler(
   echoStore?: RecallEchoStore,
   sessionGoalStore?: SessionGoalStore,
   getRoleContext?: () => string | undefined,
+  getWorkspaceDir?: () => string | undefined,
 ) {
   const recallMetrics = metrics ?? new LatencyMetrics();
   let consecutiveFailures = 0;
   let coldStartUntil = 0;
+  /** Cache key → true for workspaces where we already found recent daily notes. */
+  const recentNotesCache = new Map<string, boolean>();
+
+  /**
+   * Returns true when the workspace has a daily note from today or yesterday.
+   * Only matches the YYYY-MM-DD.md naming pattern that OpenClaw's memory system
+   * uses for daily logs — topic summaries (e.g. 2026-03-06-drizzle-neon.md) and
+   * older notes that the runtime doesn't auto-load are ignored.
+   */
+  async function workspaceHasRecentDailyNotes(workspaceDir: string | undefined): Promise<boolean> {
+    if (!workspaceDir) return false;
+    if (recentNotesCache.get(workspaceDir)) return true;
+
+    const DAILY_NOTE_RE = /^\d{4}-\d{2}-\d{2}\.md$/;
+
+    try {
+      const entries = await readdir(join(workspaceDir, "memory"), { withFileTypes: true });
+      const now = new Date();
+      const today = now.toISOString().slice(0, 10);
+      const yesterday = new Date(now.getTime() - 86_400_000).toISOString().slice(0, 10);
+      const recentDates = new Set([today, yesterday]);
+
+      const hasRecent = entries.some((entry) => {
+        if (!DAILY_NOTE_RE.test(entry.name)) return false;
+        const date = entry.name.slice(0, 10);
+        return recentDates.has(date);
+      });
+
+      if (hasRecent) {
+        recentNotesCache.set(workspaceDir, true);
+      }
+      return hasRecent;
+    } catch (err: unknown) {
+      if ((err as NodeJS.ErrnoException).code === "ENOENT") return false;
+      logger.debug?.(`Cortex recall: failed to inspect workspace daily notes: ${String(err)}`);
+      return false;
+    }
+  }
 
   async function fallbackToBroadRecall(
     query: string,
@@ -306,6 +347,12 @@ export function createRecallHandler(
     logger.info("Cortex recall: hook fired");
 
     if (!config.autoRecall) return;
+
+    const workspaceDir = _ctx.workspaceDir ?? getWorkspaceDir?.();
+    if (await workspaceHasRecentDailyNotes(workspaceDir)) {
+      logger.info("Cortex recall: skipped (recent daily notes available)");
+      return;
+    }
 
     // Skip recall for heartbeat turns — they're periodic status checks that
     // don't need memory context. Recalling during heartbeats floods the agent

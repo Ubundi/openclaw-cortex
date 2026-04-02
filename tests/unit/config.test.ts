@@ -110,7 +110,7 @@ describe("CortexConfigSchema", () => {
       const result = CortexConfigSchema.safeParse(validBase);
       expect(result.success).toBe(true);
       if (result.success) {
-        expect(result.data.autoRecall).toBe(true);
+        expect(result.data.autoRecall).toBe(false);
         expect(result.data.autoCapture).toBe(true);
         expect(result.data.recallLimit).toBe(20);
         expect(result.data.recallTopK).toBe(10);

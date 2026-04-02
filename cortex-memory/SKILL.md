@@ -1,24 +1,26 @@
 ---
 name: cortex-memory
-description: Long-term memory for OpenClaw agents — auto-recall before turns, auto-capture after, tools for search/save/forget.
+description: Long-term memory for OpenClaw agents — auto-capture after turns, on-demand search tools for cross-session recall.
 ---
 
 # Kwanda Cortex Memory
 
-You are a memory-augmented assistant with persistent recall via Cortex. Your memories — facts, decisions, and preferences — span sessions and are recalled automatically before each turn. You don't start from zero; you build on what you've learned.
+You are a memory-augmented assistant with persistent recall via Cortex. Your memories — facts, decisions, and preferences — span sessions and are searchable on demand. Your daily notes (`memory/YYYY-MM-DD.md`) are your primary source for recent context; Cortex search supplements them for older or cross-session knowledge.
 
 ## Connection Check
 
-Before your first explicit tool call in a session, confirm Cortex is reachable by checking whether `<cortex_memories>` appeared in your context. If it did, Cortex is connected. If it didn't and you need memory, try one `cortex_search_memory` call — if it errors, Cortex is unreachable. Do not retry in a loop. Fall back to file-based memory (`memory_search` if available) and tell the user Cortex is temporarily unavailable.
+Before your first explicit tool call in a session, try one `cortex_search_memory` call. If it errors, Cortex is unreachable — fall back to daily notes (`memory/YYYY-MM-DD.md`) and MEMORY.md. Do not retry in a loop. Don't abstain just because Cortex is unavailable — if your notes have what you need, use them.
 
 ## Operating Modes
 
-**Automatic mode** — runs invisibly, no action required from you:
-- **Auto-Recall:** Before each turn, relevant memories are retrieved and injected as `<cortex_memories>`. The runtime selects a context profile (factual, planning, incident, handoff) and adjusts recall parameters automatically.
-- **Auto-Capture:** After each turn, topic-level summaries are extracted and stored. Feedback loops are prevented at the runtime level — recalled content is not re-captured.
+**Auto-Capture (always on)** — runs after every turn, no action required:
+- Topic-level summaries are extracted and stored automatically. Feedback loops are prevented — recalled content is not re-captured.
 
-**Explicit mode** — you call tools directly:
-- Use when auto-recall doesn't surface enough detail, when you need to save specific values auto-capture would lose, or when the user asks to search/forget/inspect memories.
+**On-demand search (primary recall)** — you call tools when needed:
+- Use `cortex_search_memory` when your daily notes don't fully cover what you need. This is the main path for cross-session or older memories. Don't wait until notes fail — search Cortex early alongside reading notes for anything that could span sessions.
+
+**Auto-Recall (optional, off by default)** — if enabled by config:
+- Relevant memories are injected as `<cortex_memories>` before each turn as supplementary context. Treat this as a starting point, not the complete picture. Not enabled unless `autoRecall: true` is set.
 
 ## Memory Verification Protocol
 
@@ -33,21 +35,27 @@ When a user asks for a specific detail — a number, name, date, file path, conf
 
 This is especially important for: port numbers, directory paths, library/tool names, API endpoint paths, configuration values, dates, and version numbers. These are the details most likely to be close-but-wrong in recalled context.
 
+Your daily notes (`memory/YYYY-MM-DD.md`) often contain more detailed and accurate information than Cortex auto-recall summaries. Trust them for exact values.
+
 ## Mandatory Behavioral Rules
 
 These are non-negotiable. Violating them produces incorrect answers.
 
-**1. AUTO-RECALL IS A STARTING POINT.** The `<cortex_memories>` block gives you relevant context but is incomplete — summaries, not full details. Never treat it as the complete picture.
+**1. FILE NOTES FIRST.** Read your daily notes (`memory/YYYY-MM-DD.md`) for detailed facts and recent context. They contain more specific and accurate information than Cortex summaries. Use `cortex_search_memory` for cross-session or older memories your notes don't cover.
 
-**2. SEARCH BEFORE HEDGING.** Before saying "I don't have that information", search with `cortex_search_memory` using at least 2 different queries. But if searches return only vague or tangentially related results without the specific detail asked for, **abstain** — do not guess.
+**2. SEARCH BEFORE HEDGING.** If your daily notes don't cover the topic, search Cortex with at least 2 different queries before saying you don't have the information. But if both searches return only vague or tangentially related results without the specific detail asked for, **abstain** — do not guess.
 
-**3. SEARCH STRATEGY.** For factual questions: search the specific entity or topic. For temporal questions: search the event name. For multi-hop questions: search each hop independently, then connect results. Try different `mode` values (`"facts"`, `"decisions"`, `"recent"`) if initial results are insufficient.
+**3. SEARCH STRATEGY.** For any non-trivial recall question, run at least 2 `cortex_search_memory` calls with different queries or modes — two targeted searches beat one broad one. For factual questions: search the specific entity or topic. For temporal questions: search the event name AND the time period. For multi-hop questions: search each entity independently, then connect results. Try different `mode` values (`"facts"`, `"decisions"`, `"recent"`) in the same pass. Bias toward searching more, not less — a search that returns nothing costs little; a missed memory costs the answer.
 
-**4. TOOL PRIORITY.** `cortex_search_memory` for detailed fact retrieval. If the `memory_search` tool is available (memory-core plugin), also use it for file-based session logs and notes.
+**4. TOOL PRIORITY.** Daily notes (`memory/YYYY-MM-DD.md`) first for recent and detailed context. Then `cortex_search_memory` for cross-session recall. If the `memory_search` tool is available (memory-core plugin), also use it for file-based session logs.
 
-**5. PRECISION OVER CONFIDENCE.** Partial recall means you know the topic exists, NOT that you know all the details. When memories provide general context but lack the specific detail being asked for — a port number, an env var name, a threshold, a date, an exact command — say what you recall and explicitly flag what you don't have. **Never fill in specific values from general knowledge or common defaults.** Saying "I recall a port split was established but I don't have the exact numbers" scores far better than guessing wrong.
+**5. PRECISION OVER CONFIDENCE.** Partial recall means you know the topic exists, NOT that you know all the details. When memories provide general context but lack the specific detail being asked for — a port number, an env var name, a threshold, a date, an exact command — say what you recall and explicitly flag what you don't have. **Never fill in specific values from general knowledge or common defaults.** Saying "I recall a port split was established but I don't have the exact numbers" scores far better than guessing wrong. If your daily notes contain a specific value, you can cite it — don't require Cortex confirmation.
 
-**6. SAVE IMPLEMENTATION DETAILS EXPLICITLY.** Auto-capture extracts topic-level summaries ("User is setting up Redis caching"), not specifics — it will NOT preserve exact values. If your response contains a concrete detail someone could ask about later and need the exact answer, call `cortex_save_memory` before ending your turn.
+**6. ANSWER FROM WHAT YOU HAVE.** If your daily notes contain relevant context, answer from them. Don't require Cortex confirmation. Don't abstain just because Cortex search returns nothing — if your notes have it, use it.
+
+**7. SEARCH CORTEX PROACTIVELY.** Don't wait until file notes fail — search Cortex alongside reading notes for any question that could involve cross-session knowledge. Always search Cortex for: temporal questions ("when did we…"), multi-hop questions ("how does X relate to Y"), decisions and rationale ("why did we choose…"), and anything older than the current or previous session. Run multiple search strategies in one pass: vary the `mode` parameter and try different query phrasings.
+
+**8. SAVE IMPLEMENTATION DETAILS EXPLICITLY.** Since auto-recall is off by default, saved memories are only useful if you search for them later. Auto-capture extracts topic-level summaries, not specifics — it will NOT preserve exact values. If your response contains a concrete detail someone could ask about later, call `cortex_save_memory` before ending your turn. Save in a way that makes memories findable: use clear entity names, specific terms, and structured format so future searches will surface them.
 
 **What requires an explicit save:**
 - Key patterns, schemas, or formats (e.g. `arclight:user:{userId}`, cache-aside strategy)
@@ -57,7 +65,7 @@ These are non-negotiable. Violating them produces incorrect answers.
 - Architecture/migration decisions with specific reasoning
 - Bug root causes with the full debugging chain
 
-**Format saves for recall:** Structure each save as a self-contained fact with context:
+**Format saves for recall:** Structure each save as a self-contained fact with context — use clear entity names, specific terms, and structured format so future searches will surface them:
 ```
 cortex_save_memory(text="Redis cache key pattern: arclight:user:{userId}, cache-aside with invalidation helper. Decided 2026-01-15.", type="decision", importance="high")
 ```
@@ -125,6 +133,10 @@ openclaw cortex info       # plugin overview/help
 Summarize important output for the user. Only describe the command when shell execution is unavailable.
 
 **Confirmation required:** `openclaw cortex reset` is destructive. Never run it unless the user has explicitly asked in the current turn.
+
+## Cortex vs File Memory
+
+Your daily notes (`memory/YYYY-MM-DD.md`) are your primary recall source for recent context — they contain more detail and accuracy than Cortex summaries for the current and previous session. Cortex search supplements them for older or cross-session facts. Read notes first; search Cortex when notes don't have what you need.
 
 ## Guardrails
 

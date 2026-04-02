@@ -1,4 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
+import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 import { createRecallHandler, deriveEffectiveTimeout, mapRetrieveToRecallMemories } from "../../src/features/recall/handler.js";
 import type { CortexClient } from "../../src/cortex/client.js";
 import type { CortexConfig } from "../../src/plugin/config.js";
@@ -195,6 +198,150 @@ describe("createRecallHandler", () => {
 
     expect(result).toBeUndefined();
     expect(client.retrieve).not.toHaveBeenCalled();
+  });
+
+  it("skips auto-recall when today's daily note exists", async () => {
+    const workspaceDir = await mkdtemp(join(tmpdir(), "cortex-memory-notes-"));
+    await mkdir(join(workspaceDir, "memory"));
+    const today = new Date().toISOString().slice(0, 10);
+    await writeFile(join(workspaceDir, "memory", `${today}.md`), "# Notes\n");
+
+    try {
+      const client = {
+        retrieve: vi.fn().mockResolvedValue({
+          results: [{ node_id: "1", type: "FACT", content: "remembered", score: 0.9, confidence: 0.9 }],
+        }),
+      } as unknown as CortexClient;
+
+      const handler = createRecallHandler(
+        client,
+        makeConfig(),
+        logger,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        () => workspaceDir,
+      );
+
+      const result = await handler({ prompt: "some longer query" }, {});
+
+      expect(result).toBeUndefined();
+      expect(client.retrieve).not.toHaveBeenCalled();
+    } finally {
+      await rm(workspaceDir, { recursive: true, force: true });
+    }
+  });
+
+  it("allows auto-recall when only old daily notes exist", async () => {
+    const workspaceDir = await mkdtemp(join(tmpdir(), "cortex-old-notes-"));
+    await mkdir(join(workspaceDir, "memory"));
+    await writeFile(join(workspaceDir, "memory", "2025-01-15.md"), "# Old notes\n");
+
+    try {
+      const client = {
+        retrieve: vi.fn().mockResolvedValue({
+          results: [{ node_id: "1", type: "FACT", content: "remembered", score: 0.9, confidence: 0.9 }],
+        }),
+      } as unknown as CortexClient;
+
+      const handler = createRecallHandler(
+        client,
+        makeConfig(),
+        logger,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        () => workspaceDir,
+      );
+
+      const result = await handler({ prompt: "some longer query" }, {});
+
+      expect(result?.prependContext).toContain("remembered");
+      expect(client.retrieve).toHaveBeenCalledOnce();
+    } finally {
+      await rm(workspaceDir, { recursive: true, force: true });
+    }
+  });
+
+  it("allows auto-recall when memory/ only has topic summaries, not daily notes", async () => {
+    const workspaceDir = await mkdtemp(join(tmpdir(), "cortex-topic-notes-"));
+    await mkdir(join(workspaceDir, "memory"));
+    const today = new Date().toISOString().slice(0, 10);
+    await writeFile(join(workspaceDir, "memory", `${today}-drizzle-neon.md`), "# Topic summary\n");
+
+    try {
+      const client = {
+        retrieve: vi.fn().mockResolvedValue({
+          results: [{ node_id: "1", type: "FACT", content: "remembered", score: 0.9, confidence: 0.9 }],
+        }),
+      } as unknown as CortexClient;
+
+      const handler = createRecallHandler(
+        client,
+        makeConfig(),
+        logger,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        () => workspaceDir,
+      );
+
+      const result = await handler({ prompt: "some longer query" }, {});
+
+      expect(result?.prependContext).toContain("remembered");
+      expect(client.retrieve).toHaveBeenCalledOnce();
+    } finally {
+      await rm(workspaceDir, { recursive: true, force: true });
+    }
+  });
+
+  it("allows auto-recall on cold start when workspace has no memory dir", async () => {
+    const workspaceDir = await mkdtemp(join(tmpdir(), "cortex-empty-workspace-"));
+
+    try {
+      const client = {
+        retrieve: vi.fn().mockResolvedValue({
+          results: [{ node_id: "1", type: "FACT", content: "remembered", score: 0.9, confidence: 0.9 }],
+        }),
+      } as unknown as CortexClient;
+
+      const handler = createRecallHandler(
+        client,
+        makeConfig(),
+        logger,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        () => workspaceDir,
+      );
+
+      const result = await handler({ prompt: "some longer query" }, {});
+
+      expect(result?.prependContext).toContain("remembered");
+      expect(client.retrieve).toHaveBeenCalledOnce();
+    } finally {
+      await rm(workspaceDir, { recursive: true, force: true });
+    }
   });
 
   it("returns undefined for short prompts", async () => {

@@ -10,7 +10,7 @@
 
 ![Features](assets/readme_assets/Feature%20Cards.png)
 
-- **Auto-Recall** — injects relevant memories before every agent turn via `before_agent_start` hook
+- **Auto-Recall** — optional cold-start memory injection before the agent reads workspace notes
 - **Auto-Capture** — extracts facts from conversations via `agent_end` hook
 - **Session Goals** — agent sets the session objective via `cortex_set_session_goal`, biasing recall toward goal-relevant memories and tagging captured facts
 - **Agent Tools** — `cortex_search_memory`, `cortex_save_memory`, `cortex_set_session_goal`, and more — tools the LLM can invoke directly
@@ -75,7 +75,7 @@ openclaw plugins install -l ./path/to/openclaw-cortex
 
    On first run the plugin generates a unique ID for this installation, persists it at `~/.openclaw/cortex-user-id`, and scopes all memories to that ID.
 
-4. Run an agent turn. If configured correctly, recall data is prepended in a `<cortex_memories>` block before the model turn.
+4. Run an agent turn. If `autoRecall` is enabled and the workspace has no daily notes yet, recall data is prepended in a `<cortex_memories>` block before the model turn.
 
 ## Configuration
 
@@ -89,7 +89,7 @@ Add to your `openclaw.json`:
         enabled: true,
         config: {
           apiKey: "your-cortex-api-key",  // required — or set CORTEX_API_KEY env var
-          autoRecall: true,
+          autoRecall: false,
           autoCapture: true,
           recallLimit: 20,
           recallTimeoutMs: 60000,
@@ -111,7 +111,7 @@ Add to your `openclaw.json`:
 | ------------------------ | ------- | ------------ | ------------------------------------------------------------------------------------------------ |
 | `apiKey`                 | string  | —            | **Required.** Your Cortex API key. Can also be set via the `CORTEX_API_KEY` environment variable. |
 | `userId`                 | string  | _auto_       | Memory scope ID. Auto-generated per install and persisted at `~/.openclaw/cortex-user-id`. Override to share memory across machines or team members. |
-| `autoRecall`             | boolean | `true`       | Inject relevant memories before each agent turn                                                  |
+| `autoRecall`             | boolean | `false`      | Inject relevant memories on cold start when workspace daily notes are unavailable                |
 | `autoCapture`            | boolean | `true`       | Extract and store facts after each agent turn                                                    |
 | `recallLimit`            | number  | `20`         | Max number of memories returned per recall                                                       |
 | `recallTopK`             | number  | `10`         | Max memories returned after scoring (applied after `recallLimit`)                                |
@@ -132,6 +132,8 @@ Add to your `openclaw.json`:
 ## How It Works
 
 ![Architecture](assets/readme_assets/Arch%20Diagram.png)
+
+For a deeper engineer/agent reference, see `OPENCLAW_LEARNINGS_REFERENCE.md`.
 
 ## Source Layout
 
@@ -176,7 +178,7 @@ For npm consumers, import from the package root (`@ubundi/openclaw-cortex`). Int
 
 ### Auto-Recall
 
-Before every agent turn, the plugin queries Cortex's `/v1/recall` endpoint and prepends results to the agent's context:
+When `autoRecall` is enabled and the workspace has no `memory/` notes yet, the plugin queries Cortex and prepends results to the agent's context:
 
 ```xml
 <cortex_memories>
@@ -274,7 +276,7 @@ The `cortex.status` RPC method exposes plugin health and metrics programmaticall
   "knowledgeState": { "hasMemories": true, "totalSessions": 42, "maturity": "mature", "tier": 3 },
   "recallMetrics": { "count": 120, "p50": 95, "p95": 280, "p99": 450 },
   "retryQueuePending": 0,
-  "config": { "autoRecall": true, "autoCapture": true, "namespace": "myproject-a1b2c3d4" }
+  "config": { "autoRecall": false, "autoCapture": true, "namespace": "myproject-a1b2c3d4" }
 }
 ```
 
@@ -298,7 +300,7 @@ This plugin sends data to the Cortex API to provide memory functionality. Here's
 | Data | When | How to disable |
 |------|------|----------------|
 | Conversation messages (user + assistant) | After each agent turn | `autoCapture: false` |
-| Your current prompt | Before each agent turn | `autoRecall: false` |
+| Your current prompt | On cold-start turns when auto-recall runs | `autoRecall: false` |
 | Session goal (if set) | With recall and capture requests | `sessionGoal: false` |
 
 Additionally, a randomly generated installation ID (`userId`) and a workspace namespace hash are sent with every request to scope your data. No personally identifiable information is collected.
