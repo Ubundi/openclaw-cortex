@@ -129,6 +129,11 @@
           "generalist"
         ],
         "description": "Agent specialization that tunes capture categories, capture instructions, and recall context for the role."
+      },
+      "configVersion": {
+        "type": "number",
+        "description": "Internal config migration version marker. Do not set manually.",
+        "default": 1
       }
     }
   },
@@ -228,6 +233,11 @@
     "agentRole": {
       "label": "Agent Role",
       "helpText": "Tunes memory capture and recall for a specific focus area. Leave unset for general-purpose behavior."
+    },
+    "configVersion": {
+      "label": "Config Version",
+      "advanced": true,
+      "helpText": "Internal migration marker. Do not change manually."
     }
   }
 }

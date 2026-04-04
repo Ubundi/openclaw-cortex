@@ -257,6 +257,83 @@ const CORTEX_TOOL_NAMES = [
   "cortex_set_session_goal",
 ] as const;
 
+/**
+ * Current config version. Bump this and add a migration case below
+ * whenever a persisted default needs to change for existing installs.
+ */
+const CURRENT_CONFIG_VERSION = 2;
+
+/**
+ * One-time config migrations for defaults that changed between releases.
+ * Each migration only runs when configVersion < its target version.
+ * Returns the (possibly mutated) config and whether any migration fired.
+ */
+function migrateConfig(
+  config: Record<string, unknown>,
+  logger: Logger,
+): { config: Record<string, unknown>; changed: boolean } {
+  let ver = typeof config.configVersion === "number" ? config.configVersion : 1;
+  let changed = false;
+
+  // Migration 1 → 2 (v2.12 → v2.13): autoRecall default changed true → false.
+  // Only flip if the field is explicitly true (skip if already false or absent).
+  if (ver < 2) {
+    if (config.autoRecall === true) {
+      config.autoRecall = false;
+      logger.info(
+        "Cortex config migration: autoRecall changed from true → false (v2.13 default change). " +
+        "Set autoRecall: true in your plugin config to re-enable.",
+      );
+      changed = true;
+    }
+    ver = 2;
+  }
+
+  // Always persist the version marker so future opt-ins aren't misclassified
+  // as legacy configs. The disk write only fires when `changed` is true, but
+  // the in-memory version must advance unconditionally.
+  if (ver !== config.configVersion) {
+    config.configVersion = ver;
+    changed = true;
+  }
+
+  return { config, changed };
+}
+
+/**
+ * Persists migrated config back into openclaw.json at the plugin's config path.
+ * Mirrors the write pattern used by ensurePluginsAllowlist / ensureToolsAllowlist.
+ */
+function persistMigratedConfig(
+  migratedConfig: Record<string, unknown>,
+  logger: Logger,
+): void {
+  try {
+    const configPath = join(homedir(), ".openclaw", "openclaw.json");
+    const raw = readFileSync(configPath, "utf-8");
+    const file = JSON.parse(raw);
+
+    // Locate the plugin entry — OpenClaw stores it at plugins.entries.<id>.config
+    const entry = file?.plugins?.entries?.[PLUGIN_ID];
+    if (!entry || typeof entry !== "object") {
+      logger.debug?.("Cortex config migration: plugin entry not found in openclaw.json, skipping persist");
+      return;
+    }
+
+    entry.config = { ...entry.config, ...migratedConfig };
+
+    let mode: number | undefined;
+    try { mode = statSync(configPath).mode & 0o777; } catch { /* ignore */ }
+    writeFileSync(configPath, JSON.stringify(file, null, 2) + "\n", {
+      encoding: "utf-8",
+      mode: mode ?? 0o600,
+    });
+    logger.debug?.("Cortex config migration: persisted to openclaw.json");
+  } catch (err) {
+    logger.debug?.(`Cortex config migration: could not persist — ${String(err)}`);
+  }
+}
+
 const PLUGIN_ID = "openclaw-cortex";
 
 /**
@@ -350,7 +427,17 @@ const plugin = {
       return;
     }
 
-    const config: CortexConfig = parsed.data;
+    // Run config migrations before using parsed values. This mutates the raw
+    // config object (which mirrors what's persisted in openclaw.json) and writes
+    // back if anything changed. We then re-parse so `config` reflects migrations.
+    const rawCopy = { ...(raw as Record<string, unknown>) };
+    const migration = migrateConfig(rawCopy, api.logger);
+    if (migration.changed) {
+      persistMigratedConfig(migration.config, api.logger);
+    }
+    // Re-parse with migrated values so runtime config is consistent
+    const finalParsed = CortexConfigSchema.safeParse(migration.config);
+    const config: CortexConfig = finalParsed.success ? finalParsed.data : parsed.data;
 
     // Resolve API key: plugin config → CORTEX_API_KEY env var → baked build key.
     // The baked key is a placeholder ("__OPENCLAW_API_KEY__") in source and may

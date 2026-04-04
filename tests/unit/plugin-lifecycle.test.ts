@@ -669,6 +669,7 @@ describe("plugin lifecycle contract", () => {
 
     const { api, hooks, services, logger } = makeApi({
       autoRecall: true,
+      configVersion: 2,
       recallTimeoutMs: 500,
       userId: "user-1",
     });
@@ -832,6 +833,90 @@ describe("plugin lifecycle contract", () => {
     expect(process.exitCode).toBe(1);
   });
 
+  describe("config migration", () => {
+    it("flips autoRecall true → false and persists configVersion for legacy configs", async () => {
+      const fileConfig = {
+        plugins: { allow: ["openclaw-cortex"], entries: { "openclaw-cortex": { enabled: true, config: { autoRecall: true } } } },
+      };
+      mockReadFileSync.mockReturnValue(JSON.stringify(fileConfig));
+
+      const { api, logger } = makeApi({ autoRecall: true });
+      plugin.register(api as any);
+
+      // Should log the migration message
+      expect(logger.info).toHaveBeenCalledWith(
+        expect.stringContaining("autoRecall changed from true → false"),
+      );
+
+      // Should persist updated config to openclaw.json
+      const configWrites = mockWriteFileSync.mock.calls.filter(
+        (c) => String(c[0]).includes("openclaw.json"),
+      );
+      expect(configWrites.length).toBeGreaterThanOrEqual(1);
+      const written = JSON.parse(configWrites[0][1] as string);
+      expect(written.plugins.entries["openclaw-cortex"].config.autoRecall).toBe(false);
+      expect(written.plugins.entries["openclaw-cortex"].config.configVersion).toBe(2);
+    });
+
+    it("preserves autoRecall true when configVersion is already current", async () => {
+      const fileConfig = {
+        plugins: { allow: ["openclaw-cortex"], entries: { "openclaw-cortex": { enabled: true, config: { autoRecall: true, configVersion: 2 } } } },
+      };
+      mockReadFileSync.mockReturnValue(JSON.stringify(fileConfig));
+
+      const { api, hooks, logger } = makeApi({ autoRecall: true, configVersion: 2 });
+      plugin.register(api as any);
+
+      // Should NOT log migration message
+      expect(logger.info).not.toHaveBeenCalledWith(
+        expect.stringContaining("autoRecall changed from true → false"),
+      );
+
+      // autoRecall should still be true in the before_agent_start hook behavior
+      // (the hook exists, meaning config was accepted with autoRecall: true)
+      expect(hooks.before_agent_start).toHaveLength(1);
+    });
+
+    it("advances configVersion for fresh installs without triggering autoRecall flip", async () => {
+      const fileConfig = {
+        plugins: { allow: ["openclaw-cortex"], entries: { "openclaw-cortex": { enabled: true, config: {} } } },
+      };
+      mockReadFileSync.mockReturnValue(JSON.stringify(fileConfig));
+
+      const { api, logger } = makeApi({});
+      plugin.register(api as any);
+
+      // Should NOT log autoRecall migration (it was already false/absent)
+      expect(logger.info).not.toHaveBeenCalledWith(
+        expect.stringContaining("autoRecall changed from true → false"),
+      );
+
+      // Should still persist the configVersion bump so future opt-ins are safe
+      const configWrites = mockWriteFileSync.mock.calls.filter(
+        (c) => String(c[0]).includes("openclaw.json"),
+      );
+      expect(configWrites.length).toBeGreaterThanOrEqual(1);
+      const written = JSON.parse(configWrites[0][1] as string);
+      expect(written.plugins.entries["openclaw-cortex"].config.configVersion).toBe(2);
+    });
+
+    it("is idempotent — second run with configVersion 2 does not write", async () => {
+      const fileConfig = {
+        plugins: { allow: ["openclaw-cortex"], entries: { "openclaw-cortex": { enabled: true, config: { configVersion: 2 } } } },
+      };
+      mockReadFileSync.mockReturnValue(JSON.stringify(fileConfig));
+
+      const { api } = makeApi({ configVersion: 2 });
+      plugin.register(api as any);
+
+      // No openclaw.json writes (plugins.allow already present, no tools profile, migration already done)
+      const configWrites = mockWriteFileSync.mock.calls.filter(
+        (c) => String(c[0]).includes("openclaw.json"),
+      );
+      expect(configWrites).toHaveLength(0);
+    });
+  });
+
   describe("tools.alsoAllow auto-patch", () => {
     it("adds cortex tools to alsoAllow when profile is set and tools are missing", async () => {
       const config = {
@@ -865,11 +950,11 @@ describe("plugin lifecycle contract", () => {
     it("skips tools patching when no tools profile is set", async () => {
       const config = {
         tools: {},
-        plugins: { allow: ["openclaw-cortex"], entries: { "openclaw-cortex": { enabled: true } } },
+        plugins: { allow: ["openclaw-cortex"], entries: { "openclaw-cortex": { enabled: true, config: { configVersion: 2 } } } },
       };
       mockReadFileSync.mockReturnValue(JSON.stringify(config));
 
-      const { api } = makeApi({});
+      const { api } = makeApi({ configVersion: 2 });
       plugin.register(api as any);
 
       const configWrites = mockWriteFileSync.mock.calls.filter(

@@ -57,6 +57,13 @@ export const CortexConfigSchema = z.object({
    * Leave unset in production; the plugin will use the real current time.
    */
   recallReferenceDate: z.string().min(1).optional(),
+  /**
+   * Internal version marker for config migrations. When the plugin changes
+   * defaults that are already persisted in openclaw.json, a numbered migration
+   * bumps the affected fields. Zod defaults this to 1 so configs written
+   * before the migration system existed are detected as needing migration.
+   */
+  configVersion: z.number().int().min(1).default(1),
 });
 
 export type CortexConfig = z.infer<typeof CortexConfigSchema>;
