@@ -41,21 +41,17 @@ Your daily notes (`memory/YYYY-MM-DD.md`) often contain more detailed and accura
 
 These are non-negotiable. Violating them produces incorrect answers.
 
-**1. FILE NOTES FIRST.** Read your daily notes (`memory/YYYY-MM-DD.md`) for detailed facts and recent context. They contain more specific and accurate information than Cortex summaries. Use `cortex_search_memory` for cross-session or older memories your notes don't cover.
+**1. FILE NOTES FIRST.** Read your daily notes (`memory/YYYY-MM-DD.md`) for detailed facts and recent context. They contain more specific and accurate information than Cortex summaries. Use `cortex_search_memory` for cross-session or older memories your notes don't cover. If your notes contain context about the topic — even partial — answer from them.
 
-**2. SEARCH BEFORE HEDGING.** If your daily notes don't cover the topic, search Cortex with at least 2 different queries before saying you don't have the information. But if both searches return only vague or tangentially related results without the specific detail asked for, **abstain** — do not guess.
+**2. ALWAYS ANSWER FROM AVAILABLE CONTEXT.** If you have relevant context from any source — daily notes, Cortex search, or memory_search — construct the best answer you can. Even partial recall ("From what I remember...") is far more valuable than "I don't have that." Only say you don't have information when you genuinely have zero context from any source.
 
-**3. SEARCH STRATEGY.** For any non-trivial recall question, run at least 2 `cortex_search_memory` calls with different queries or modes — two targeted searches beat one broad one. For factual questions: search the specific entity or topic. For temporal questions: search the event name AND the time period. For multi-hop questions: search each entity independently, then connect results. Try different `mode` values (`"facts"`, `"decisions"`, `"recent"`) in the same pass. Bias toward searching more, not less — a search that returns nothing costs little; a missed memory costs the answer.
+**3. SEARCH CORTEX PROACTIVELY.** Don't wait until file notes fail — search Cortex alongside reading notes for any question that could involve cross-session knowledge. Always search Cortex for: temporal questions ("when did we…"), multi-hop questions ("how does X relate to Y"), decisions and rationale ("why did we choose…"), and anything older than the current or previous session. For any non-trivial recall question, run at least 2 `cortex_search_memory` calls with different queries or modes — two targeted searches beat one broad one. For factual questions: search the specific entity or topic. For temporal questions: search the event name AND the time period. For multi-hop questions: search each entity independently, then connect results. Try different `mode` values (`"facts"`, `"decisions"`, `"recent"`) in the same pass. Bias toward searching more, not less — a search that returns nothing costs little; a missed memory costs the answer.
 
 **4. TOOL PRIORITY.** Daily notes (`memory/YYYY-MM-DD.md`) first for recent and detailed context. Then `cortex_search_memory` for cross-session recall. If the `memory_search` tool is available (memory-core plugin), also use it for file-based session logs.
 
-**5. PRECISION OVER CONFIDENCE.** Partial recall means you know the topic exists, NOT that you know all the details. When memories provide general context but lack the specific detail being asked for — a port number, an env var name, a threshold, a date, an exact command — say what you recall and explicitly flag what you don't have. **Never fill in specific values from general knowledge or common defaults.** Saying "I recall a port split was established but I don't have the exact numbers" scores far better than guessing wrong. If your daily notes contain a specific value, you can cite it — don't require Cortex confirmation.
+**5. PRECISION FOR SPECIFIC VALUES.** Never fill in specific values (port numbers, env var names, thresholds, dates, exact commands) from general knowledge or common defaults — say what you know and flag the specific gap. But for decisions, patterns, architecture, and rationale, answer from whatever context you have. If your daily notes contain a specific value, cite it directly — don't require Cortex confirmation.
 
-**6. ANSWER FROM WHAT YOU HAVE.** If your daily notes contain relevant context, answer from them. Don't require Cortex confirmation. Don't abstain just because Cortex search returns nothing — if your notes have it, use it.
-
-**7. SEARCH CORTEX PROACTIVELY.** Don't wait until file notes fail — search Cortex alongside reading notes for any question that could involve cross-session knowledge. Always search Cortex for: temporal questions ("when did we…"), multi-hop questions ("how does X relate to Y"), decisions and rationale ("why did we choose…"), and anything older than the current or previous session. Run multiple search strategies in one pass: vary the `mode` parameter and try different query phrasings.
-
-**8. SAVE IMPLEMENTATION DETAILS EXPLICITLY.** Since auto-recall is off by default, saved memories are only useful if you search for them later. Auto-capture extracts topic-level summaries, not specifics — it will NOT preserve exact values. If your response contains a concrete detail someone could ask about later, call `cortex_save_memory` before ending your turn. Save in a way that makes memories findable: use clear entity names, specific terms, and structured format so future searches will surface them.
+**6. SAVE IMPLEMENTATION DETAILS EXPLICITLY.** Since auto-recall is off by default, saved memories are only useful if you search for them later. Auto-capture extracts topic-level summaries, not specifics — it will NOT preserve exact values. If your response contains a concrete detail someone could ask about later, call `cortex_save_memory` before ending your turn. Save in a way that makes memories findable: use clear entity names, specific terms, and structured format so future searches will surface them.
 
 **What requires an explicit save:**
 - Key patterns, schemas, or formats (e.g. `arclight:user:{userId}`, cache-aside strategy)
@@ -151,8 +147,8 @@ Your daily notes (`memory/YYYY-MM-DD.md`) are your primary recall source for rec
 - Assume repeated recall = truth — hallucinations can get re-captured
 
 **Always do:**
-- Search before hedging (at least 2 different queries)
-- Treat auto-recall as a starting point, not exhaustive
+- Search Cortex before saying you don't have information (at least 2 different queries)
+- Answer from whatever context you have — partial recall beats abstention
 - Verify recalled volatile state (versions, ports) against live workspace when available
 - Report both memory and live state with timing when they conflict
 - Distinguish between what you specifically recall and what you're inferring — only state specifics directly in the recalled content
