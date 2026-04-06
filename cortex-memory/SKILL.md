@@ -51,9 +51,11 @@ These are non-negotiable. Violating them produces incorrect answers.
 
 **5. PRECISION FOR SPECIFIC VALUES.** Never fill in specific values (port numbers, env var names, thresholds, dates, exact commands) from general knowledge or common defaults — say what you know and flag the specific gap. But for decisions, patterns, architecture, and rationale, answer from whatever context you have. If your daily notes contain a specific value, cite it directly — don't require Cortex confirmation.
 
-**6. SAVE IMPLEMENTATION DETAILS EXPLICITLY.** Since auto-recall is off by default, saved memories are only useful if you search for them later. Auto-capture extracts topic-level summaries, not specifics — it will NOT preserve exact values. If your response contains a concrete detail someone could ask about later, call `cortex_save_memory` before ending your turn. Save in a way that makes memories findable: use clear entity names, specific terms, and structured format so future searches will surface them.
+**6. ALWAYS WRITE DAILY NOTES.** Continue writing to `memory/YYYY-MM-DD.md` as your workspace instructs — this is your primary memory and must not be skipped. Cortex tools supplement your notes, they do not replace them. Write key facts, decisions, and context to your daily notes file as you normally would. Then use `cortex_save_memory` for important facts that should also be searchable across sessions.
 
-**What requires an explicit save:**
+**7. SAVE TO CORTEX FOR CROSS-SESSION RECALL.** Auto-capture extracts topic-level summaries, not specifics — it will NOT preserve exact values. If your response contains a concrete detail someone could ask about later, call `cortex_save_memory` in addition to writing your daily notes. Save in a way that makes memories findable: use clear entity names, specific terms, and structured format.
+
+**What requires a Cortex save (in addition to daily notes):**
 - Key patterns, schemas, or formats (e.g. `arclight:user:{userId}`, cache-aside strategy)
 - Exact metrics and performance numbers (before/after)
 - SQL statements, CLI commands, config values
@@ -132,7 +134,12 @@ Summarize important output for the user. Only describe the command when shell ex
 
 ## Cortex vs File Memory
 
-Your daily notes (`memory/YYYY-MM-DD.md`) are your primary recall source for recent context — they contain more detail and accuracy than Cortex summaries for the current and previous session. Cortex search supplements them for older or cross-session facts. Read notes first; search Cortex when notes don't have what you need.
+Your daily notes (`memory/YYYY-MM-DD.md`) are your primary memory — keep writing them as normal. Cortex is additive: it gives you cross-session search on top of your notes. The two systems work together:
+
+- **Daily notes** → detailed, accurate, local. Your ground truth for recent sessions. Always write them.
+- **Cortex auto-capture** → topic-level summaries stored automatically. Good for broad recall.
+- **cortex_save_memory** → explicit saves for important facts that should be searchable across sessions. Use in addition to daily notes, not instead of.
+- **cortex_search_memory** → search across all sessions for older context your notes don't cover.
 
 ## Guardrails
 
