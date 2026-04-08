@@ -11,7 +11,6 @@ import { createBridgeHandler, buildBridgeFollowUpPrompt } from "../features/brid
 import { RetryQueue } from "../internal/retry-queue.js";
 import { LatencyMetrics } from "../internal/latency-metrics.js";
 import { loadOrCreateUserId } from "../internal/user-id.js";
-import { BAKED_API_KEY } from "../internal/api-key.js";
 import { AuditLogger } from "../internal/audit-logger.js";
 import { RecentSaves } from "../internal/dedupe.js";
 import { RecallEchoStore } from "../internal/recall-echo-store.js";
@@ -174,7 +173,37 @@ async function checkForUpdate(logger: Logger): Promise<void> {
   }
 }
 
-async function bootstrapClient(
+/**
+ * Resolves the scoped user_id from the API key via whoami.
+ * Returns the scoped user_id when the key is user-scoped, undefined otherwise.
+ * Fatal auth errors (mis-scoped key) are re-thrown so callers can halt bootstrap.
+ */
+async function resolveScopedIdentity(
+  client: CortexClient,
+  logger: Logger,
+): Promise<string | undefined> {
+  try {
+    const whoami = await client.whoami();
+    const perms = whoami.permissions?.join(", ") ?? "none";
+    logger.info(`[Cortex] Authenticated as user: ${whoami.user_id ?? "unscoped"} (permissions: ${perms})`);
+    return whoami.user_id ?? undefined;
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.includes("API key is scoped to a different user") || msg.includes("Key lacks")) {
+      logger.warn(`[Cortex] ${msg}`);
+      throw err; // Fatal — caller should abort bootstrap
+    }
+    // Other errors (network, old backend without whoami) are non-fatal
+    logger.debug?.(`Cortex whoami unavailable: ${msg}`);
+    return undefined;
+  }
+}
+
+/**
+ * Fetches knowledge state and pre-warms the ECS task.
+ * Must be called after identity resolution so userId is final.
+ */
+async function bootstrapKnowledge(
   client: CortexClient,
   logger: Logger,
   knowledgeState: KnowledgeState,
@@ -439,25 +468,13 @@ const plugin = {
     const finalParsed = CortexConfigSchema.safeParse(migration.config);
     const config: CortexConfig = finalParsed.success ? finalParsed.data : parsed.data;
 
-    // Resolve API key: plugin config → CORTEX_API_KEY env var → baked build key.
-    // The baked key is a placeholder ("__OPENCLAW_API_KEY__") in source and may
-    // be empty in published builds, so user-provided keys take priority.
-    const resolvedApiKey =
-      config.apiKey ||
-      process.env.CORTEX_API_KEY ||
-      (BAKED_API_KEY !== "__OPENCLAW_API_KEY__" && BAKED_API_KEY) ||
-      "";
+    // Resolve API key: plugin config → CORTEX_API_KEY env var.
+    const resolvedApiKey = config.apiKey || process.env.CORTEX_API_KEY || "";
 
     if (!resolvedApiKey) {
-      api.logger.warn(
-        "[Cortex] This plugin is currently in early testing and requires an API key to use.",
-      );
-      api.logger.warn(
-        '[Cortex] Set "apiKey" in your plugin config (openclaw.json) or export the CORTEX_API_KEY environment variable.',
-      );
-      api.logger.warn(
-        "[Cortex] To request access, reach out to the Ubundi team: https://ubundi.com",
-      );
+      api.logger.warn("[Cortex] No API key configured.");
+      api.logger.warn("[Cortex] Generate your personal key at: https://cortex.ubundi.com");
+      api.logger.warn('[Cortex] Then set "apiKey" in your plugin config (openclaw.json) or export CORTEX_API_KEY.');
       return;
     }
 
@@ -521,8 +538,9 @@ const plugin = {
     // userId: use explicit config value if provided, otherwise load/create a
     // stable UUID persisted at ~/.openclaw/cortex-user-id. Resolved eagerly so
     // commands and hooks work even if start() is never called (e.g. [plugins]
-    // instances in multi-process runtimes). The capture handler awaits
-    // userIdReady before firing — user_id is required by the API.
+    // instances in multi-process runtimes). All consumers (capture, tools, CLI,
+    // bridge) await identityReady, which chains through whoami to adopt scoped
+    // key user_id before any API calls are made.
     let userId: string | undefined = config.userId;
     const userIdReady: Promise<void> = userId
       ? Promise.resolve()
@@ -536,14 +554,32 @@ const plugin = {
             api.logger.warn("Cortex: could not persist user ID, using ephemeral ID for this session");
           });
 
-    // Health check + knowledge probe — runs after userId resolves so recall
-    // knows whether memories exist. Must happen in register() because some
-    // runtime instances never call start().
-    // Skip when running CLI commands (e.g. `openclaw cortex status`) — the
-    // async log races with command output and CLI commands fetch their own data.
+    // Identity resolution: load local ID, then check for scoped key override.
+    // Runs for ALL paths (CLI and non-CLI) so every consumer uses the correct ID.
+    let identityAborted = false;
+    const identityReady: Promise<void> = userIdReady.then(async () => {
+      try {
+        const scopedId = await resolveScopedIdentity(client, api.logger);
+        if (scopedId) {
+          userId = scopedId;
+          api.logger.debug?.(`Cortex: adopted scoped user ID from API key: ${userId}`);
+        }
+      } catch {
+        // Fatal auth error already logged by resolveScopedIdentity.
+        // userId remains the local install ID; scoped-key calls will 403.
+        identityAborted = true;
+      }
+    });
+
+    // Knowledge probe + warmup — only for interactive sessions (not CLI commands).
+    // CLI commands fetch their own data and the async log races with command output.
+    // Skipped when identity resolution hit a fatal auth error (mis-scoped key).
     const isCliInvocation = process.argv.some((a) => a === "cortex");
     if (!isCliInvocation) {
-      void userIdReady.then(() => bootstrapClient(client, api.logger, knowledgeState, userId!));
+      void identityReady.then(() => {
+        if (identityAborted) return;
+        return bootstrapKnowledge(client, api.logger, knowledgeState, userId!);
+      });
       void checkForUpdate(api.logger);
     }
 
@@ -591,13 +627,13 @@ const plugin = {
       logger: api.logger,
       retryQueue,
       getUserId: () => userId,
-      userIdReady,
+      userIdReady: identityReady,
       pluginSessionId: sessionId,
       auditLogger: auditLoggerProxy,
     });
 
     if (!isCliInvocation) {
-      void userIdReady.then(() => bridgeHandler.refreshLinkStatus(true));
+      void identityReady.then(() => bridgeHandler.refreshLinkStatus(true));
     }
 
     // Auto-Recall: inject relevant memories before every agent turn
@@ -674,7 +710,7 @@ const plugin = {
     // Auto-Capture: extract facts after agent responses
     const watermarkStore = new CaptureWatermarkStore();
     void watermarkStore.load().catch((err) => api.logger.debug?.(`Cortex watermark load failed: ${String(err)}`));
-    const captureHandler = createCaptureHandler(client, config, api.logger, retryQueue, knowledgeState, () => userId, userIdReady, sessionId, auditLoggerProxy, echoStore, watermarkStore, sessionGoalStore);
+    const captureHandler = createCaptureHandler(client, config, api.logger, retryQueue, knowledgeState, () => userId, identityReady, sessionId, auditLoggerProxy, echoStore, watermarkStore, sessionGoalStore);
     registerHookCompat(
       api,
       "agent_end",
@@ -757,7 +793,7 @@ const plugin = {
         logger: api.logger,
         getUserId: () => userId,
         getActiveSessionKey: () => currentSessionKey,
-        userIdReady,
+        userIdReady: identityReady,
         sessionId,
         sessionStats,
         persistStats,
@@ -785,7 +821,7 @@ const plugin = {
         config,
         logger: api.logger,
         getUserId: () => userId,
-        userIdReady,
+        userIdReady: identityReady,
         getLastMessages: () => lastMessages,
         sessionId,
         auditLoggerProxy,
@@ -834,7 +870,7 @@ const plugin = {
         config,
         version,
         getUserId: () => userId,
-        userIdReady,
+        userIdReady: identityReady,
         getNamespace: () => namespace,
         sessionStats,
         loadPersistedStats,

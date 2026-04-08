@@ -285,14 +285,69 @@ describe("CortexClient", () => {
     });
   });
 
+  describe("whoami", () => {
+    it("sends GET to /v1/keys/whoami", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          key_type: "scoped",
+          tenant_id: "tenant-1",
+          user_id: "user-123",
+          permissions: ["read", "write"],
+        }),
+      });
+
+      const result = await client.whoami();
+
+      expect(mockFetch).toHaveBeenCalledWith(
+        "https://api.example.com/v1/keys/whoami",
+        expect.objectContaining({ method: "GET" }),
+      );
+      expect(result.key_type).toBe("scoped");
+      expect(result.user_id).toBe("user-123");
+      expect(result.permissions).toEqual(["read", "write"]);
+    });
+
+    it("throws on non-ok response", async () => {
+      mockFetch.mockResolvedValueOnce({ ok: false, status: 401 });
+      await expect(client.whoami()).rejects.toThrow("Cortex keys/whoami failed: 401");
+    });
+  });
+
   describe("error status codes", () => {
     it("throws with status code for 401 Unauthorized", async () => {
       mockFetch.mockResolvedValueOnce({ ok: false, status: 401 });
       await expect(client.recall("q", 500)).rejects.toThrow("Cortex recall failed: 401");
     });
 
-    it("throws with status code for 403 Forbidden", async () => {
-      mockFetch.mockResolvedValueOnce({ ok: false, status: 403 });
+    it("throws user-facing error when 403 indicates scoped key bound to different user", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 403,
+        text: async () => "Scoped key is bound to a different user_id",
+      });
+      await expect(client.recall("q", 500)).rejects.toThrow(
+        "API key is scoped to a different user",
+      );
+    });
+
+    it("throws user-facing error when 403 indicates missing permission", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 403,
+        text: async () => "Key lacks 'write' permission",
+      });
+      await expect(client.remember("text", "s1", undefined, undefined, "user-1")).rejects.toThrow(
+        "Key lacks 'write' permission",
+      );
+    });
+
+    it("throws generic 403 when body does not match scoped-key patterns", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 403,
+        text: async () => "Forbidden",
+      });
       await expect(client.remember("text", "s1", undefined, undefined, "user-1")).rejects.toThrow("Cortex remember failed: 403");
     });
 

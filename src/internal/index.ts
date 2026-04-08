@@ -1,6 +1,5 @@
 export { AuditLogger, type AuditEntry } from "./audit-logger.js";
 export { CaptureWatermarkStore } from "./capture-watermark-store.js";
-export { BAKED_API_KEY } from "./api-key.js";
 export { cleanTranscript, cleanTranscriptChunk } from "./cleaner.js";
 export { RecentSaves } from "./dedupe.js";
 export { injectAgentInstructions } from "./agent-instructions.js";

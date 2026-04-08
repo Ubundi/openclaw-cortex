@@ -361,7 +361,26 @@ export class CortexClient {
         try {
           const body = await res.text();
           if (body) detail = ` — ${body.slice(0, 300)}`;
-        } catch {}
+          // Surface scoped-key authorization errors as clear, user-facing messages
+          if (res.status === 403 && body) {
+            if (body.includes("Scoped key is bound to a different user_id")) {
+              throw new Error(
+                `Cortex ${label}: API key is scoped to a different user. ` +
+                "Your key cannot access this user_id. Generate a new key at https://cortex.ubundi.com or check your userId config.",
+              );
+            }
+            if (body.includes("Key lacks")) {
+              throw new Error(
+                `Cortex ${label}: ${body.trim()}. ` +
+                "Your API key does not have the required permission for this operation. " +
+                "Update your key permissions at https://cortex.ubundi.com.",
+              );
+            }
+          }
+        } catch (parseErr) {
+          // Re-throw if this is one of our explicit 403 errors
+          if (parseErr instanceof Error && parseErr.message.startsWith(`Cortex ${label}:`)) throw parseErr;
+        }
         throw new Error(`Cortex ${label} failed: ${res.status}${detail}`);
       }
 
@@ -401,6 +420,17 @@ export class CortexClient {
       ...(sourceChannel ? { source_channel: sourceChannel } : {}),
       ...(originSessionId ? { origin_session_id: originSessionId } : {}),
     };
+  }
+
+  async whoami(
+    timeoutMs = DEFAULT_INSPECT_TIMEOUT_MS,
+  ): Promise<{ key_type: string; tenant_id: string; user_id: string | null; permissions: string[] }> {
+    return this.fetchRequest(
+      `${this.baseUrl}/v1/keys/whoami`,
+      { method: "GET" },
+      timeoutMs,
+      "keys/whoami",
+    );
   }
 
   async healthCheck(timeoutMs = DEFAULT_HEALTH_TIMEOUT_MS): Promise<boolean> {
