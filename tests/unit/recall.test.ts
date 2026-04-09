@@ -193,11 +193,15 @@ describe("createRecallHandler", () => {
   it("returns undefined when autoRecall is disabled", async () => {
     const client = { retrieve: vi.fn() } as unknown as CortexClient;
     const handler = createRecallHandler(client, makeConfig({ autoRecall: false }), logger);
+    logger.debug.mockClear();
+    logger.info.mockClear();
 
     const result = await handler({ prompt: "test prompt" }, {});
 
     expect(result).toBeUndefined();
     expect(client.retrieve).not.toHaveBeenCalled();
+    expect(logger.debug).toHaveBeenCalledWith("Cortex recall: skipped (autoRecall disabled)");
+    expect(logger.info).not.toHaveBeenCalledWith("Cortex recall: hook fired");
   });
 
   it("skips auto-recall when today's daily note exists", async () => {

@@ -600,7 +600,8 @@ const plugin = {
       void userIdReady.then(() => bridgeHandler.refreshLinkStatus(true));
     }
 
-    // Auto-Recall: inject relevant memories before every agent turn
+    // before_agent_start also handles recovery and bridge prompt injection,
+    // so this hook stays registered even when autoRecall is disabled.
     registerHookCompat(
       api,
       "before_agent_start",

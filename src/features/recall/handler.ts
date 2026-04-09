@@ -344,9 +344,12 @@ export function createRecallHandler(
     event: BeforeAgentStartEvent,
     _ctx: AgentContext,
   ): Promise<BeforeAgentStartResult | void> => {
-    logger.info("Cortex recall: hook fired");
+    if (!config.autoRecall) {
+      logger.debug?.("Cortex recall: skipped (autoRecall disabled)");
+      return;
+    }
 
-    if (!config.autoRecall) return;
+    logger.info("Cortex recall: hook fired");
 
     const workspaceDir = _ctx.workspaceDir ?? getWorkspaceDir?.();
     if (await workspaceHasRecentDailyNotes(workspaceDir)) {
