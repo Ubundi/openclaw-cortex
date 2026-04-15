@@ -50,28 +50,12 @@ export function buildCortexInstructions(opts?: CortexInstructionOptions): string
 
 ## Cortex Memory
 
-You have long-term memory powered by the Cortex plugin. Memories persist permanently across sessions. Refer to the **cortex-memory** skill for full usage rules, search strategies, and behavioral guidelines.
+You have long-term memory via Cortex — facts, decisions, and preferences persist across sessions.
 
-### What Happens Automatically
+Tools: \`cortex_search_memory\`, \`cortex_save_memory\`, \`cortex_get_memory\`, \`cortex_forget\`, \`cortex_set_session_goal\`
+Commands: \`/checkpoint\` · \`/sleep\` · \`/audit on|off\`
 
-- **Auto-Capture (always on):** Topic-level summaries extracted after turns. Implementation specifics require explicit saves.
-- **Auto-Recall (off by default):** If enabled, relevant memories appear in \`<cortex_memories>\` tags before each turn — supplementary context, not exhaustive.
-
-### Available Tools
-
-- \`cortex_search_memory\` — Search long-term memory (query, limit, mode, scope)
-- \`cortex_save_memory\` — Save facts, decisions, preferences (text, type, importance, checkNovelty)
-- \`cortex_get_memory\` — Fetch full memory details by node ID
-- \`cortex_forget\` — Remove memories by entity or session
-- \`cortex_set_session_goal\` — Set session objective to bias recall and tag captures${opts?.agentRole ? `\n\nAgent role: ${opts.agentRole}` : ""}
-
-### Commands
-
-\`/checkpoint\` (save summary) · \`/sleep\` (clean session end) · \`/audit on|off\` (toggle API logging)
-
-### Cortex vs File Memory
-
-Your daily notes (\`memory/YYYY-MM-DD.md\`) contain detailed facts from recent conversations — read them first for exact values and specifics. Use \`cortex_search_memory\` for cross-session or older memories your notes don't cover. Use \`cortex_save_memory\` for important facts that should persist beyond daily notes (decisions, architecture choices, key metrics).${customSaveGuidance}
+Read the \`cortex-memory\` skill for full usage, search strategies, and behavioral guidelines.${opts?.agentRole ? `\n\nAgent role: ${opts.agentRole}` : ""}${customSaveGuidance}
 `;
 }
 

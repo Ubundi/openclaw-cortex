@@ -179,9 +179,9 @@ describe("buildCortexInstructions", () => {
     expect(result).not.toContain("TooToo Bridge");
     expect(result).not.toContain("Live CLI Actions");
     expect(result).not.toContain("### Custom save guidance");
-    expect(result).toContain("Your daily notes (`memory/YYYY-MM-DD.md`) contain detailed facts from recent conversations");
-    expect(result).toContain("Use `cortex_search_memory` for cross-session or older memories your notes don't cover.");
     expect(result).not.toContain("session-local scratch notes");
+    expect(result).not.toContain("### What Happens Automatically");
+    expect(result).not.toContain("### Cortex vs File Memory");
   });
 
   it("appends custom save guidance and categories when provided", () => {
