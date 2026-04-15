@@ -635,10 +635,10 @@ describe("plugin lifecycle contract", () => {
     expect(() => service.start?.({ workspaceDir: "/tmp/workspace" })).not.toThrow();
     expect(retryStart).toHaveBeenCalledOnce();
 
-    expect(() => service.stop?.call(service)).not.toThrow();
+    await expect(service.stop?.call(service)).resolves.toBeUndefined();
     expect(retryStop).toHaveBeenCalledOnce();
 
-    expect(() => service.stop?.call(service)).not.toThrow();
+    await expect(service.stop?.call(service)).resolves.toBeUndefined();
   });
 
   it("service start is idempotent and does not duplicate background services", async () => {
@@ -684,7 +684,7 @@ describe("plugin lifecycle contract", () => {
       {},
     );
 
-    services[0].stop?.call(services[0]);
+    await services[0].stop?.call(services[0]);
 
     expect(logger.debug).toHaveBeenCalledWith(expect.stringContaining("Cortex session end — recall latency:"));
   });

@@ -40,6 +40,16 @@ function submittedTranscript(submitMock: ReturnType<typeof vi.fn>, callIndex = 0
   return messages.map((m) => `${m.role}: ${m.content}`).join("\n\n");
 }
 
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
 describe("createCaptureHandler", () => {
   it("submits ingestion job on successful agent end", async () => {
     const submitPromise = Promise.resolve({ job_id: "job-1", status: "pending" });
@@ -192,6 +202,79 @@ describe("createCaptureHandler", () => {
     expect(secondTranscript).not.toContain("What is the deployment strategy");
   });
 
+  it("returns before background capture prep completes", async () => {
+    const submitMock = vi.fn().mockResolvedValue({ job_id: "job-background", status: "pending" });
+    const client = { submitIngestConversation: submitMock } as unknown as CortexClient;
+    const watermarkGate = deferred<void>();
+
+    const handler = createCaptureHandler(
+      client,
+      makeConfig(),
+      logger,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      makeWatermarkStore(),
+      undefined,
+      { watermarkReady: watermarkGate.promise },
+    );
+
+    await expect(handler({
+      messages: [
+        { role: "user", content: "What matters most for safe deployments when we are shifting traffic across environments?" },
+        { role: "assistant", content: "Start with health checks, rollback safety, and deliberate traffic shifting during cutover." },
+      ],
+      aborted: false,
+      sessionKey: "sess-background",
+    })).resolves.toBe(true);
+
+    expect(submitMock).not.toHaveBeenCalled();
+
+    watermarkGate.resolve();
+    await vi.waitFor(() => expect(submitMock).toHaveBeenCalledTimes(1));
+  });
+
+  it("does not deep-clone already-watermarked history on schedule", async () => {
+    const submitMock = vi.fn().mockResolvedValue({ job_id: "job-no-deep-clone", status: "pending" });
+    const client = { submitIngestConversation: submitMock } as unknown as CortexClient;
+    const watermarkStore = makeWatermarkStore();
+    (watermarkStore as any).data = { "sess-history-delta": 2 };
+
+    const handler = createCaptureHandler(
+      client,
+      makeConfig(),
+      logger,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      watermarkStore,
+    );
+
+    await expect(handler({
+      messages: [
+        { role: "user", content: { text: "old uncloneable content", fn: () => "not serializable" } },
+        { role: "assistant", content: "Older assistant content that should be outside the already captured watermark." },
+        { role: "user", content: "What should happen on the newest deployment turn when we already captured the earlier history?" },
+        { role: "assistant", content: "Only the newest deployment turn should be scheduled, without reprocessing the earlier transcript." },
+      ],
+      aborted: false,
+      sessionKey: "sess-history-delta",
+    })).resolves.toBe(true);
+
+    await vi.waitFor(() => expect(submitMock).toHaveBeenCalledTimes(1));
+    const transcript = submittedTranscript(submitMock);
+    expect(transcript).toContain("newest deployment turn");
+    expect(transcript).not.toContain("old uncloneable content");
+  });
+
   it("tracks watermarks per session", async () => {
     const submitMock = vi.fn().mockResolvedValue({ job_id: "job-per-session", status: "pending" });
     const client = { submitIngestConversation: submitMock } as unknown as CortexClient;
@@ -213,6 +296,50 @@ describe("createCaptureHandler", () => {
     const secondTranscript = submittedTranscript(submitMock, 1);
     expect(secondTranscript).toContain("Session two asks about PostgreSQL indexing strategy");
     expect(secondTranscript).toContain("Session two response recommends BRIN");
+  });
+
+  it("waits for watermark initialization before calculating the first post-restart delta", async () => {
+    const submitMock = vi.fn().mockResolvedValue({ job_id: "job-watermark-ready", status: "pending" });
+    const client = { submitIngestConversation: submitMock } as unknown as CortexClient;
+    const watermarkStore = new CaptureWatermarkStore("/dev/null");
+    const watermarkGate = deferred<void>();
+    const handler = createCaptureHandler(
+      client,
+      makeConfig(),
+      logger,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      watermarkStore,
+      undefined,
+      { watermarkReady: watermarkGate.promise },
+    );
+
+    await handler({
+      messages: [
+        { role: "user", content: "Earlier turn asking about deployment strategy and service rollout safety in production." },
+        { role: "assistant", content: "Earlier answer describing blue-green deployment and health-gated traffic shifts." },
+        { role: "user", content: "Newest turn asking how rollback safety should behave during a failed cutover in production." },
+        { role: "assistant", content: "Newest answer focusing on instant rollback, alarm thresholds, and preserving prior targets." },
+      ],
+      aborted: false,
+      sessionKey: "sess-restart",
+    });
+
+    expect(submitMock).not.toHaveBeenCalled();
+
+    (watermarkStore as any).data = { "sess-restart": 2 };
+    watermarkGate.resolve();
+
+    await vi.waitFor(() => expect(submitMock).toHaveBeenCalledTimes(1));
+    const transcript = submittedTranscript(submitMock);
+    expect(transcript).toContain("Newest turn asking how rollback safety should behave");
+    expect(transcript).toContain("Newest answer focusing on instant rollback");
+    expect(transcript).not.toContain("Earlier turn asking about deployment strategy");
   });
 
   it("strips injected recall block from captured messages", async () => {
@@ -631,6 +758,40 @@ describe("createCaptureHandler", () => {
     expect(submitMock).not.toHaveBeenCalled();
     await vi.waitFor(() => expect(enqueueMock).toHaveBeenCalledTimes(1));
     expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining("missing user_id"));
+  });
+
+  it("preserves retry behavior when background ingest submission fails", async () => {
+    const submitMock = vi.fn()
+      .mockRejectedValueOnce(new Error("temporary cortex outage"))
+      .mockResolvedValueOnce({ job_id: "job-retry-success", status: "pending" });
+    const client = { submitIngestConversation: submitMock } as unknown as CortexClient;
+    let queuedRetry: (() => Promise<void>) | undefined;
+    const enqueueMock = vi.fn((execute: () => Promise<void>) => {
+      queuedRetry = execute;
+    });
+
+    const handler = createCaptureHandler(
+      client,
+      makeConfig(),
+      logger,
+      { enqueue: enqueueMock } as any,
+    );
+
+    await handler({
+      messages: [
+        { role: "user", content: "What should our retry policy do when the ingest service has a brief network interruption?" },
+        { role: "assistant", content: "Queue the failed submit and retry with the same prepared payload once connectivity returns." },
+      ],
+      aborted: false,
+      sessionKey: "sess-retry",
+    });
+
+    await vi.waitFor(() => expect(enqueueMock).toHaveBeenCalledTimes(1));
+    expect(submitMock).toHaveBeenCalledTimes(1);
+    expect(queuedRetry).toBeDefined();
+
+    await queuedRetry?.();
+    expect(submitMock).toHaveBeenCalledTimes(2);
   });
 
   it("ignores non-external user provenance during capture", async () => {

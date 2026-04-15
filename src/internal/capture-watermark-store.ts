@@ -40,6 +40,10 @@ export class CaptureWatermarkStore {
     return this.data?.[sessionKey] ?? 0;
   }
 
+  isLoaded(): boolean {
+    return this.data !== null;
+  }
+
   set(sessionKey: string, watermark: number): void {
     if (!this.data) this.data = {};
     this.data[sessionKey] = watermark;

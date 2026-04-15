@@ -36,6 +36,26 @@ interface AgentEndEvent {
   };
 }
 
+interface ScheduledCaptureEvent {
+  sessionKey?: string;
+  sessionId?: string;
+  messages: unknown[];
+  inputProvenance?: InputProvenance;
+  activeGoal?: string;
+  totalMessageCount: number;
+  snapshotFromIndex: number;
+}
+
+interface CaptureHandlerOptions {
+  watermarkReady?: Promise<void>;
+  onSubmitted?: () => void;
+}
+
+export interface CaptureHandler {
+  (event: AgentEndEvent): Promise<boolean>;
+  waitForIdle(): Promise<void>;
+}
+
 type Logger = {
   debug?(...args: unknown[]): void;
   info(...args: unknown[]): void;
@@ -148,6 +168,15 @@ function extractBatchProvenance(
   };
 }
 
+function snapshotMessageForCapture(message: unknown): unknown {
+  if (typeof message !== "object" || message === null) return message;
+  const record = message as Record<string, unknown>;
+  const snapshot: Record<string, unknown> = {};
+  if ("role" in record) snapshot.role = record.role;
+  if ("content" in record) snapshot.content = record.content;
+  if ("provenance" in record) snapshot.provenance = record.provenance;
+  return snapshot;
+}
 
 export function createCaptureHandler(
   client: CortexClient,
@@ -162,11 +191,246 @@ export function createCaptureHandler(
   echoStore?: RecallEchoStore,
   watermarkStore?: CaptureWatermarkStore,
   sessionGoalStore?: SessionGoalStore,
-) {
+  options: CaptureHandlerOptions = {},
+): CaptureHandler {
   let captureCounter = 0;
   const seenTurnFingerprints = new Map<string, number>();
+  let captureQueue = Promise.resolve();
+  const activeSubmissions = new Set<Promise<void>>();
 
-  return async (event: AgentEndEvent): Promise<boolean> => {
+  const watermarkReady = (options.watermarkReady ?? Promise.resolve()).catch((err) => {
+    logger.debug?.(`Cortex watermark readiness failed: ${String(err)}`);
+  });
+
+  const scheduleCapture = (event: ScheduledCaptureEvent): void => {
+    captureQueue = captureQueue.then(async () => {
+      logger.info("Cortex capture: processing scheduled turn");
+      try {
+        await watermarkReady;
+
+        const sessionId = event.sessionKey ?? event.sessionId ?? pluginSessionId;
+        const watermarkKey = sessionId ?? "__default__";
+        const previousWatermark = watermarkStore?.get(watermarkKey) ?? 0;
+        const watermark = previousWatermark > event.totalMessageCount ? 0 : previousWatermark;
+        const relativeWatermark = Math.max(0, watermark - event.snapshotFromIndex);
+        const delta = event.messages.slice(relativeWatermark);
+        const markCapturedWatermark = () => {
+          // Advance watermark so we don't repeatedly re-process the same turn.
+          watermarkStore?.set(watermarkKey, event.totalMessageCount);
+        };
+
+        const candidates = filterConversationMessagesForMemory(
+          delta.filter(
+            (msg): msg is { role: string; content: unknown; provenance?: unknown } =>
+              typeof msg === "object" &&
+              msg !== null &&
+              "role" in msg &&
+              "content" in msg &&
+              (msg.role === "assistant" || msg.role === "user"),
+          ),
+        );
+
+        const normalized: ConversationMessage[] = candidates
+          .map((msg) => ({
+            role: String(msg.role),
+            content: sanitizeConversationText(extractContent(msg.content)),
+          }))
+          .filter((msg) => msg.content.length > 0);
+
+        // Skip capture entirely for heartbeat turns — they produce low-signal
+        // operational noise that pollutes the memory store and amplifies false facts.
+        if (containsHeartbeatPrompt(normalized)) {
+          markCapturedWatermark();
+          logger.info("Cortex capture: skipping — heartbeat turn");
+          return;
+        }
+
+        // Drop low-signal messages (heartbeats, status lines, TUI artifacts)
+        const filtered = config.captureFilter !== false
+          ? filterLowSignalMessages(normalized)
+          : normalized;
+
+        // Strip volatile/transient statements (version numbers, task status, "currently" state)
+        // from message content before capture to prevent stale facts from entering long-term memory.
+        const volatileStripped = config.captureFilter !== false
+          ? stripVolatileContent(filtered)
+          : filtered;
+
+        // Strip assistant messages that echo recently recalled memories.
+        // This breaks the feedback loop: recall → agent parrots → capture → recall (stronger).
+        let echoFiltered = volatileStripped;
+        if (echoStore) {
+          let echoesStripped = 0;
+          echoFiltered = volatileStripped.filter((msg) => {
+            if (msg.role === "assistant" && echoStore.isEcho(msg.content)) {
+              echoesStripped++;
+              return false;
+            }
+            return true;
+          });
+          if (echoesStripped > 0) {
+            logger.info(`Cortex capture: stripped ${echoesStripped} assistant message(s) echoing recalled memories`);
+          }
+        }
+
+        if (!isWorthCapturing(echoFiltered)) {
+          markCapturedWatermark();
+          logger.info("Cortex capture: skipping — not enough substantive content");
+          return;
+        }
+
+        // API caps at 200 messages — take the most recent to stay within the limit
+        const MAX_MESSAGES = 200;
+        const trimmed = echoFiltered.length > MAX_MESSAGES ? echoFiltered.slice(-MAX_MESSAGES) : echoFiltered;
+
+        // Enforce byte-size cap — drop oldest messages until the transcript fits.
+        // This prevents oversized payloads from pasted files or verbose replies.
+        //
+        // Compression runs here, after echo filtering and duplicate detection use
+        // the original sanitized text, so those heuristics still see the full turn.
+        const API_MAX_MESSAGE_CHARS = 10_000;
+        const compressed = trimmed.map((msg) => (
+          msg.content.length > API_MAX_MESSAGE_CHARS
+            ? { ...msg, content: compressLargeContent(msg.content, API_MAX_MESSAGE_CHARS) }
+            : msg
+        ));
+
+        // Enforce byte-size cap on the actual payload that will be sent.
+        const maxBytes = config.captureMaxPayloadBytes ?? 262_144;
+        while (compressed.length > 2) {
+          const estimatedSize = compressed.reduce((sum, m) => sum + Buffer.byteLength(m.role, "utf-8") + 2 + Buffer.byteLength(m.content, "utf-8") + 2, 0);
+          if (estimatedSize <= maxBytes) break;
+          compressed.shift();
+        }
+
+        // Enforce character cap — the Cortex API rejects text > 50,000 chars.
+        // The transcript format is "role: content\n\n" per message, so we estimate
+        // the final transcript length and drop oldest messages to fit.
+        const API_MAX_CHARS = 50_000;
+        while (compressed.length > 2) {
+          const estimatedChars = compressed.reduce((sum, m) => sum + m.role.length + 2 + m.content.length + 2, 0);
+          if (estimatedChars <= API_MAX_CHARS) break;
+          compressed.shift();
+        }
+
+        // Keep probe-lookup filtering enabled for normal traffic and benchmark probes,
+        // but bypass it for benchmark seed sessions so factual seed Q&A is retained.
+        const shouldFilterProbeLookup = !isBenchmarkSeedSession(sessionId);
+        if (shouldFilterProbeLookup && isProbeLookupTurn(trimmed)) {
+          markCapturedWatermark();
+          logger.info("Cortex capture: skipping — probe lookup turn");
+          return;
+        }
+
+        // In-memory duplicate suppression to avoid repeated benchmark/probe churn.
+        const now = Date.now();
+        for (const [fingerprint, seenAt] of seenTurnFingerprints) {
+          if (now - seenAt > TURN_DEDUP_TTL_MS) seenTurnFingerprints.delete(fingerprint);
+        }
+        const fingerprint = buildTurnFingerprint(trimmed);
+        if (fingerprint) {
+          const seenAt = seenTurnFingerprints.get(fingerprint);
+          if (seenAt && now - seenAt <= TURN_DEDUP_TTL_MS) {
+            markCapturedWatermark();
+            logger.info("Cortex capture: skipping — duplicate turn fingerprint");
+            return;
+          }
+          seenTurnFingerprints.set(fingerprint, now);
+          if (seenTurnFingerprints.size > TURN_DEDUP_MAX_FINGERPRINTS) {
+            const oldest = [...seenTurnFingerprints.entries()]
+              .sort((a, b) => a[1] - b[1])
+              .slice(0, seenTurnFingerprints.size - TURN_DEDUP_MAX_FINGERPRINTS);
+            for (const [stale] of oldest) seenTurnFingerprints.delete(stale);
+          }
+        }
+
+        const totalChars = compressed.reduce((sum, m) => sum + m.content.length, 0);
+        logger.info(`Cortex capture: ${compressed.length} messages, ${totalChars} chars`);
+
+        // Advance watermark before async work so a second turn doesn't re-send this delta.
+        // captureQueue preserves turn order, so later scheduled turns see this watermark update.
+        markCapturedWatermark();
+
+        // Ensure userId is resolved before sending — in practice this resolves in <100ms
+        // at startup, well before agent_end fires, but it now runs off the delivery path.
+        if (userIdReady) await userIdReady;
+
+        logger.debug?.(`Cortex capture: sessionId=${sessionId}, userId=${getUserId?.()}`);
+
+        // Flatten messages into a role:content transcript for concise logging/audit
+        const transcript = compressed
+          .map((m) => `${m.role}: ${m.content}`)
+          .join("\n\n");
+
+        // Log a summary of what's being sent
+        const roleCounts: Record<string, number> = {};
+        for (const m of compressed) {
+          roleCounts[m.role] = (roleCounts[m.role] ?? 0) + 1;
+        }
+        const roleBreakdown = Object.entries(roleCounts).map(([r, n]) => `${r}=${n}`).join(", ");
+        const preview = (transcript.length > 200 ? transcript.slice(0, 200) + "…" : transcript).replace(/\n/g, " ");
+        logger.info(`Cortex capture summary: ${compressed.length} msgs (${roleBreakdown}), ${transcript.length} chars, sessionId=${sessionId}`);
+        logger.info(`Cortex capture preview: ${preview}`);
+
+        if (auditLogger) {
+          void auditLogger.log({
+            feature: "auto-capture",
+            method: "POST",
+            endpoint: "/v1/jobs/ingest/conversation",
+            payload: transcript,
+            sessionId,
+            userId: getUserId?.(),
+            messageCount: compressed.length,
+          });
+        }
+
+        const doRemember = async () => {
+          // Re-evaluate userId at call time so retries pick up the resolved value
+          const userId = getUserId?.();
+          if (getUserId && !userId) {
+            logger.warn("Cortex capture: missing user_id, deferring ingest retry until identity resolves");
+            throw new Error("Cortex ingest requires user_id");
+          }
+          const referenceDate = new Date().toISOString();
+          const { sourceChannel, originSessionId } = extractBatchProvenance(compressed, event.inputProvenance);
+          // Use async conversation ingest so role attribution is preserved for RESONATE.
+          const job = await client.submitIngestConversation(
+            compressed,
+            sessionId,
+            referenceDate,
+            userId,
+            "openclaw",
+            "OpenClaw",
+            CAPTURE_DERIVATION_MODE,
+            sourceChannel,
+            originSessionId,
+            event.activeGoal,
+          );
+          logger.info(`Cortex capture: submitted job ${job.job_id} (status=${job.status})`);
+          options.onSubmitted?.();
+          // Mark that we have memories — heartbeat handler owns full knowledge refresh
+          if (knowledgeState) {
+            knowledgeState.hasMemories = true;
+          }
+        };
+
+        // Fire-and-forget with retry on failure
+        const submission = doRemember().catch((err) => {
+          logger.warn(`Cortex capture failed, queuing for retry: ${String(err)}`);
+          if (retryQueue) {
+            retryQueue.enqueue(doRemember, `capture-${++captureCounter}`);
+          }
+        }).finally(() => {
+          activeSubmissions.delete(submission);
+        });
+        activeSubmissions.add(submission);
+      } catch (err) {
+        logger.warn(`Cortex capture error: ${String(err)}`);
+      }
+    });
+  };
+
+  const handler = async (event: AgentEndEvent): Promise<boolean> => {
     logger.info("Cortex capture: hook fired");
 
     if (!config.autoCapture) return false;
@@ -176,222 +440,35 @@ export function createCaptureHandler(
     try {
       const sessionId = event.sessionKey ?? event.sessionId ?? pluginSessionId;
       const watermarkKey = sessionId ?? "__default__";
-      const previousWatermark = watermarkStore?.get(watermarkKey) ?? 0;
-      const watermark = previousWatermark > event.messages.length ? 0 : previousWatermark;
-      const delta = event.messages.slice(watermark);
-      const markCapturedWatermark = () => {
-        // Advance watermark so we don't repeatedly re-process the same turn.
-        watermarkStore?.set(watermarkKey, event.messages.length);
-      };
-
-      const candidates = filterConversationMessagesForMemory(
-        delta.filter(
-          (msg): msg is { role: string; content: unknown; provenance?: unknown } =>
-            typeof msg === "object" &&
-            msg !== null &&
-            "role" in msg &&
-            "content" in msg &&
-            (msg.role === "assistant" || msg.role === "user"),
-        ),
-      );
-
-      const normalized: ConversationMessage[] = candidates
-        .map((msg) => ({
-          role: String(msg.role),
-          content: sanitizeConversationText(extractContent(msg.content)),
-        }))
-        .filter((msg) => msg.content.length > 0);
-
-      // Skip capture entirely for heartbeat turns — they produce low-signal
-      // operational noise that pollutes the memory store and amplifies false facts.
-      if (containsHeartbeatPrompt(normalized)) {
-        markCapturedWatermark();
-        logger.info("Cortex capture: skipping — heartbeat turn");
-        return false;
-      }
-
-      // Drop low-signal messages (heartbeats, status lines, TUI artifacts)
-      const filtered = config.captureFilter !== false
-        ? filterLowSignalMessages(normalized)
-        : normalized;
-
-      // Strip volatile/transient statements (version numbers, task status, "currently" state)
-      // from message content before capture to prevent stale facts from entering long-term memory.
-      const volatileStripped = config.captureFilter !== false
-        ? stripVolatileContent(filtered)
-        : filtered;
-
-      // Strip assistant messages that echo recently recalled memories.
-      // This breaks the feedback loop: recall → agent parrots → capture → recall (stronger).
-      let echoFiltered = volatileStripped;
-      if (echoStore) {
-        let echoesStripped = 0;
-        echoFiltered = volatileStripped.filter((msg) => {
-          if (msg.role === "assistant" && echoStore.isEcho(msg.content)) {
-            echoesStripped++;
-            return false;
-          }
-          return true;
-        });
-        if (echoesStripped > 0) {
-          logger.info(`Cortex capture: stripped ${echoesStripped} assistant message(s) echoing recalled memories`);
-        }
-      }
-
-      if (!isWorthCapturing(echoFiltered)) {
-        markCapturedWatermark();
-        logger.info("Cortex capture: skipping — not enough substantive content");
-        return false;
-      }
-
-      // Capture the active session goal for tagging the ingest payload.
-      const activeGoal = config.sessionGoal ? sessionGoalStore?.get()?.goal : undefined;
-
-      // API caps at 200 messages — take the most recent to stay within the limit
-      const MAX_MESSAGES = 200;
-      const trimmed = echoFiltered.length > MAX_MESSAGES ? echoFiltered.slice(-MAX_MESSAGES) : echoFiltered;
-
-      // Enforce byte-size cap — drop oldest messages until the transcript fits.
-      // This prevents oversized payloads from pasted files or verbose replies.
-      //
-      // Compression runs here, after echo filtering and duplicate detection use
-      // the original sanitized text, so those heuristics still see the full turn.
-      const API_MAX_MESSAGE_CHARS = 10_000;
-      const compressed = trimmed.map((msg) => (
-        msg.content.length > API_MAX_MESSAGE_CHARS
-          ? { ...msg, content: compressLargeContent(msg.content, API_MAX_MESSAGE_CHARS) }
-          : msg
-      ));
-
-      // Enforce byte-size cap on the actual payload that will be sent.
-      const maxBytes = config.captureMaxPayloadBytes ?? 262_144;
-      while (compressed.length > 2) {
-        const estimatedSize = compressed.reduce((sum, m) => sum + Buffer.byteLength(m.role, "utf-8") + 2 + Buffer.byteLength(m.content, "utf-8") + 2, 0);
-        if (estimatedSize <= maxBytes) break;
-        compressed.shift();
-      }
-
-      // Enforce character cap — the Cortex API rejects text > 50,000 chars.
-      // The transcript format is "role: content\n\n" per message, so we estimate
-      // the final transcript length and drop oldest messages to fit.
-      const API_MAX_CHARS = 50_000;
-      while (compressed.length > 2) {
-        const estimatedChars = compressed.reduce((sum, m) => sum + m.role.length + 2 + m.content.length + 2, 0);
-        if (estimatedChars <= API_MAX_CHARS) break;
-        compressed.shift();
-      }
-
-      // Keep probe-lookup filtering enabled for normal traffic and benchmark probes,
-      // but bypass it for benchmark seed sessions so factual seed Q&A is retained.
-      const shouldFilterProbeLookup = !isBenchmarkSeedSession(sessionId);
-      if (shouldFilterProbeLookup && isProbeLookupTurn(trimmed)) {
-        markCapturedWatermark();
-        logger.info("Cortex capture: skipping — probe lookup turn");
-        return false;
-      }
-
-      // In-memory duplicate suppression to avoid repeated benchmark/probe churn.
-      const now = Date.now();
-      for (const [fingerprint, seenAt] of seenTurnFingerprints) {
-        if (now - seenAt > TURN_DEDUP_TTL_MS) seenTurnFingerprints.delete(fingerprint);
-      }
-      const fingerprint = buildTurnFingerprint(trimmed);
-      if (fingerprint) {
-        const seenAt = seenTurnFingerprints.get(fingerprint);
-        if (seenAt && now - seenAt <= TURN_DEDUP_TTL_MS) {
-          markCapturedWatermark();
-          logger.info("Cortex capture: skipping — duplicate turn fingerprint");
-          return false;
-        }
-        seenTurnFingerprints.set(fingerprint, now);
-        if (seenTurnFingerprints.size > TURN_DEDUP_MAX_FINGERPRINTS) {
-          const oldest = [...seenTurnFingerprints.entries()]
-            .sort((a, b) => a[1] - b[1])
-            .slice(0, seenTurnFingerprints.size - TURN_DEDUP_MAX_FINGERPRINTS);
-          for (const [stale] of oldest) seenTurnFingerprints.delete(stale);
-        }
-      }
-
-      const totalChars = compressed.reduce((sum, m) => sum + m.content.length, 0);
-      logger.info(`Cortex capture: ${compressed.length} messages, ${totalChars} chars`);
-
-      // Advance watermark before async work so a second turn doesn't re-send this delta
-      markCapturedWatermark();
-
-      // Ensure userId is resolved before sending — in practice this resolves in <100ms
-      // at startup, well before agent_end fires, but we await explicitly to be correct.
-      if (userIdReady) await userIdReady;
-
-      logger.debug?.(`Cortex capture: sessionId=${sessionId}, userId=${getUserId?.()}`);
-
-      // Flatten messages into a role:content transcript for concise logging/audit
-      const transcript = compressed
-        .map((m) => `${m.role}: ${m.content}`)
-        .join("\n\n");
-
-      // Log a summary of what's being sent
-      const roleCounts: Record<string, number> = {};
-      for (const m of compressed) {
-        roleCounts[m.role] = (roleCounts[m.role] ?? 0) + 1;
-      }
-      const roleBreakdown = Object.entries(roleCounts).map(([r, n]) => `${r}=${n}`).join(", ");
-      const preview = (transcript.length > 200 ? transcript.slice(0, 200) + "…" : transcript).replace(/\n/g, " ");
-      logger.info(`Cortex capture summary: ${compressed.length} msgs (${roleBreakdown}), ${transcript.length} chars, sessionId=${sessionId}`);
-      logger.info(`Cortex capture preview: ${preview}`);
-
-      if (auditLogger) {
-        void auditLogger.log({
-          feature: "auto-capture",
-          method: "POST",
-          endpoint: "/v1/jobs/ingest/conversation",
-          payload: transcript,
-          sessionId,
-          userId: getUserId?.(),
-          messageCount: compressed.length,
-        });
-      }
-
-      const doRemember = async () => {
-        // Re-evaluate userId at call time so retries pick up the resolved value
-        const userId = getUserId?.();
-        if (getUserId && !userId) {
-          logger.warn("Cortex capture: missing user_id, deferring ingest retry until identity resolves");
-          throw new Error("Cortex ingest requires user_id");
-        }
-        const referenceDate = new Date().toISOString();
-        const { sourceChannel, originSessionId } = extractBatchProvenance(compressed, event.inputProvenance);
-        // Use async conversation ingest so role attribution is preserved for RESONATE.
-        const job = await client.submitIngestConversation(
-          compressed,
-          sessionId,
-          referenceDate,
-          userId,
-          "openclaw",
-          "OpenClaw",
-          CAPTURE_DERIVATION_MODE,
-          sourceChannel,
-          originSessionId,
-          activeGoal,
-        );
-        logger.info(`Cortex capture: submitted job ${job.job_id} (status=${job.status})`);
-        // Mark that we have memories — heartbeat handler owns full knowledge refresh
-        if (knowledgeState) {
-          knowledgeState.hasMemories = true;
-        }
-      };
-
-      // Fire-and-forget with retry on failure
-      doRemember().catch((err) => {
-        logger.warn(`Cortex capture failed, queuing for retry: ${String(err)}`);
-        if (retryQueue) {
-          retryQueue.enqueue(doRemember, `capture-${++captureCounter}`);
-        }
+      const previousWatermark = watermarkStore?.isLoaded()
+        ? (watermarkStore.get(watermarkKey) ?? 0)
+        : 0;
+      const snapshotFromIndex = previousWatermark > event.messages.length ? 0 : previousWatermark;
+      scheduleCapture({
+        sessionKey: event.sessionKey,
+        sessionId: event.sessionId,
+        messages: event.messages
+          .slice(snapshotFromIndex)
+          .map((message) => snapshotMessageForCapture(message)),
+        inputProvenance: event.inputProvenance ? { ...event.inputProvenance } : undefined,
+        activeGoal: config.sessionGoal ? sessionGoalStore?.get()?.goal : undefined,
+        totalMessageCount: event.messages.length,
+        snapshotFromIndex,
       });
-
-      return true; // ingestion was queued
+      logger.debug?.("Cortex capture: scheduled background capture");
+      return true;
     } catch (err) {
       logger.warn(`Cortex capture error: ${String(err)}`);
       return false;
     }
   };
+
+  handler.waitForIdle = async (): Promise<void> => {
+    await captureQueue;
+    while (activeSubmissions.size > 0) {
+      await Promise.allSettled([...activeSubmissions]);
+    }
+  };
+
+  return handler;
 }

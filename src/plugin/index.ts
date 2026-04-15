@@ -674,8 +674,31 @@ const plugin = {
 
     // Auto-Capture: extract facts after agent responses
     const watermarkStore = new CaptureWatermarkStore();
-    void watermarkStore.load().catch((err) => api.logger.debug?.(`Cortex watermark load failed: ${String(err)}`));
-    const captureHandler = createCaptureHandler(client, config, api.logger, retryQueue, knowledgeState, () => userId, userIdReady, sessionId, auditLoggerProxy, echoStore, watermarkStore, sessionGoalStore);
+    const watermarkReady = watermarkStore
+      .load()
+      .catch((err) => api.logger.debug?.(`Cortex watermark load failed: ${String(err)}`));
+    const captureHandler = createCaptureHandler(
+      client,
+      config,
+      api.logger,
+      retryQueue,
+      knowledgeState,
+      () => userId,
+      userIdReady,
+      sessionId,
+      auditLoggerProxy,
+      echoStore,
+      watermarkStore,
+      sessionGoalStore,
+      {
+        watermarkReady,
+        // Count captures once Cortex has accepted the ingest job, not when we merely
+        // schedule local prep. This keeps heartbeat reflect aligned with real ingest.
+        onSubmitted: () => {
+          capturesSinceReflect++;
+        },
+      },
+    );
     registerHookCompat(
       api,
       "agent_end",
@@ -696,9 +719,8 @@ const plugin = {
             api.logger.debug?.(`Cortex session state update failed: ${String(err)}`);
           }
         }
-        const ingested = await captureHandler(event as any);
+        void captureHandler(event as any);
         await bridgeHandler.handleAgentEnd(event as any);
-        if (ingested) capturesSinceReflect++;
       },
       {
         name: "openclaw-cortex.capture",
@@ -958,10 +980,11 @@ const plugin = {
 
         api.logger.debug?.("Cortex services started");
       },
-      stop() {
+      async stop() {
         if (!started) return;
         started = false;
 
+        await captureHandler.waitForIdle();
         retryQueue.stop();
 
         if (heartbeatTimer) {
