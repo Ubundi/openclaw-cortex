@@ -61,6 +61,12 @@ function makeSessionStats(): SessionStats {
   };
 }
 
+async function flushMicrotasks(turns = 6): Promise<void> {
+  for (let i = 0; i < turns; i += 1) {
+    await Promise.resolve();
+  }
+}
+
 describe("registerCliCommands search output", () => {
   afterEach(() => {
     vi.restoreAllMocks();
@@ -163,6 +169,116 @@ describe("registerCliCommands search output", () => {
     expect(logSpy).toHaveBeenCalledWith("Found 1 memories (mode: all):\n");
     expect(logSpy).toHaveBeenCalledWith("1. [0.74] User uses Neovim");
     expect(logSpy).not.toHaveBeenCalledWith("2. [0.12] Weak unrelated tail");
+  });
+
+  it("uses knowledge fallback when /health probe fails during status checks", async () => {
+    const registerCli = vi.fn();
+    const client = {
+      healthCheck: vi.fn().mockResolvedValue(false),
+      getLinkStatus: vi.fn().mockResolvedValue({ linked: false }),
+      knowledge: vi.fn().mockResolvedValue({
+        total_memories: 53,
+        total_sessions: 6,
+        maturity: "cold",
+        entities: [],
+      }),
+      stats: vi.fn().mockResolvedValue({ pipeline_tier: 1, pipeline_maturity: "cold" }),
+      recall: vi.fn().mockResolvedValue({ memories: [] }),
+      retrieve: vi.fn().mockResolvedValue({ results: [] }),
+    };
+
+    registerCliCommands(registerCli, {
+      client: client as any,
+      config: {
+        baseUrl: "https://api.example.com",
+        autoRecall: true,
+        autoCapture: true,
+        dedupeWindowMinutes: 30,
+        toolTimeoutMs: 500,
+      } as any,
+      version: "test",
+      getUserId: () => "user-1",
+      userIdReady: Promise.resolve(),
+      getNamespace: () => "test",
+      sessionStats: makeSessionStats(),
+      loadPersistedStats: () => null,
+      isAbortError: () => false,
+      resetCompletedAfterAbort: async () => false,
+    });
+
+    const program = createCliNode("root");
+    const registrar = registerCli.mock.calls[0][0] as (ctx: { program: CliProgram; config: Record<string, unknown> }) => void;
+    registrar({ program: program as unknown as CliProgram, config: {} });
+
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    await program.children.get("cortex")?.children.get("status")?.actionHandler?.();
+
+    expect(client.healthCheck).toHaveBeenCalledOnce();
+    expect(client.knowledge).toHaveBeenCalledTimes(1);
+    expect(client.knowledge).toHaveBeenCalledWith("user-1", 8000);
+    expect(client.getLinkStatus).toHaveBeenCalledWith("user-1");
+    expect(client.recall).toHaveBeenCalledOnce();
+    expect(client.retrieve).toHaveBeenCalledOnce();
+    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining("API Health:     OK (fallback via /v1/knowledge)"));
+    expect(logSpy).not.toHaveBeenCalledWith("\nAPI is unreachable. Check baseUrl and network connectivity.");
+  });
+
+  it("does not block fallback health reporting on a slow stats probe", async () => {
+    const registerCli = vi.fn();
+    let resolveStats: ((value: { pipeline_tier: 1; pipeline_maturity: "cold" }) => void) | undefined;
+    const statsPromise = new Promise<{ pipeline_tier: 1; pipeline_maturity: "cold" }>((resolve) => {
+      resolveStats = resolve;
+    });
+    const client = {
+      healthCheck: vi.fn().mockResolvedValue(false),
+      getLinkStatus: vi.fn().mockResolvedValue({ linked: false }),
+      knowledge: vi.fn().mockResolvedValue({
+        total_memories: 53,
+        total_sessions: 6,
+        maturity: "cold",
+        entities: [],
+      }),
+      stats: vi.fn().mockReturnValue(statsPromise),
+      recall: vi.fn().mockResolvedValue({ memories: [] }),
+      retrieve: vi.fn().mockResolvedValue({ results: [] }),
+    };
+
+    registerCliCommands(registerCli, {
+      client: client as any,
+      config: {
+        baseUrl: "https://api.example.com",
+        autoRecall: true,
+        autoCapture: true,
+        dedupeWindowMinutes: 30,
+        toolTimeoutMs: 500,
+      } as any,
+      version: "test",
+      getUserId: () => "user-1",
+      userIdReady: Promise.resolve(),
+      getNamespace: () => "test",
+      sessionStats: makeSessionStats(),
+      loadPersistedStats: () => null,
+      isAbortError: () => false,
+      resetCompletedAfterAbort: async () => false,
+    });
+
+    const program = createCliNode("root");
+    const registrar = registerCli.mock.calls[0][0] as (ctx: { program: CliProgram; config: Record<string, unknown> }) => void;
+    registrar({ program: program as unknown as CliProgram, config: {} });
+
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    const actionPromise = program.children.get("cortex")?.children.get("status")?.actionHandler?.();
+    await flushMicrotasks();
+
+    expect(client.healthCheck).toHaveBeenCalledOnce();
+    expect(client.knowledge).toHaveBeenCalledWith("user-1", 8000);
+    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining("API Health:     OK (fallback via /v1/knowledge)"));
+    expect(client.getLinkStatus).toHaveBeenCalledWith("user-1");
+
+    resolveStats?.({ pipeline_tier: 1, pipeline_maturity: "cold" });
+    await actionPromise;
   });
 
   it("shows degraded write-path state on status when the last accepted job is still pending", async () => {

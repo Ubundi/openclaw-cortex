@@ -4,6 +4,8 @@ import type { CliProgram, Logger } from "./types.js";
 import { coerceCliSearchQuery, coerceSearchMode, filterSearchResults, getMemoryDisplayScore, prepareSearchQuery } from "./search-query.js";
 import { classifyJobStatus, type WriteHealthState } from "../internal/write-health.js";
 
+const STATUS_FALLBACK_TIMEOUT_MS = 8_000;
+
 export interface SessionStats {
   saves: number;
   savesSkippedDedupe: number;
@@ -70,16 +72,38 @@ export function registerCliCommands(
           console.log("Cortex Status Check");
           console.log("=".repeat(50));
 
-          // Health check
+          let cachedKnowledge: Awaited<ReturnType<CortexClient["knowledge"]>> | null = null;
+          let cachedStats: Awaited<ReturnType<CortexClient["stats"]>> | null = null;
+          let fallbackStatsProbe: Promise<Awaited<ReturnType<CortexClient["stats"]>> | null> | null = null;
+
+          // Health check with the same fallback used in startup bootstrap:
+          // if /health misses, treat knowledge-read success as connected.
           const startHealth = Date.now();
           let healthy = false;
+          let usedKnowledgeFallback = false;
           try {
             healthy = await client.healthCheck();
-            const ms = Date.now() - startHealth;
-            console.log(`  API Health:     ${healthy ? "OK" : "UNREACHABLE"} (${ms}ms)`);
           } catch {
-            console.log(`  API Health:     UNREACHABLE`);
+            healthy = false;
           }
+
+          if (!healthy) {
+            try {
+              cachedKnowledge = await client.knowledge(userId, STATUS_FALLBACK_TIMEOUT_MS);
+              fallbackStatsProbe = client.stats(userId, STATUS_FALLBACK_TIMEOUT_MS).catch(() => null);
+              healthy = true;
+              usedKnowledgeFallback = true;
+            } catch {
+              healthy = false;
+              fallbackStatsProbe = null;
+            }
+          }
+
+          const healthMs = Date.now() - startHealth;
+          const healthLabel = healthy
+            ? (usedKnowledgeFallback ? "OK (fallback via /v1/knowledge)" : "OK")
+            : "UNREACHABLE";
+          console.log(`  API Health:     ${healthLabel} (${healthMs}ms)`);
 
           if (!healthy) {
             console.log("\nAPI is unreachable. Check baseUrl and network connectivity.");
@@ -103,10 +127,16 @@ export function registerCliCommands(
 
           // Knowledge
           try {
-            const startKnowledge = Date.now();
-            const knowledge = await client.knowledge(userId);
-            const ms = Date.now() - startKnowledge;
-            console.log(`  Knowledge:      OK (${ms}ms)`);
+            let knowledge = cachedKnowledge;
+            let knowledgeLabel = "OK";
+            if (knowledge) {
+              knowledgeLabel = "OK (from fallback probe)";
+            } else {
+              const startKnowledge = Date.now();
+              knowledge = await client.knowledge(userId);
+              knowledgeLabel = `OK (${Date.now() - startKnowledge}ms)`;
+            }
+            console.log(`  Knowledge:      ${knowledgeLabel}`);
             console.log(`    Memories:     ${knowledge.total_memories.toLocaleString()}`);
             console.log(`    Sessions:     ${knowledge.total_sessions}`);
             console.log(`    Maturity:     ${knowledge.maturity}`);
@@ -116,10 +146,30 @@ export function registerCliCommands(
 
           // Stats
           try {
-            const startStats = Date.now();
-            const stats = await client.stats(userId);
-            const ms = Date.now() - startStats;
-            console.log(`  Stats:          OK (${ms}ms)`);
+            let stats: Awaited<ReturnType<CortexClient["stats"]>> | null = cachedStats;
+            let statsLabel = "OK";
+            if (stats) {
+              statsLabel = "OK (from fallback probe)";
+            } else if (fallbackStatsProbe) {
+              stats = await fallbackStatsProbe;
+              if (stats) {
+                cachedStats = stats;
+                statsLabel = "OK (from fallback probe)";
+              }
+            } else {
+              const startStats = Date.now();
+              stats = await client.stats(userId);
+              statsLabel = `OK (${Date.now() - startStats}ms)`;
+            }
+            if (!stats) {
+              const startStats = Date.now();
+              stats = await client.stats(userId);
+              statsLabel = `OK (${Date.now() - startStats}ms)`;
+            }
+            console.log(`  Stats:          ${statsLabel}`);
+            if (!stats) {
+              throw new Error("Stats unavailable after fallback probe");
+            }
             console.log(`    Pipeline:     tier ${stats.pipeline_tier}`);
           } catch (err) {
             console.log(`  Stats:          FAILED — ${String(err)}`);
