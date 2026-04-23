@@ -224,6 +224,103 @@ describe("registerCliCommands search output", () => {
     expect(logSpy).not.toHaveBeenCalledWith("\nAPI is unreachable. Check baseUrl and network connectivity.");
   });
 
+  it("reports linked status when owner metadata is present without legacy link details", async () => {
+    const registerCli = vi.fn();
+    const client = {
+      healthCheck: vi.fn().mockResolvedValue(true),
+      getLinkStatus: vi.fn().mockResolvedValue({
+        linked: true,
+        owner_type: "shadow_subject",
+        owner_id: "owner-shadow-1",
+        shadow_subject_id: "shadow-subject-1",
+        claimed_user_id: null,
+        tootoo_user_id: null,
+      }),
+      knowledge: vi.fn().mockResolvedValue({
+        total_memories: 4,
+        total_sessions: 1,
+        maturity: "cold",
+        entities: [],
+      }),
+      stats: vi.fn().mockResolvedValue({ pipeline_tier: 1, pipeline_maturity: "cold" }),
+      recall: vi.fn().mockResolvedValue({ memories: [] }),
+      retrieve: vi.fn().mockResolvedValue({ results: [] }),
+    };
+
+    registerCliCommands(registerCli, {
+      client: client as any,
+      config: {
+        baseUrl: "https://api.example.com",
+        autoRecall: true,
+        autoCapture: true,
+        dedupeWindowMinutes: 30,
+        toolTimeoutMs: 500,
+      } as any,
+      version: "test",
+      getUserId: () => "user-1",
+      userIdReady: Promise.resolve(),
+      getNamespace: () => "test",
+      sessionStats: makeSessionStats(),
+      loadPersistedStats: () => null,
+      isAbortError: () => false,
+      resetCompletedAfterAbort: async () => false,
+    });
+
+    const program = createCliNode("root");
+    const registrar = registerCli.mock.calls[0][0] as (ctx: { program: CliProgram; config: Record<string, unknown> }) => void;
+    registrar({ program: program as unknown as CliProgram, config: {} });
+
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    await program.children.get("cortex")?.children.get("status")?.actionHandler?.();
+
+    expect(client.getLinkStatus).toHaveBeenCalledWith("user-1");
+    expect(logSpy).toHaveBeenCalledWith("  TooToo Link:    ✓ Linked");
+    expect(logSpy).not.toHaveBeenCalledWith("  TooToo Link:    Not linked. Run `openclaw cortex pair` to connect.");
+  });
+
+  it("keeps the manual cortex pair command flow intact", async () => {
+    const registerCli = vi.fn();
+    const client = {
+      generatePairingCode: vi.fn().mockResolvedValue({
+        user_code: "WOLF-3847",
+        expires_in: 900,
+        expires_at: "2026-03-04T12:00:00Z",
+      }),
+    };
+
+    registerCliCommands(registerCli, {
+      client: client as any,
+      config: {
+        baseUrl: "https://api.example.com",
+        autoRecall: true,
+        autoCapture: true,
+        dedupeWindowMinutes: 30,
+        toolTimeoutMs: 500,
+      } as any,
+      version: "test",
+      getUserId: () => "user-1",
+      userIdReady: Promise.resolve(),
+      getNamespace: () => "test",
+      sessionStats: makeSessionStats(),
+      loadPersistedStats: () => null,
+      isAbortError: () => false,
+      resetCompletedAfterAbort: async () => false,
+    });
+
+    const program = createCliNode("root");
+    const registrar = registerCli.mock.calls[0][0] as (ctx: { program: CliProgram; config: Record<string, unknown> }) => void;
+    registrar({ program: program as unknown as CliProgram, config: {} });
+
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    await program.children.get("cortex")?.children.get("pair")?.actionHandler?.();
+
+    expect(client.generatePairingCode).toHaveBeenCalledWith("user-1");
+    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining("TooToo Agent Pairing"));
+    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining("Pairing code:  WOLF-3847"));
+  });
+
   it("does not block fallback health reporting on a slow stats probe", async () => {
     const registerCli = vi.fn();
     let resolveStats: ((value: { pipeline_tier: 1; pipeline_maturity: "cold" }) => void) | undefined;

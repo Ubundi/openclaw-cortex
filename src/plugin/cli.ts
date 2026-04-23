@@ -114,9 +114,18 @@ export function registerCliCommands(
           if (userId) {
             try {
               const linkStatus = await client.getLinkStatus(userId);
-              if (linkStatus.linked && linkStatus.link) {
-                const linkedDate = new Date(linkStatus.link.linked_at).toISOString().slice(0, 10);
-                console.log(`  TooToo Link:    ✓ Linked since ${linkedDate}`);
+              if (linkStatus.linked) {
+                const linkedAt = linkStatus.link?.linked_at;
+                const linkedDate = linkedAt ? new Date(linkedAt) : null;
+                const linkedDateLabel =
+                  linkedDate && !Number.isNaN(linkedDate.getTime())
+                    ? linkedDate.toISOString().slice(0, 10)
+                    : null;
+                if (linkedDateLabel) {
+                  console.log(`  TooToo Link:    ✓ Linked since ${linkedDateLabel}`);
+                } else {
+                  console.log("  TooToo Link:    ✓ Linked");
+                }
               } else {
                 console.log(`  TooToo Link:    Not linked. Run \`openclaw cortex pair\` to connect.`);
               }

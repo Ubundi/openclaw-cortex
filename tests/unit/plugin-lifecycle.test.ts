@@ -492,6 +492,78 @@ describe("plugin lifecycle contract", () => {
     });
   });
 
+  it("treats an active shadow-owner link as linked and still forwards explicit bridge Q&A", async () => {
+    vi.spyOn(CortexClient.prototype, "getLinkStatus").mockResolvedValue({
+      linked: true,
+      link: {
+        owner_type: "shadow_subject",
+        owner_id: "owner-shadow-1",
+        shadow_subject_id: "shadow-subject-1",
+        claimed_user_id: null,
+        tootoo_user_id: null,
+        linked_at: "2026-04-23T10:00:00Z",
+      },
+    });
+    const submitBridgeQA = vi.spyOn(CortexClient.prototype, "submitBridgeQA").mockResolvedValue({
+      accepted: true,
+      forwarded: true,
+      queued_for_retry: false,
+      entries_sent: 1,
+      tootoo_user_id: null,
+      bridge_event_id: "bridge-event-shadow-1",
+      suggestions_created: 1,
+      owner_type: "shadow_subject",
+      owner_id: "owner-shadow-1",
+      shadow_subject_id: "shadow-subject-1",
+      claimed_user_id: null,
+    });
+
+    const { api, hooks } = makeApi({
+      userId: "agent-user-1",
+    });
+
+    plugin.register(api as any);
+    await flushMicrotasks();
+
+    const beforeTurn = await hooks.before_agent_start[0](
+      {
+        prompt: "I've been wondering what really matters in my work right now.",
+        messages: [
+          {
+            role: "user",
+            content: "I've been wondering what really matters in my work right now and what I should optimize for.",
+            provenance: { kind: "external_user" },
+          },
+        ],
+      },
+      { sessionKey: "sess-shadow-owner" },
+    );
+    expect(beforeTurn?.prependContext).toContain("<tootoo_bridge>");
+
+    await hooks.agent_end[0]({
+      messages: [
+        { role: "user", content: "I've been rethinking what matters most in my work." },
+        { role: "assistant", content: "What do you value most in your work?" },
+        { role: "user", content: "Ownership and purposeful impact." },
+      ],
+      aborted: false,
+      sessionKey: "sess-shadow-owner",
+    });
+
+    await vi.waitFor(() => expect(submitBridgeQA).toHaveBeenCalledTimes(1));
+    expect(submitBridgeQA).toHaveBeenCalledWith({
+      user_id: "agent-user-1",
+      request_id: expect.stringMatching(/^openclaw-bridge-/),
+      entries: [
+        {
+          question: "What do you value most in your work?",
+          answer: "Ownership and purposeful impact.",
+          target_section: "coreValues",
+        },
+      ],
+    });
+  });
+
   it("does not inject bridge guidance for technical turns even when linked", async () => {
     vi.spyOn(SessionStateStore.prototype, "readDirtyFromPriorLifecycle").mockResolvedValue(null);
     vi.spyOn(CortexClient.prototype, "getLinkStatus").mockResolvedValue({

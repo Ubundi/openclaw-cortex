@@ -172,17 +172,30 @@ export interface BridgeQAResponse {
   forwarded: boolean;
   queued_for_retry: boolean;
   entries_sent: number;
-  tootoo_user_id: string;
+  tootoo_user_id: string | null;
   bridge_event_id: string;
   suggestions_created: number | null;
+  owner_type?: LinkOwnerType;
+  owner_id?: string;
+  shadow_subject_id?: string | null;
+  claimed_user_id?: string | null;
 }
 
-export interface LinkStatusLink {
-  tootoo_user_id: string;
+export type LinkOwnerType = "shadow_subject" | "claimed_user";
+
+export interface LinkOwnerMetadata {
+  owner_type?: LinkOwnerType;
+  owner_id?: string;
+  shadow_subject_id?: string | null;
+  claimed_user_id?: string | null;
+  tootoo_user_id?: string | null;
+}
+
+export interface LinkStatusLink extends LinkOwnerMetadata {
   linked_at: string;
 }
 
-export interface LinkStatusResponse {
+export interface LinkStatusResponse extends LinkOwnerMetadata {
   linked: boolean;
   link?: LinkStatusLink;
 }
