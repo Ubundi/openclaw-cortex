@@ -2,6 +2,7 @@ import type { CortexClient } from "../cortex/client.js";
 import type { CortexConfig } from "./config.js";
 import type { CliProgram, Logger } from "./types.js";
 import { coerceCliSearchQuery, coerceSearchMode, filterSearchResults, getMemoryDisplayScore, prepareSearchQuery } from "./search-query.js";
+import { classifyJobStatus, type WriteHealthState } from "../internal/write-health.js";
 
 export interface SessionStats {
   saves: number;
@@ -22,6 +23,8 @@ export interface CliDeps {
   getNamespace: () => string;
   sessionStats: SessionStats;
   loadPersistedStats: () => SessionStats | null;
+  loadPersistedWriteHealth?: () => WriteHealthState | null;
+  persistWriteHealth?: (state: WriteHealthState) => void;
   isAbortError: (err: unknown) => boolean;
   resetCompletedAfterAbort: (client: CortexClient, userId: string) => Promise<boolean>;
 }
@@ -42,6 +45,8 @@ export function registerCliCommands(
     getNamespace,
     sessionStats,
     loadPersistedStats,
+    loadPersistedWriteHealth,
+    persistWriteHealth,
     isAbortError,
     resetCompletedAfterAbort,
   } = deps;
@@ -147,6 +152,63 @@ export function registerCliCommands(
           console.log(`  Auto-Recall:    ${config.autoRecall ? "on" : "off"}`);
           console.log(`  Auto-Capture:   ${config.autoCapture ? "on" : "off"}`);
           console.log(`  Dedupe Window:  ${config.dedupeWindowMinutes > 0 ? `${config.dedupeWindowMinutes}min` : "off"}`);
+
+          let writeHealth = loadPersistedWriteHealth?.() ?? null;
+          if (writeHealth?.lastJobId && classifyJobStatus(writeHealth.lastJobStatus) === "pending") {
+            try {
+              const latest = await client.getJob(writeHealth.lastJobId);
+              const jobStatus = String(latest.status ?? "unknown");
+              const classification = classifyJobStatus(jobStatus);
+              if (classification === "confirmed") {
+                writeHealth = {
+                  ...writeHealth,
+                  status: "healthy",
+                  lastJobStatus: jobStatus,
+                  lastConfirmedAt: Date.now(),
+                  lastWarning: undefined,
+                  consecutivePendingJobs: 0,
+                  consecutiveFailures: 0,
+                };
+              } else if (classification === "failed") {
+                writeHealth = {
+                  ...writeHealth,
+                  status: "failing",
+                  lastJobStatus: jobStatus,
+                  lastFailureAt: Date.now(),
+                  lastWarning: `Latest write job ${writeHealth.lastJobId} failed (status=${jobStatus}).`,
+                  consecutiveFailures: (writeHealth.consecutiveFailures ?? 0) + 1,
+                };
+              } else {
+                writeHealth = {
+                  ...writeHealth,
+                  status: "degraded",
+                  lastJobStatus: jobStatus,
+                  lastWarning: `Latest write job ${writeHealth.lastJobId} is still ${jobStatus}; write not confirmed.`,
+                  consecutivePendingJobs: (writeHealth.consecutivePendingJobs ?? 0) + 1,
+                };
+              }
+            } catch (err) {
+              writeHealth = {
+                ...writeHealth,
+                status: "degraded",
+                lastWarning: `Unable to refresh write job ${writeHealth.lastJobId}: ${String(err)}`,
+              };
+            }
+
+            persistWriteHealth?.(writeHealth);
+          }
+
+          if (writeHealth) {
+            console.log(`  Write Path:     ${String(writeHealth.status ?? "unknown").toUpperCase()}`);
+            if (writeHealth.lastJobId) {
+              console.log(`    Last Job:     ${writeHealth.lastJobId} (${writeHealth.lastJobStatus ?? "unknown"})`);
+            }
+            if (writeHealth.lastWarning) {
+              console.log(`    Warning:      ${writeHealth.lastWarning}`);
+            }
+          } else {
+            console.log("  Write Path:     UNKNOWN (no recent write telemetry)");
+          }
 
           // Session activity stats — read from persisted file so CLI process
           // can see stats from the running gateway instance

@@ -230,12 +230,20 @@ describe("buildSearchMemoryTool", () => {
 });
 
 describe("buildSaveMemoryTool", () => {
-  it("saves explicit memories under the active chat session when available", async () => {
+  it("records accepted remember writes for local dedupe and session stats", async () => {
     const { client, deps, auditLoggerProxy } = makeDeps();
+    const record = vi.fn();
+    const isDuplicate = vi.fn()
+      .mockReturnValueOnce(false)
+      .mockReturnValueOnce(true);
+    deps.recentSaves = { record, isDuplicate } as any;
     client.remember = vi.fn().mockResolvedValue({ session_id: "active-session-123", status: "accepted" });
 
     const tool = buildSaveMemoryTool(deps);
-    await tool.execute("tool-1", { text: "Remember that the project uses Atlas." });
+    const result = await tool.execute("tool-1", { text: "Remember that the project uses Atlas." });
+    const duplicateResult = await tool.execute("tool-1", { text: "Remember that the project uses Atlas." });
+    const responseText = result.content[0]?.text ?? "";
+    const duplicateText = duplicateResult.content[0]?.text ?? "";
 
     expect(client.remember).toHaveBeenCalledWith(
       "Remember that the project uses Atlas.",
@@ -249,6 +257,31 @@ describe("buildSaveMemoryTool", () => {
     expect(auditLoggerProxy.log).toHaveBeenCalledWith(
       expect.objectContaining({ sessionId: "active-session-123" }),
     );
+    expect(responseText).toContain("accepted for background processing");
+    expect(responseText).not.toContain("available shortly");
+    expect(duplicateText).toContain("saved recently");
+    expect(record).toHaveBeenCalledWith("Remember that the project uses Atlas.");
+    expect(deps.knowledgeState.hasMemories).toBe(false);
+    expect(deps.sessionStats.saves).toBe(1);
+  });
+
+  it("counts async fallback acceptance even when confirmation stays pending", async () => {
+    const { client, deps } = makeDeps();
+    deps.recentSaves = { record: vi.fn(), isDuplicate: vi.fn().mockReturnValue(false) } as any;
+    client.remember = vi.fn().mockRejectedValue(new Error("Cortex remember failed: 503"));
+    client.submitIngest = vi.fn().mockResolvedValue({ job_id: "job-123", status: "pending" });
+    client.getJob = vi.fn().mockResolvedValue({ job_id: "job-123", status: "pending" });
+
+    const tool = buildSaveMemoryTool(deps);
+    const result = await tool.execute("tool-1", { text: "Remember that the project uses Atlas." });
+    const responseText = result.content[0]?.text ?? "";
+
+    expect(client.submitIngest).toHaveBeenCalledOnce();
+    expect(client.getJob).toHaveBeenCalled();
+    expect(responseText).toContain("job job-123");
+    expect(responseText).toContain("not confirmed");
+    expect(deps.knowledgeState.hasMemories).toBe(false);
+    expect(deps.sessionStats.saves).toBe(1);
   });
 });
 

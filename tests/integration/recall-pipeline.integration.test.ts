@@ -44,22 +44,25 @@ describeIf(!!API_KEY)("Recall pipeline integration", () => {
   beforeAll(async () => {
     client = new CortexClient(BASE_URL, API_KEY!);
 
-    // Seed some memories using the Agent API
+    // Seed some memories using the async Agent API. Acceptance does not
+    // guarantee immediate durability; the recall assertion below remains
+    // tolerant because live indexing may lag or be degraded.
     try {
-      await client.remember(
+      const result = await client.remember(
         "The user's name is Alice and she works at Ubundi as a software engineer.",
         TEST_SESSION,
         undefined,
         undefined,
         TEST_USER_ID,
       );
-      console.log("  Seed: remembered text fact");
+      expect(result.session_id).toBe(TEST_SESSION);
+      console.log("  Seed: accepted text fact for background processing");
     } catch (err) {
       console.warn("  Seed text failed:", (err as Error).message);
     }
 
     try {
-      await client.rememberConversation(
+      const result = await client.rememberConversation(
         [
           { role: "user", content: "We decided to use TypeScript for the plugin" },
           { role: "assistant", content: "Good choice. TypeScript gives us compile-time safety for the OpenClaw plugin API." },
@@ -69,12 +72,13 @@ describeIf(!!API_KEY)("Recall pipeline integration", () => {
         undefined,
         TEST_USER_ID,
       );
-      console.log("  Seed: remembered conversation");
+      expect(result.session_id).toBe(TEST_SESSION);
+      console.log("  Seed: accepted conversation for background processing");
     } catch (err) {
       console.warn("  Seed conversation failed:", (err as Error).message);
     }
 
-    // Small delay for indexing
+    // Brief indexing grace period. Do not treat this as write verification.
     await new Promise((r) => setTimeout(r, 3_000));
   }, 60_000);
 

@@ -35,10 +35,15 @@ import { SessionGoalStore } from "../internal/session-goal.js";
 import { getRolePreset, detectAgentRole } from "../internal/agent-roles.js";
 import type { AgentRole } from "../internal/agent-roles.js";
 import { buildCommands } from "./commands.js";
+import {
+  createWriteHealthState,
+  type WriteHealthState,
+} from "../internal/write-health.js";
 
 const version = packageJson.version;
 const PACKAGE_NAME = packageJson.name;
 const STATS_FILE = join(homedir(), ".openclaw", "cortex-session-stats.json");
+const WRITE_HEALTH_FILE = join(homedir(), ".openclaw", "cortex-write-health.json");
 const UPDATE_CHECK_FILE = join(homedir(), ".openclaw", "cortex-update-check.json");
 const UPDATE_CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
@@ -71,6 +76,38 @@ function loadPersistedStats(): SessionStats | null {
       recallCount: raw.recallCount ?? 0,
       recallMemoriesTotal: raw.recallMemoriesTotal ?? 0,
       recallDuplicatesCollapsed: raw.recallDuplicatesCollapsed ?? 0,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function persistWriteHealth(writeHealth: WriteHealthState): void {
+  try {
+    writeFileSync(
+      WRITE_HEALTH_FILE,
+      JSON.stringify({ ...writeHealth, updatedAt: Date.now() }) + "\n",
+      { encoding: "utf-8", mode: 0o600 },
+    );
+  } catch {
+    // Best-effort — write-path status is non-critical
+  }
+}
+
+function loadPersistedWriteHealth(): WriteHealthState | null {
+  try {
+    const raw = JSON.parse(readFileSync(WRITE_HEALTH_FILE, "utf-8"));
+    return {
+      status: raw.status ?? "unknown",
+      lastAttemptAt: raw.lastAttemptAt ?? 0,
+      lastAcceptedAt: raw.lastAcceptedAt ?? 0,
+      lastConfirmedAt: raw.lastConfirmedAt ?? 0,
+      lastFailureAt: raw.lastFailureAt ?? 0,
+      lastJobId: raw.lastJobId ?? undefined,
+      lastJobStatus: raw.lastJobStatus ?? undefined,
+      lastWarning: raw.lastWarning ?? undefined,
+      consecutivePendingJobs: raw.consecutivePendingJobs ?? 0,
+      consecutiveFailures: raw.consecutiveFailures ?? 0,
     };
   } catch {
     return null;
@@ -491,6 +528,8 @@ const plugin = {
       maturity: "unknown",
       lastChecked: 0,
     };
+    const writeHealthState: WriteHealthState = loadPersistedWriteHealth() ?? createWriteHealthState();
+    const persistWriteHealthState = () => persistWriteHealth(writeHealthState);
     const sessionGoalStore = new SessionGoalStore();
 
     // Session ID for this plugin lifecycle — groups tool-saved memories into
@@ -692,11 +731,14 @@ const plugin = {
       sessionGoalStore,
       {
         watermarkReady,
-        // Count captures once Cortex has accepted the ingest job, not when we merely
-        // schedule local prep. This keeps heartbeat reflect aligned with real ingest.
+        // Heartbeat reflect is driven by recent accepted ingest activity.
+        // Keep durable-memory gating separate from this counter so pending
+        // jobs still contribute to later consolidation work.
         onSubmitted: () => {
           capturesSinceReflect++;
         },
+        writeHealthState,
+        persistWriteHealth: persistWriteHealthState,
       },
     );
     registerHookCompat(
@@ -786,6 +828,8 @@ const plugin = {
         persistStats,
         auditLoggerProxy,
         knowledgeState,
+        writeHealthState,
+        persistWriteHealth: persistWriteHealthState,
         recentSaves,
         sessionGoalStore,
         getRoleContext: () => rolePreset?.recallContext,
@@ -812,6 +856,8 @@ const plugin = {
         getLastMessages: () => lastMessages,
         sessionId,
         auditLoggerProxy,
+        writeHealthState,
+        persistWriteHealth: persistWriteHealthState,
         sessionState,
         getWorkspaceDir: () => workspaceDirResolved,
         getAuditLoggerInner: () => auditLoggerInner,
@@ -838,6 +884,7 @@ const plugin = {
           },
           recallMetrics: recallSummary,
           retryQueuePending: retryQueue.pending,
+          writeHealth: writeHealthState,
           config: {
             autoRecall: config.autoRecall,
             autoCapture: config.autoCapture,
@@ -861,6 +908,8 @@ const plugin = {
         getNamespace: () => namespace,
         sessionStats,
         loadPersistedStats,
+        loadPersistedWriteHealth,
+        persistWriteHealth: persistWriteHealthState,
         isAbortError,
         resetCompletedAfterAbort,
       });

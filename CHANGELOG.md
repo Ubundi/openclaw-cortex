@@ -7,6 +7,17 @@ All notable changes to this project will be documented in this file.
 ### Added
 
 - **Tools profile documentation**: Added Quick Start step and troubleshooting entry for `tools.profile` configuration. OpenClaw defaults to the `messaging` profile which excludes memory tools — users must set `tools.profile: "full"` after installation and after any reconfiguration.
+- **Write-path telemetry**: Added persisted write-health state (accepted, confirmed, pending, failed) and surfaced it in `cortex.status` RPC + `openclaw cortex status` output.
+
+### Changed
+
+- **Honest async write messaging**: `cortex_save_memory` and `/checkpoint` now treat `/v1/remember` acceptance as unconfirmed background processing instead of implying durable success.
+- **Capture completion semantics**: Auto-capture no longer marks `knowledgeState.hasMemories` on job acceptance alone; it now waits for brief job-status confirmation.
+- **Status command write diagnostics**: `openclaw cortex status` now checks recent pending write jobs and reports degraded write-path state explicitly.
+
+### Fixed
+
+- **Async contract test drift**: Integration tests no longer expect synchronous memory summaries from `remember()` / `rememberConversation()`, matching the real accepted-for-processing API contract.
 
 ## [2.3.0] - 2026-03-10
 

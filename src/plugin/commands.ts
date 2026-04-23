@@ -5,6 +5,7 @@ import type { AuditLogger } from "../internal/audit-logger.js";
 import { AuditLogger as AuditLoggerImpl } from "../internal/audit-logger.js";
 import { createCheckpointHandler } from "../features/checkpoint/handler.js";
 import type { SessionStateStore } from "../internal/session-state.js";
+import type { WriteHealthState } from "../internal/write-health.js";
 
 export interface CommandsDeps {
   client: CortexClient;
@@ -15,6 +16,8 @@ export interface CommandsDeps {
   getLastMessages: () => unknown[];
   sessionId: string;
   auditLoggerProxy: AuditLogger;
+  writeHealthState?: WriteHealthState;
+  persistWriteHealth?: (state: WriteHealthState) => void;
   sessionState: SessionStateStore;
   getWorkspaceDir: () => string | undefined;
   getAuditLoggerInner: () => AuditLogger | undefined;
@@ -34,6 +37,8 @@ export function buildCommands(
     getLastMessages,
     sessionId,
     auditLoggerProxy,
+    writeHealthState,
+    persistWriteHealth,
     sessionState,
     getWorkspaceDir,
     getAuditLoggerInner,
@@ -49,6 +54,8 @@ export function buildCommands(
     getLastMessages,
     sessionId,
     auditLoggerProxy,
+    writeHealthState,
+    persistWriteHealth,
   );
 
   registerCommand({

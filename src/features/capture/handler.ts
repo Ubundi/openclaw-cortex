@@ -11,6 +11,14 @@ import { containsHeartbeatPrompt } from "../../internal/heartbeat-detect.js";
 import type { CaptureWatermarkStore } from "../../internal/capture-watermark-store.js";
 import { filterConversationMessagesForMemory } from "../../internal/message-provenance.js";
 import type { SessionGoalStore } from "../../internal/session-goal.js";
+import {
+  markWriteAccepted,
+  markWriteConfirmed,
+  markWriteFailed,
+  markWritePending,
+  probeJobProgress,
+  type WriteHealthState,
+} from "../../internal/write-health.js";
 
 interface InputProvenance {
   kind?: string;
@@ -49,6 +57,9 @@ interface ScheduledCaptureEvent {
 interface CaptureHandlerOptions {
   watermarkReady?: Promise<void>;
   onSubmitted?: () => void;
+  onConfirmed?: () => void;
+  writeHealthState?: WriteHealthState;
+  persistWriteHealth?: (state: WriteHealthState) => void;
 }
 
 export interface CaptureHandler {
@@ -201,6 +212,12 @@ export function createCaptureHandler(
   const watermarkReady = (options.watermarkReady ?? Promise.resolve()).catch((err) => {
     logger.debug?.(`Cortex watermark readiness failed: ${String(err)}`);
   });
+
+  const commitWriteHealth = (updater: () => void) => {
+    if (!options.writeHealthState) return;
+    updater();
+    options.persistWriteHealth?.(options.writeHealthState);
+  };
 
   const scheduleCapture = (event: ScheduledCaptureEvent): void => {
     captureQueue = captureQueue.then(async () => {
@@ -408,15 +425,75 @@ export function createCaptureHandler(
           );
           logger.info(`Cortex capture: submitted job ${job.job_id} (status=${job.status})`);
           options.onSubmitted?.();
-          // Mark that we have memories — heartbeat handler owns full knowledge refresh
-          if (knowledgeState) {
-            knowledgeState.hasMemories = true;
+
+          commitWriteHealth(() => {
+            markWriteAccepted(options.writeHealthState!, {
+              warning: `Capture job ${job.job_id} accepted (status=${job.status}) but not yet confirmed.`,
+              jobId: job.job_id,
+              jobStatus: job.status,
+            });
+          });
+
+          if (typeof (client as unknown as { getJob?: unknown }).getJob !== "function") {
+            const pendingMessage = `Cortex capture job ${job.job_id} accepted (status=${job.status}) without a readable job status endpoint; write not confirmed.`;
+            logger.warn(pendingMessage);
+            commitWriteHealth(() => {
+              markWritePending(options.writeHealthState!, {
+                warning: pendingMessage,
+                jobId: job.job_id,
+                jobStatus: job.status,
+              });
+            });
+            return;
           }
+
+          const probe = await probeJobProgress(client, job.job_id);
+          if (probe.state === "confirmed") {
+            if (knowledgeState) {
+              knowledgeState.hasMemories = true;
+            }
+            options.onConfirmed?.();
+            commitWriteHealth(() => {
+              markWriteConfirmed(options.writeHealthState!, {
+                jobId: job.job_id,
+                jobStatus: probe.status,
+              });
+            });
+            return;
+          }
+
+          if (probe.state === "failed") {
+            const failedMessage = `Cortex capture job ${job.job_id} failed (status=${probe.status}${probe.error ? `, error=${probe.error}` : ""})`;
+            commitWriteHealth(() => {
+              markWriteFailed(options.writeHealthState!, {
+                warning: failedMessage,
+                jobId: job.job_id,
+                jobStatus: probe.status,
+              });
+            });
+            logger.warn(failedMessage);
+            return;
+          }
+
+          const pendingMessage = `Cortex capture job ${job.job_id} not confirmed (status=${probe.status}). Memory remains queued.`;
+          logger.warn(pendingMessage);
+          commitWriteHealth(() => {
+            markWritePending(options.writeHealthState!, {
+              warning: pendingMessage,
+              jobId: job.job_id,
+              jobStatus: probe.status,
+            });
+          });
         };
 
         // Fire-and-forget with retry on failure
         const submission = doRemember().catch((err) => {
           logger.warn(`Cortex capture failed, queuing for retry: ${String(err)}`);
+          commitWriteHealth(() => {
+            markWriteFailed(options.writeHealthState!, {
+              warning: `Cortex capture submit failed: ${String(err)}`,
+            });
+          });
           if (retryQueue) {
             retryQueue.enqueue(doRemember, `capture-${++captureCounter}`);
           }

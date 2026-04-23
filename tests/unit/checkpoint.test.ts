@@ -30,8 +30,8 @@ describe("createCheckpointHandler", () => {
     vi.clearAllMocks();
   });
 
-  it("saves checkpoint with explicit summary", async () => {
-    const rememberMock = vi.fn().mockResolvedValue({ session_id: "sess-1" });
+  it("reports checkpoint acceptance without promising durable persistence", async () => {
+    const rememberMock = vi.fn().mockResolvedValue({ session_id: "sess-1", status: "accepted" });
     const client = { remember: rememberMock } as unknown as CortexClient;
 
     const handler = createCheckpointHandler(
@@ -46,7 +46,9 @@ describe("createCheckpointHandler", () => {
 
     const result = await handler({ args: "working on auth refactor" });
 
-    expect(result.text).toContain("Checkpoint saved.");
+    expect(result.text).toContain("Checkpoint accepted for background processing.");
+    expect(result.text).not.toContain("Checkpoint saved.");
+    expect(result.text).not.toContain("available for recall");
     expect(rememberMock).toHaveBeenCalledWith(
       "[SESSION CHECKPOINT] working on auth refactor",
       "sess-1",
@@ -81,7 +83,7 @@ describe("createCheckpointHandler", () => {
 
     const result = await handler({ args: "" });
 
-    expect(result.text).toContain("Checkpoint saved.");
+    expect(result.text).toContain("Checkpoint accepted for background processing.");
     expect(rememberMock).toHaveBeenCalledOnce();
 
     const savedText = rememberMock.mock.calls[0][0] as string;

@@ -319,6 +319,10 @@ describe("plugin lifecycle contract", () => {
       job_id: "job-123",
       status: "pending",
     });
+    vi.spyOn(CortexClient.prototype, "getJob").mockResolvedValue({
+      job_id: "job-123",
+      status: "pending",
+    });
 
     const { api, tools } = makeApi({
       toolTimeoutMs: 1000,
@@ -333,7 +337,8 @@ describe("plugin lifecycle contract", () => {
     const result = await saveTool!.execute("tool-1", { text: "User prefers dark mode interfaces." });
     const responseText = result.content[0]?.text ?? "";
 
-    expect(responseText).toContain("Memory save queued (job job-123, status=pending)");
+    expect(responseText).toContain("Memory save queued (job job-123");
+    expect(responseText).toContain("not confirmed");
     expect(CortexClient.prototype.remember).toHaveBeenCalledWith(
       "User prefers dark mode interfaces.",
       expect.any(String),
@@ -351,6 +356,7 @@ describe("plugin lifecycle contract", () => {
       "openclaw",
       "OpenClaw",
     );
+    expect(CortexClient.prototype.getJob).toHaveBeenCalledWith("job-123");
   });
 
   it("registers auto-reply command", async () => {
@@ -617,6 +623,7 @@ describe("plugin lifecycle contract", () => {
     });
     expect(rpcResponse).toHaveProperty("version");
     expect(rpcResponse).toHaveProperty("knowledgeState");
+    expect(rpcResponse).toHaveProperty("writeHealth");
     expect(rpcResponse).toHaveProperty("config");
   });
 

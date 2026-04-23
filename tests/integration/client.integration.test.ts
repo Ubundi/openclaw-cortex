@@ -26,7 +26,7 @@ describeIf(!!API_KEY)("CortexClient integration", () => {
     client = new CortexClient(BASE_URL, API_KEY!);
   });
 
-  it("remember stores text and returns memory summary", async () => {
+  it("remember accepts text for background processing", async () => {
     const result = await client.remember(
       "Integration test: the project uses PostgreSQL with pgvector for embeddings.",
       TEST_SESSION,
@@ -36,13 +36,13 @@ describeIf(!!API_KEY)("CortexClient integration", () => {
     );
 
     expect(result).toBeDefined();
-    expect(typeof result.memories_created).toBe("number");
-    expect(Array.isArray(result.entities_found)).toBe(true);
-    expect(Array.isArray(result.facts)).toBe(true);
-    console.log(`  Remembered ${result.memories_created} memories, entities: ${result.entities_found.join(", ")}`);
+    expect(result.session_id).toBe(TEST_SESSION);
+    expect(result.status ?? "accepted").toBe("accepted");
+    expect(result).not.toHaveProperty("memories_created");
+    console.log(`  Remember accepted for background processing, session: ${result.session_id}`);
   }, 30_000);
 
-  it("rememberConversation stores messages and returns memory summary", async () => {
+  it("rememberConversation accepts messages for background processing", async () => {
     const result = await client.rememberConversation(
       [
         { role: "user", content: "What database does the project use?" },
@@ -55,9 +55,10 @@ describeIf(!!API_KEY)("CortexClient integration", () => {
     );
 
     expect(result).toBeDefined();
-    expect(typeof result.memories_created).toBe("number");
-    expect(Array.isArray(result.facts)).toBe(true);
-    console.log(`  Remembered ${result.memories_created} memories from conversation`);
+    expect(result.session_id).toBe(TEST_SESSION);
+    expect(result.status ?? "accepted").toBe("accepted");
+    expect(result).not.toHaveProperty("facts");
+    console.log(`  Conversation accepted for background processing, session: ${result.session_id}`);
   }, 30_000);
 
   it("recall returns memories with expected shape", async () => {

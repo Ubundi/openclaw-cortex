@@ -86,6 +86,88 @@ describe("createCaptureHandler", () => {
     );
   });
 
+  it("does not mark memories available when the accepted capture job remains pending", async () => {
+    const submitMock = vi.fn().mockResolvedValue({ job_id: "job-pending", status: "pending" });
+    const getJobMock = vi.fn().mockResolvedValue({ job_id: "job-pending", status: "pending" });
+    const onSubmitted = vi.fn();
+    const onConfirmed = vi.fn();
+    const client = {
+      submitIngestConversation: submitMock,
+      getJob: getJobMock,
+    } as unknown as CortexClient;
+    const knowledgeState = {
+      hasMemories: false,
+      totalSessions: 0,
+      pipelineTier: 1 as const,
+      maturity: "cold" as const,
+      lastChecked: 0,
+    };
+
+    const handler = createCaptureHandler(
+      client,
+      makeConfig(),
+      logger,
+      undefined,
+      knowledgeState,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      {
+        onSubmitted,
+        onConfirmed,
+      },
+    );
+
+    await handler({
+      messages: [
+        { role: "user", content: "What should we remember about safe deployment behavior when the job queue is degraded?" },
+        { role: "assistant", content: "We should only report accepted capture jobs as queued until Cortex confirms processing finished." },
+      ],
+      aborted: false,
+      sessionKey: "sess-pending-capture",
+    });
+
+    await vi.waitFor(() => expect(getJobMock).toHaveBeenCalled());
+    expect(knowledgeState.hasMemories).toBe(false);
+    expect(onSubmitted).toHaveBeenCalledTimes(1);
+    expect(onConfirmed).not.toHaveBeenCalled();
+    expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining("not confirmed"));
+  });
+
+  it("does not enqueue a retry when Cortex reports a terminal failed capture job", async () => {
+    const submitMock = vi.fn().mockResolvedValue({ job_id: "job-failed", status: "pending" });
+    const getJobMock = vi.fn().mockResolvedValue({ job_id: "job-failed", status: "failed", error: "bad payload" });
+    const enqueue = vi.fn();
+    const client = {
+      submitIngestConversation: submitMock,
+      getJob: getJobMock,
+    } as unknown as CortexClient;
+
+    const handler = createCaptureHandler(
+      client,
+      makeConfig(),
+      logger,
+      { enqueue } as any,
+    );
+
+    await handler({
+      messages: [
+        { role: "user", content: "Please remember this deployment transcript exactly as entered, even if it later fails validation upstream." },
+        { role: "assistant", content: "I will submit it once, but a terminal Cortex failure should not schedule a brand new retry job automatically." },
+      ],
+      aborted: false,
+      sessionKey: "sess-failed-capture",
+    });
+
+    await vi.waitFor(() => expect(getJobMock).toHaveBeenCalled());
+    expect(enqueue).not.toHaveBeenCalled();
+    expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining("job job-failed failed"));
+  });
+
   it("skips when autoCapture is disabled", async () => {
     const submitMock = vi.fn();
     const client = { submitIngestConversation: submitMock } as unknown as CortexClient;

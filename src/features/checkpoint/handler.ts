@@ -3,6 +3,11 @@ import type { CortexConfig } from "../../plugin/config.js";
 import type { AuditLogger } from "../../internal/audit-logger.js";
 import { sanitizeConversationText } from "../capture/filter.js";
 import { filterConversationMessagesForMemory } from "../../internal/message-provenance.js";
+import {
+  markWriteAccepted,
+  markWriteFailed,
+  type WriteHealthState,
+} from "../../internal/write-health.js";
 
 type Logger = {
   debug?(...args: unknown[]): void;
@@ -95,7 +100,15 @@ export function createCheckpointHandler(
   getLastMessages: () => unknown[],
   pluginSessionId?: string,
   auditLogger?: AuditLogger,
+  writeHealthState?: WriteHealthState,
+  persistWriteHealth?: (state: WriteHealthState) => void,
 ): (ctx: CommandContext) => Promise<{ text: string }> {
+  const commitWriteHealth = (updater: () => void) => {
+    if (!writeHealthState) return;
+    updater();
+    persistWriteHealth?.(writeHealthState);
+  };
+
   return async (ctx) => {
     try {
       await userIdReady;
@@ -151,19 +164,31 @@ export function createCheckpointHandler(
         "OpenClaw",
       );
 
-      logger.info("Cortex checkpoint: saved");
+      const acceptedMessage = "Checkpoint accepted for background processing. Cortex has not confirmed storage yet.";
+      commitWriteHealth(() => {
+        markWriteAccepted(writeHealthState!, {
+          warning: acceptedMessage,
+          jobStatus: "accepted",
+        });
+      });
+      logger.info("Cortex checkpoint: accepted for background processing");
       return {
         text: [
-          `**Checkpoint saved.**`,
+          `**Checkpoint accepted for background processing.**`,
           ``,
-          `A summary of your current session has been stored in Cortex.`,
-          `When you start a new session, this context will be available for recall.`,
+          `Cortex accepted your session summary, but write completion is not yet confirmed.`,
+          `If the write queue is degraded, recall may not include this checkpoint immediately.`,
           ``,
           `You can now safely run \`/sleep\` or reset with \`/new\`.`,
         ].join("\n"),
       };
     } catch (err) {
       logger.warn(`Cortex checkpoint failed: ${String(err)}`);
+      commitWriteHealth(() => {
+        markWriteFailed(writeHealthState!, {
+          warning: `Cortex checkpoint failed: ${String(err)}`,
+        });
+      });
       return { text: `Checkpoint failed: ${String(err)}` };
     }
   };

@@ -164,4 +164,139 @@ describe("registerCliCommands search output", () => {
     expect(logSpy).toHaveBeenCalledWith("1. [0.74] User uses Neovim");
     expect(logSpy).not.toHaveBeenCalledWith("2. [0.12] Weak unrelated tail");
   });
+
+  it("shows degraded write-path state on status when the last accepted job is still pending", async () => {
+    const registerCli = vi.fn();
+    const persistWriteHealth = vi.fn();
+    const client = {
+      healthCheck: vi.fn().mockResolvedValue(true),
+      getLinkStatus: vi.fn().mockResolvedValue({ linked: false }),
+      knowledge: vi.fn().mockResolvedValue({
+        total_memories: 0,
+        total_sessions: 0,
+        maturity: "cold",
+        entities: [],
+      }),
+      stats: vi.fn().mockResolvedValue({ pipeline_tier: 1, pipeline_maturity: "cold" }),
+      recall: vi.fn().mockResolvedValue({ memories: [] }),
+      retrieve: vi.fn().mockResolvedValue({ results: [] }),
+      getJob: vi.fn().mockResolvedValue({ job_id: "job-pending", status: "pending" }),
+    };
+
+    registerCliCommands(registerCli, {
+      client: client as any,
+      config: {
+        baseUrl: "https://api.example.com",
+        autoRecall: true,
+        autoCapture: true,
+        dedupeWindowMinutes: 30,
+        toolTimeoutMs: 500,
+      } as any,
+      version: "test",
+      getUserId: () => "user-1",
+      userIdReady: Promise.resolve(),
+      getNamespace: () => "test",
+      sessionStats: makeSessionStats(),
+      loadPersistedStats: () => null,
+      loadPersistedWriteHealth: () => ({
+        status: "degraded",
+        lastAttemptAt: Date.now(),
+        lastAcceptedAt: Date.now(),
+        lastConfirmedAt: 0,
+        lastJobId: "job-pending",
+        lastJobStatus: "pending",
+        lastWarning: "Cortex write job job-pending is still pending; memory is queued but not confirmed.",
+        consecutivePendingJobs: 1,
+        consecutiveFailures: 0,
+      }),
+      persistWriteHealth,
+      isAbortError: () => false,
+      resetCompletedAfterAbort: async () => false,
+    } as any);
+
+    const program = createCliNode("root");
+    const registrar = registerCli.mock.calls[0][0] as (ctx: { program: CliProgram; config: Record<string, unknown> }) => void;
+    registrar({ program: program as unknown as CliProgram, config: {} });
+
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    await program.children.get("cortex")?.children.get("status")?.actionHandler?.();
+
+    expect(client.getJob).toHaveBeenCalledWith("job-pending");
+    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining("Write Path:"));
+    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining("DEGRADED"));
+    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining("job-pending (pending)"));
+    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining("not confirmed"));
+    expect(persistWriteHealth).toHaveBeenCalledWith(expect.objectContaining({
+      status: "degraded",
+      lastJobStatus: "pending",
+    }));
+  });
+
+  it("persists refreshed healthy write-path state when the last job has completed", async () => {
+    const registerCli = vi.fn();
+    const persistWriteHealth = vi.fn();
+    const client = {
+      healthCheck: vi.fn().mockResolvedValue(true),
+      getLinkStatus: vi.fn().mockResolvedValue({ linked: false }),
+      knowledge: vi.fn().mockResolvedValue({
+        total_memories: 0,
+        total_sessions: 0,
+        maturity: "cold",
+        entities: [],
+      }),
+      stats: vi.fn().mockResolvedValue({ pipeline_tier: 1, pipeline_maturity: "cold" }),
+      recall: vi.fn().mockResolvedValue({ memories: [] }),
+      retrieve: vi.fn().mockResolvedValue({ results: [] }),
+      getJob: vi.fn().mockResolvedValue({ job_id: "job-done", status: "completed" }),
+    };
+
+    registerCliCommands(registerCli, {
+      client: client as any,
+      config: {
+        baseUrl: "https://api.example.com",
+        autoRecall: true,
+        autoCapture: true,
+        dedupeWindowMinutes: 30,
+        toolTimeoutMs: 500,
+      } as any,
+      version: "test",
+      getUserId: () => "user-1",
+      userIdReady: Promise.resolve(),
+      getNamespace: () => "test",
+      sessionStats: makeSessionStats(),
+      loadPersistedStats: () => null,
+      loadPersistedWriteHealth: () => ({
+        status: "degraded",
+        lastAttemptAt: Date.now(),
+        lastAcceptedAt: Date.now(),
+        lastConfirmedAt: 0,
+        lastJobId: "job-done",
+        lastJobStatus: "pending",
+        lastWarning: "queued but not confirmed",
+        consecutivePendingJobs: 2,
+        consecutiveFailures: 0,
+      }),
+      persistWriteHealth,
+      isAbortError: () => false,
+      resetCompletedAfterAbort: async () => false,
+    } as any);
+
+    const program = createCliNode("root");
+    const registrar = registerCli.mock.calls[0][0] as (ctx: { program: CliProgram; config: Record<string, unknown> }) => void;
+    registrar({ program: program as unknown as CliProgram, config: {} });
+
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    await program.children.get("cortex")?.children.get("status")?.actionHandler?.();
+
+    expect(client.getJob).toHaveBeenCalledWith("job-done");
+    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining("HEALTHY"));
+    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining("job-done (completed)"));
+    expect(persistWriteHealth).toHaveBeenCalledWith(expect.objectContaining({
+      status: "healthy",
+      lastJobStatus: "completed",
+      consecutivePendingJobs: 0,
+    }));
+  });
 });

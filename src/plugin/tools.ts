@@ -12,6 +12,14 @@ import type { KnowledgeState } from "./index.js";
 import type { SessionGoalStore } from "../internal/session-goal.js";
 import { formatMemories } from "../features/recall/formatter.js";
 import { coerceSearchMode, filterSearchResults, prepareSearchQuery } from "./search-query.js";
+import {
+  markWriteAccepted,
+  markWriteConfirmed,
+  markWriteFailed,
+  markWritePending,
+  probeJobProgress,
+  type WriteHealthState,
+} from "../internal/write-health.js";
 
 export interface SessionStats {
   saves: number;
@@ -35,6 +43,8 @@ export interface ToolsDeps {
   persistStats: (stats: SessionStats) => void;
   auditLoggerProxy: AuditLogger;
   knowledgeState: KnowledgeState;
+  writeHealthState?: WriteHealthState;
+  persistWriteHealth?: (state: WriteHealthState) => void;
   recentSaves: RecentSaves | null;
   sessionGoalStore: SessionGoalStore;
   getRoleContext?: () => string | undefined;
@@ -330,8 +340,16 @@ export function buildSaveMemoryTool(deps: ToolsDeps): ToolDefinition {
     persistStats,
     auditLoggerProxy,
     knowledgeState,
+    writeHealthState,
+    persistWriteHealth,
     recentSaves,
   } = deps;
+
+  const commitWriteHealth = (updater: () => void) => {
+    if (!writeHealthState) return;
+    updater();
+    persistWriteHealth?.(writeHealthState);
+  };
 
   return {
     name: "cortex_save_memory",
@@ -365,6 +383,12 @@ export function buildSaveMemoryTool(deps: ToolsDeps): ToolDefinition {
       if (!text || text.length < 5) {
         return { content: [{ type: "text", text: "Text too short to save as a memory." }] };
       }
+
+      const recordAcceptedSave = () => {
+        recentSaves?.record(text);
+        sessionStats.saves++;
+        persistStats(sessionStats);
+      };
 
       const memoryType = typeof params.type === "string" ? params.type : undefined;
       const importance = typeof params.importance === "string" ? params.importance : undefined;
@@ -438,7 +462,7 @@ export function buildSaveMemoryTool(deps: ToolsDeps): ToolDefinition {
       try {
         const now = new Date();
         const referenceDate = now.toISOString().slice(0, 10);
-        await client.remember(
+        const rememberResult = await client.remember(
           enrichedText,
           effectiveSessionId,
           config.toolTimeoutMs,
@@ -447,21 +471,29 @@ export function buildSaveMemoryTool(deps: ToolsDeps): ToolDefinition {
           "openclaw",
           "OpenClaw",
         );
-        if (knowledgeState) {
-          knowledgeState.hasMemories = true;
-        }
-        recentSaves?.record(text);
-        sessionStats.saves++;
-        persistStats(sessionStats);
-        logger.debug?.("Cortex remember accepted");
+        const rememberStatus = rememberResult.status ?? "accepted";
+        const acceptedWarning = "Cortex accepted the save for background processing, but write completion is not yet confirmed.";
+        commitWriteHealth(() => {
+          markWriteAccepted(writeHealthState!, {
+            warning: acceptedWarning,
+            jobStatus: rememberStatus,
+          });
+        });
+        recordAcceptedSave();
+        logger.info(`Cortex remember accepted (status=${rememberStatus}) — write not yet confirmed`);
         return {
           content: [{
             type: "text",
-            text: "Memory submitted for processing. It should be available shortly.",
+            text: "Memory accepted for background processing, but not yet confirmed as stored.",
           }],
         };
       } catch (err) {
         logger.warn(`Cortex save failed, falling back to async ingest: ${String(err)}`);
+        commitWriteHealth(() => {
+          markWriteFailed(writeHealthState!, {
+            warning: `Cortex remember failed before fallback: ${String(err)}`,
+          });
+        });
 
         try {
           const referenceDate = new Date().toISOString();
@@ -473,20 +505,78 @@ export function buildSaveMemoryTool(deps: ToolsDeps): ToolDefinition {
             "openclaw",
             "OpenClaw",
           );
-          if (knowledgeState) {
-            knowledgeState.hasMemories = true;
+
+          const acceptedWarning = `Memory save queued (job ${job.job_id}, status=${job.status}) but not yet confirmed.`;
+          commitWriteHealth(() => {
+            markWriteAccepted(writeHealthState!, {
+              warning: acceptedWarning,
+              jobId: job.job_id,
+              jobStatus: job.status,
+            });
+          });
+          recordAcceptedSave();
+
+          let pendingMessage = acceptedWarning;
+          if (typeof (client as unknown as { getJob?: unknown }).getJob === "function") {
+            const probe = await probeJobProgress(client, job.job_id);
+
+            if (probe.state === "confirmed") {
+              if (knowledgeState) {
+                knowledgeState.hasMemories = true;
+              }
+              commitWriteHealth(() => {
+                markWriteConfirmed(writeHealthState!, {
+                  jobId: job.job_id,
+                  jobStatus: probe.status,
+                });
+              });
+              return {
+                content: [{
+                  type: "text",
+                  text: `Memory save completed (job ${job.job_id}, status=${probe.status}).`,
+                }],
+              };
+            }
+
+            if (probe.state === "failed") {
+              const failure = `Memory save failed after queue acceptance (job ${job.job_id}, status=${probe.status}${probe.error ? `, error=${probe.error}` : ""}).`;
+              commitWriteHealth(() => {
+                markWriteFailed(writeHealthState!, {
+                  warning: failure,
+                  jobId: job.job_id,
+                  jobStatus: probe.status,
+                });
+              });
+              logger.warn(failure);
+              return { content: [{ type: "text", text: failure }] };
+            }
+
+            pendingMessage = `Memory save queued (job ${job.job_id}, status=${probe.status}). Cortex has not confirmed completion yet.`;
+            commitWriteHealth(() => {
+              markWritePending(writeHealthState!, {
+                warning: pendingMessage,
+                jobId: job.job_id,
+                jobStatus: probe.status,
+              });
+            });
+            logger.warn(pendingMessage);
+          } else {
+            logger.warn(pendingMessage);
           }
-          recentSaves?.record(text);
-          sessionStats.saves++;
-          persistStats(sessionStats);
+
           return {
             content: [{
               type: "text",
-              text: `Memory save queued (job ${job.job_id}, status=${job.status}). It should be available shortly.`,
+              text: `${pendingMessage} This memory is queued but not confirmed.`,
             }],
           };
         } catch (fallbackErr) {
           logger.warn(`Cortex save fallback failed: ${String(fallbackErr)}`);
+          commitWriteHealth(() => {
+            markWriteFailed(writeHealthState!, {
+              warning: `Cortex save fallback failed: ${String(fallbackErr)}`,
+            });
+          });
           return { content: [{ type: "text", text: `Failed to save memory: ${String(err)}` }] };
         }
       }
