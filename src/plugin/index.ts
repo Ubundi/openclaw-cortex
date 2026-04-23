@@ -44,8 +44,10 @@ const version = packageJson.version;
 const PACKAGE_NAME = packageJson.name;
 const STATS_FILE = join(homedir(), ".openclaw", "cortex-session-stats.json");
 const WRITE_HEALTH_FILE = join(homedir(), ".openclaw", "cortex-write-health.json");
+const CONNECTIVITY_STATE_FILE = join(homedir(), ".openclaw", "cortex-connectivity-state.json");
 const UPDATE_CHECK_FILE = join(homedir(), ".openclaw", "cortex-update-check.json");
 const UPDATE_CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
+const RECENT_HEALTHY_SUPPRESSION_WINDOW_MS = 5 * 60_000;
 
 interface SessionStats {
   saves: number;
@@ -55,6 +57,10 @@ interface SessionStats {
   recallCount: number;
   recallMemoriesTotal: number;
   recallDuplicatesCollapsed: number;
+}
+
+interface ConnectivityState {
+  lastHealthyAt: number;
 }
 
 function persistStats(stats: SessionStats): void {
@@ -112,6 +118,39 @@ function loadPersistedWriteHealth(): WriteHealthState | null {
   } catch {
     return null;
   }
+}
+
+function persistConnectivityState(state: ConnectivityState): void {
+  try {
+    writeFileSync(
+      CONNECTIVITY_STATE_FILE,
+      JSON.stringify({ ...state, updatedAt: Date.now() }) + "\n",
+      { encoding: "utf-8", mode: 0o600 },
+    );
+  } catch {
+    // Best-effort — connectivity hints are advisory only
+  }
+}
+
+function loadPersistedConnectivityState(): ConnectivityState | null {
+  try {
+    const raw = JSON.parse(readFileSync(CONNECTIVITY_STATE_FILE, "utf-8"));
+    return {
+      lastHealthyAt: raw.lastHealthyAt ?? 0,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function wasHealthyRecently(now = Date.now()): boolean {
+  const persisted = loadPersistedConnectivityState();
+  if (!persisted?.lastHealthyAt) return false;
+  return now - persisted.lastHealthyAt <= RECENT_HEALTHY_SUPPRESSION_WINDOW_MS;
+}
+
+function isExplicitCortexCliInvocation(): boolean {
+  return process.argv.some((arg: string) => arg === "cortex");
 }
 
 export interface KnowledgeState {
@@ -219,6 +258,9 @@ async function bootstrapClient(
 ): Promise<void> {
   const STARTUP_HEALTH_PROBE_ATTEMPTS = 2;
   const STARTUP_FALLBACK_TIMEOUT_MS = 8_000;
+  const markHealthy = () => {
+    persistConnectivityState({ lastHealthyAt: Date.now() });
+  };
   const fetchKnowledgeSnapshot = async (timeoutMs?: number) => {
     const [knowledge, stats] = await Promise.all([
       client.knowledge(userId, timeoutMs),
@@ -245,6 +287,7 @@ async function bootstrapClient(
     logger.info(
       `Cortex connected — ${knowledge.total_memories.toLocaleString()} memories, ${knowledge.total_sessions} sessions (${knowledge.maturity}), tier ${knowledgeState.pipelineTier}`,
     );
+    markHealthy();
 
     // Pre-warm the ECS task when the knowledge store is cold or warming.
     // This reduces first-recall latency by ensuring the inference container
@@ -282,6 +325,10 @@ async function bootstrapClient(
       applyConnectedSnapshot(knowledge, stats);
       return;
     } catch {
+      if (wasHealthyRecently()) {
+        logger.debug?.("Cortex startup: probes failed in this process, but Cortex was healthy recently; suppressing offline warning");
+        return;
+      }
       logger.info("Cortex offline — API unreachable");
       return;
     }
@@ -292,6 +339,7 @@ async function bootstrapClient(
     applyConnectedSnapshot(knowledge, stats);
   } catch {
     // Knowledge endpoint unavailable — health check passed so API is reachable
+    markHealthy();
     logger.info("Cortex connected");
   }
 }
@@ -516,6 +564,10 @@ const plugin = {
       "";
 
     if (!resolvedApiKey) {
+      if (!isExplicitCortexCliInvocation() && wasHealthyRecently()) {
+        api.logger.debug?.("Cortex startup: no API key resolved in this process, but Cortex was healthy recently; suppressing warning");
+        return;
+      }
       api.logger.warn(
         "[Cortex] This plugin is currently in early testing and requires an API key to use.",
       );
@@ -610,7 +662,7 @@ const plugin = {
     // runtime instances never call start().
     // Skip when running CLI commands (e.g. `openclaw cortex status`) — the
     // async log races with command output and CLI commands fetch their own data.
-    const isCliInvocation = process.argv.some((a) => a === "cortex");
+    const isCliInvocation = isExplicitCortexCliInvocation();
     if (!isCliInvocation) {
       void userIdReady.then(() => bootstrapClient(client, api.logger, knowledgeState, userId!));
       void checkForUpdate(api.logger);

@@ -7,6 +7,7 @@ import { SessionStateStore } from "../../src/internal/session-state.js";
 // Mock fs at module level so ensureToolsAllowlist can be tested
 const mockReadFileSync = vi.fn<typeof import("node:fs").readFileSync>();
 const mockWriteFileSync = vi.fn<typeof import("node:fs").writeFileSync>();
+const mockFiles = new Map<string, string>();
 vi.mock("node:fs", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:fs")>();
   return {
@@ -154,14 +155,20 @@ function mockClientKnowledge(overrides: Partial<{
 describe("plugin lifecycle contract", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockFiles.clear();
     // Provide a test API key so the plugin doesn't bail during registration
     process.env.CORTEX_API_KEY = "test-key";
     mockClientHealth();
     mockClientKnowledge();
     vi.spyOn(CortexClient.prototype, "stats").mockResolvedValue({ pipeline_tier: 1, pipeline_maturity: "cold" });
+    mockWriteFileSync.mockImplementation(((path: any, data: any) => {
+      mockFiles.set(String(path), typeof data === "string" ? data : String(data));
+    }) as typeof import("node:fs").writeFileSync);
     // Default: ensureToolsAllowlist silently skips (no config file found)
     mockReadFileSync.mockImplementation((...args: any[]) => {
       const path = String(args[0]);
+      const stored = mockFiles.get(path);
+      if (stored != null) return stored as any;
       if (path.includes("openclaw.json")) throw new Error("ENOENT");
       // Fall through to actual fs for other reads (e.g. package.json)
       const actual = vi.importActual<typeof import("node:fs")>("node:fs");
@@ -788,6 +795,67 @@ describe("plugin lifecycle contract", () => {
 
     expect(logger.info).not.toHaveBeenCalledWith(expect.stringContaining("Cortex connected —"));
     expect(CortexClient.prototype.healthCheck).toHaveBeenCalledTimes(2);
+  });
+
+  it("suppresses missing API key warnings during a later empty-config registration when Cortex was healthy recently", async () => {
+    delete process.env.CORTEX_API_KEY;
+    vi.spyOn(CortexClient.prototype, "healthCheck").mockResolvedValue(true);
+    vi.spyOn(CortexClient.prototype, "knowledge").mockResolvedValue({
+      total_memories: 2619,
+      total_sessions: 25,
+      maturity: "mature",
+      entities: [],
+    });
+    vi.spyOn(CortexClient.prototype, "stats").mockResolvedValue({ pipeline_tier: 3, pipeline_maturity: "mature" });
+
+    const first = makeApi({ apiKey: "configured-key", userId: "agent-user-1" });
+    plugin.register(first.api as any);
+    await vi.waitFor(() => {
+      expect(first.logger.info).toHaveBeenCalledWith(
+        "Cortex connected — 2,619 memories, 25 sessions (mature), tier 3",
+      );
+    });
+
+    const second = makeApi({});
+    plugin.register(second.api as any);
+    await flushMicrotasks();
+
+    expect(second.logger.warn).not.toHaveBeenCalledWith(
+      "[Cortex] This plugin is currently in early testing and requires an API key to use.",
+    );
+  });
+
+  it("suppresses startup offline warnings from a later registration when Cortex was healthy recently", async () => {
+    delete process.env.CORTEX_API_KEY;
+    vi.spyOn(CortexClient.prototype, "healthCheck")
+      .mockResolvedValueOnce(true)
+      .mockResolvedValueOnce(false)
+      .mockResolvedValueOnce(false);
+    vi.spyOn(CortexClient.prototype, "knowledge")
+      .mockResolvedValueOnce({
+        total_memories: 2619,
+        total_sessions: 25,
+        maturity: "mature",
+        entities: [],
+      })
+      .mockRejectedValueOnce(new Error("unreachable"));
+    vi.spyOn(CortexClient.prototype, "stats")
+      .mockResolvedValueOnce({ pipeline_tier: 3, pipeline_maturity: "mature" })
+      .mockRejectedValueOnce(new Error("unreachable"));
+
+    const first = makeApi({ apiKey: "configured-key", userId: "agent-user-1" });
+    plugin.register(first.api as any);
+    await vi.waitFor(() => {
+      expect(first.logger.info).toHaveBeenCalledWith(
+        "Cortex connected — 2,619 memories, 25 sessions (mature), tier 3",
+      );
+    });
+
+    const second = makeApi({ apiKey: "configured-key", userId: "agent-user-1" });
+    plugin.register(second.api as any);
+    await new Promise((r) => setTimeout(r, 20));
+
+    expect(second.logger.info).not.toHaveBeenCalledWith("Cortex offline — API unreachable");
   });
 
   it("proceeds without knowledge when endpoint is unavailable", async () => {
