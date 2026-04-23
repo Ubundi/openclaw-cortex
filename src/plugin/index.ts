@@ -217,22 +217,23 @@ async function bootstrapClient(
   knowledgeState: KnowledgeState,
   userId: string,
 ): Promise<void> {
-  try {
-    const healthy = await client.healthCheck();
-    if (!healthy) {
-      logger.info("Cortex offline — API unreachable");
-      return;
-    }
-  } catch {
-    logger.info("Cortex offline — API unreachable");
-    return;
-  }
-
-  try {
+  const STARTUP_HEALTH_PROBE_ATTEMPTS = 2;
+  const STARTUP_FALLBACK_TIMEOUT_MS = 8_000;
+  const fetchKnowledgeSnapshot = async (timeoutMs?: number) => {
     const [knowledge, stats] = await Promise.all([
-      client.knowledge(userId),
-      client.stats(userId).catch(() => null),
+      client.knowledge(userId, timeoutMs),
+      client.stats(userId, timeoutMs).catch(() => null),
     ]);
+    return { knowledge, stats };
+  };
+  const applyConnectedSnapshot = (
+    knowledge: {
+      total_memories: number;
+      total_sessions: number;
+      maturity: "cold" | "warming" | "mature";
+    },
+    stats: { pipeline_tier: 1 | 2 | 3 } | null,
+  ) => {
     knowledgeState.hasMemories = knowledge.total_memories > 0;
     knowledgeState.totalSessions = knowledge.total_sessions;
     knowledgeState.maturity = knowledge.maturity;
@@ -260,6 +261,35 @@ async function bootstrapClient(
         },
       );
     }
+  };
+
+  let healthy = false;
+  for (let attempt = 0; attempt < STARTUP_HEALTH_PROBE_ATTEMPTS; attempt++) {
+    try {
+      healthy = await client.healthCheck();
+    } catch {
+      healthy = false;
+    }
+    if (healthy) break;
+  }
+
+  if (!healthy) {
+    try {
+      // Suppress false "offline" warnings from transient /health misses by
+      // confirming that normal API reads are also unreachable.
+      const { knowledge, stats } = await fetchKnowledgeSnapshot(STARTUP_FALLBACK_TIMEOUT_MS);
+      logger.debug?.("Cortex startup: /health probe failed but knowledge endpoint succeeded");
+      applyConnectedSnapshot(knowledge, stats);
+      return;
+    } catch {
+      logger.info("Cortex offline — API unreachable");
+      return;
+    }
+  }
+
+  try {
+    const { knowledge, stats } = await fetchKnowledgeSnapshot();
+    applyConnectedSnapshot(knowledge, stats);
   } catch {
     // Knowledge endpoint unavailable — health check passed so API is reachable
     logger.info("Cortex connected");

@@ -730,6 +730,66 @@ describe("plugin lifecycle contract", () => {
     });
   });
 
+  it("does not log offline when the first startup health probe fails but retry succeeds", async () => {
+    vi.restoreAllMocks();
+    vi.spyOn(CortexClient.prototype, "healthCheck")
+      .mockResolvedValueOnce(false)
+      .mockResolvedValueOnce(true);
+    mockClientKnowledge({ total_memories: 2616, total_sessions: 24, maturity: "mature" });
+    vi.spyOn(CortexClient.prototype, "stats").mockResolvedValue({ pipeline_tier: 3, pipeline_maturity: "mature" });
+
+    const { api, logger } = makeApi({ userId: "agent-user-1" });
+
+    plugin.register(api as any);
+
+    await vi.waitFor(() => {
+      expect(logger.info).toHaveBeenCalledWith(
+        "Cortex connected — 2,616 memories, 24 sessions (mature), tier 3",
+      );
+    });
+
+    expect(logger.info).not.toHaveBeenCalledWith("Cortex offline — API unreachable");
+  });
+
+  it("suppresses offline when /health fails but knowledge endpoint is still reachable", async () => {
+    vi.restoreAllMocks();
+    vi.spyOn(CortexClient.prototype, "healthCheck").mockResolvedValue(false);
+    mockClientKnowledge({ total_memories: 2616, total_sessions: 24, maturity: "mature" });
+    vi.spyOn(CortexClient.prototype, "stats").mockResolvedValue({ pipeline_tier: 3, pipeline_maturity: "mature" });
+
+    const { api, logger } = makeApi({ userId: "agent-user-1" });
+
+    plugin.register(api as any);
+
+    await vi.waitFor(() => {
+      expect(logger.info).toHaveBeenCalledWith(
+        "Cortex connected — 2,616 memories, 24 sessions (mature), tier 3",
+      );
+    });
+
+    expect(logger.info).not.toHaveBeenCalledWith("Cortex offline — API unreachable");
+    expect(logger.debug).toHaveBeenCalledWith(
+      "Cortex startup: /health probe failed but knowledge endpoint succeeded",
+    );
+  });
+
+  it("logs offline when both health probes and startup knowledge fallback fail", async () => {
+    vi.restoreAllMocks();
+    vi.spyOn(CortexClient.prototype, "healthCheck").mockResolvedValue(false);
+    vi.spyOn(CortexClient.prototype, "knowledge").mockRejectedValue(new Error("unreachable"));
+
+    const { api, logger } = makeApi({ userId: "agent-user-1" });
+
+    plugin.register(api as any);
+
+    await vi.waitFor(() => {
+      expect(logger.info).toHaveBeenCalledWith("Cortex offline — API unreachable");
+    });
+
+    expect(logger.info).not.toHaveBeenCalledWith(expect.stringContaining("Cortex connected —"));
+    expect(CortexClient.prototype.healthCheck).toHaveBeenCalledTimes(2);
+  });
+
   it("proceeds without knowledge when endpoint is unavailable", async () => {
     vi.restoreAllMocks();
     mockClientHealth();
@@ -776,7 +836,7 @@ describe("plugin lifecycle contract", () => {
         maturity: "warming",
         entities: [],
       })
-      .mockResolvedValueOnce({
+      .mockResolvedValue({
         total_memories: 0,
         total_sessions: 0,
         maturity: "cold",
@@ -797,7 +857,7 @@ describe("plugin lifecycle contract", () => {
     await reset?.actionHandler?.({ yes: true });
 
     expect(CortexClient.prototype.forgetUser).toHaveBeenCalledOnce();
-    expect(CortexClient.prototype.knowledge).toHaveBeenCalledTimes(2);
+    expect(CortexClient.prototype.knowledge).toHaveBeenCalled();
     expect(logSpy).toHaveBeenCalledWith("  Memory reset complete.");
     expect(logSpy).toHaveBeenCalledWith(
       "  The server finished the reset, but the response timed out before deletion stats were returned.",
@@ -809,19 +869,12 @@ describe("plugin lifecycle contract", () => {
   it("still reports reset failure when AbortError occurs and knowledge is not empty", async () => {
     vi.spyOn(CortexClient.prototype, "healthCheck").mockResolvedValue(false);
     vi.spyOn(CortexClient.prototype, "forgetUser").mockRejectedValue(new DOMException("aborted", "AbortError"));
-    vi.spyOn(CortexClient.prototype, "knowledge")
-      .mockResolvedValueOnce({
-        total_memories: 45,
-        total_sessions: 7,
-        maturity: "warming",
-        entities: [],
-      })
-      .mockResolvedValueOnce({
-        total_memories: 3,
-        total_sessions: 1,
-        maturity: "warming",
-        entities: [],
-      });
+    vi.spyOn(CortexClient.prototype, "knowledge").mockResolvedValue({
+      total_memories: 3,
+      total_sessions: 1,
+      maturity: "warming",
+      entities: [],
+    });
 
     vi.spyOn(console, "log").mockImplementation(() => {});
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
