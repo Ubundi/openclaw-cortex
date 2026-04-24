@@ -279,6 +279,286 @@ describe("registerCliCommands search output", () => {
     expect(logSpy).not.toHaveBeenCalledWith("  TooToo Link:    Not linked. Run `openclaw cortex pair` to connect.");
   });
 
+  it("keeps human-readable status output by default", async () => {
+    const registerCli = vi.fn();
+    const client = {
+      healthCheck: vi.fn().mockResolvedValue(true),
+      getLinkStatus: vi.fn().mockResolvedValue({ linked: false }),
+      knowledge: vi.fn().mockResolvedValue({
+        total_memories: 3,
+        total_sessions: 1,
+        maturity: "cold",
+        entities: [],
+      }),
+      stats: vi.fn().mockResolvedValue({ pipeline_tier: 1, pipeline_maturity: "cold" }),
+      recall: vi.fn().mockResolvedValue({ memories: [] }),
+      retrieve: vi.fn().mockResolvedValue({ results: [] }),
+    };
+
+    registerCliCommands(registerCli, {
+      client: client as any,
+      config: {
+        baseUrl: "https://api.example.com",
+        autoRecall: true,
+        autoCapture: true,
+        dedupeWindowMinutes: 30,
+        toolTimeoutMs: 500,
+      } as any,
+      version: "test",
+      getUserId: () => "user-1",
+      userIdReady: Promise.resolve(),
+      getNamespace: () => "test",
+      sessionStats: makeSessionStats(),
+      loadPersistedStats: () => null,
+      isAbortError: () => false,
+      resetCompletedAfterAbort: async () => false,
+    });
+
+    const program = createCliNode("root");
+    const registrar = registerCli.mock.calls[0][0] as (ctx: { program: CliProgram; config: Record<string, unknown> }) => void;
+    registrar({ program: program as unknown as CliProgram, config: {} });
+
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    await program.children.get("cortex")?.children.get("status")?.actionHandler?.();
+
+    expect(logSpy).toHaveBeenCalledWith("Cortex Status Check");
+    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining("TooToo Link:    Not linked."));
+  });
+
+  it("returns JSON status when the user ID is unavailable", async () => {
+    const registerCli = vi.fn();
+    const client = {
+      healthCheck: vi.fn(),
+      getLinkStatus: vi.fn(),
+      knowledge: vi.fn(),
+      stats: vi.fn(),
+      recall: vi.fn(),
+      retrieve: vi.fn(),
+    };
+
+    registerCliCommands(registerCli, {
+      client: client as any,
+      config: {
+        baseUrl: "https://api.example.com",
+        autoRecall: true,
+        autoCapture: true,
+        dedupeWindowMinutes: 30,
+        toolTimeoutMs: 500,
+      } as any,
+      version: "test",
+      getUserId: () => undefined,
+      userIdReady: Promise.resolve(),
+      getNamespace: () => "test",
+      sessionStats: makeSessionStats(),
+      loadPersistedStats: () => null,
+      isAbortError: () => false,
+      resetCompletedAfterAbort: async () => false,
+    });
+
+    const program = createCliNode("root");
+    const registrar = registerCli.mock.calls[0][0] as (ctx: { program: CliProgram; config: Record<string, unknown> }) => void;
+    registrar({ program: program as unknown as CliProgram, config: {} });
+
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await program.children.get("cortex")?.children.get("status")?.actionHandler?.({ json: true });
+
+    expect(errorSpy).not.toHaveBeenCalled();
+    expect(logSpy).toHaveBeenCalledTimes(1);
+    const payload = JSON.parse(String(logSpy.mock.calls[0]?.[0]));
+    expect(payload).toMatchObject({
+      linked: false,
+      agent_user_id: null,
+      status: "user_id_unavailable",
+      detail: {
+        api_health: "not_checked",
+        link_status: "unavailable",
+      },
+    });
+    expect(client.healthCheck).not.toHaveBeenCalled();
+    expect(client.getLinkStatus).not.toHaveBeenCalled();
+    expect(process.exitCode).toBe(1);
+  });
+
+  it("returns JSON status for shadow-owner links with null tootoo_user_id", async () => {
+    const registerCli = vi.fn();
+    const client = {
+      healthCheck: vi.fn().mockResolvedValue(true),
+      getLinkStatus: vi.fn().mockResolvedValue({
+        linked: true,
+        link: {
+          owner_type: "shadow_subject",
+          owner_id: "owner-shadow-1",
+          shadow_subject_id: "shadow-subject-1",
+          claimed_user_id: null,
+          tootoo_user_id: null,
+          linked_at: "2026-04-24T09:00:00Z",
+        },
+      }),
+      knowledge: vi.fn(),
+      stats: vi.fn(),
+      recall: vi.fn(),
+      retrieve: vi.fn(),
+    };
+
+    registerCliCommands(registerCli, {
+      client: client as any,
+      config: {
+        baseUrl: "https://api.example.com",
+        autoRecall: true,
+        autoCapture: true,
+        dedupeWindowMinutes: 30,
+        toolTimeoutMs: 500,
+      } as any,
+      version: "test",
+      getUserId: () => "agent-user-shadow",
+      userIdReady: Promise.resolve(),
+      getNamespace: () => "test",
+      sessionStats: makeSessionStats(),
+      loadPersistedStats: () => null,
+      isAbortError: () => false,
+      resetCompletedAfterAbort: async () => false,
+    });
+
+    const program = createCliNode("root");
+    const registrar = registerCli.mock.calls[0][0] as (ctx: { program: CliProgram; config: Record<string, unknown> }) => void;
+    registrar({ program: program as unknown as CliProgram, config: {} });
+
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await program.children.get("cortex")?.children.get("status")?.actionHandler?.({ json: true });
+
+    expect(errorSpy).not.toHaveBeenCalled();
+    expect(logSpy).toHaveBeenCalledTimes(1);
+    const payload = JSON.parse(String(logSpy.mock.calls[0]?.[0]));
+    expect(payload).toMatchObject({
+      linked: true,
+      agent_user_id: "agent-user-shadow",
+      tootoo_user_id: null,
+      owner_type: "shadow_subject",
+      owner_id: "owner-shadow-1",
+      shadow_subject_id: "shadow-subject-1",
+      claimed_user_id: null,
+      linked_at: "2026-04-24T09:00:00Z",
+      status: "ok",
+    });
+    expect(payload.detail.api_health).toBe("ok");
+    expect(client.knowledge).not.toHaveBeenCalled();
+    expect(client.stats).not.toHaveBeenCalled();
+    expect(client.recall).not.toHaveBeenCalled();
+    expect(client.retrieve).not.toHaveBeenCalled();
+  });
+
+  it("returns JSON status for legacy claimed-user link payloads", async () => {
+    const registerCli = vi.fn();
+    const client = {
+      healthCheck: vi.fn().mockResolvedValue(true),
+      getLinkStatus: vi.fn().mockResolvedValue({
+        linked: true,
+        link: {
+          tootoo_user_id: "tt-user-9",
+          linked_at: "2026-04-24T11:00:00Z",
+        },
+      }),
+      knowledge: vi.fn(),
+      stats: vi.fn(),
+      recall: vi.fn(),
+      retrieve: vi.fn(),
+    };
+
+    registerCliCommands(registerCli, {
+      client: client as any,
+      config: {
+        baseUrl: "https://api.example.com",
+        autoRecall: true,
+        autoCapture: true,
+        dedupeWindowMinutes: 30,
+        toolTimeoutMs: 500,
+      } as any,
+      version: "test",
+      getUserId: () => "agent-user-legacy",
+      userIdReady: Promise.resolve(),
+      getNamespace: () => "test",
+      sessionStats: makeSessionStats(),
+      loadPersistedStats: () => null,
+      isAbortError: () => false,
+      resetCompletedAfterAbort: async () => false,
+    });
+
+    const program = createCliNode("root");
+    const registrar = registerCli.mock.calls[0][0] as (ctx: { program: CliProgram; config: Record<string, unknown> }) => void;
+    registrar({ program: program as unknown as CliProgram, config: {} });
+
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    await program.children.get("cortex")?.children.get("status")?.actionHandler?.({ json: true });
+
+    const payload = JSON.parse(String(logSpy.mock.calls[0]?.[0]));
+    expect(payload).toMatchObject({
+      linked: true,
+      agent_user_id: "agent-user-legacy",
+      tootoo_user_id: "tt-user-9",
+      owner_type: null,
+      owner_id: null,
+      shadow_subject_id: null,
+      claimed_user_id: null,
+      linked_at: "2026-04-24T11:00:00Z",
+      status: "ok",
+    });
+  });
+
+  it("ignores unrelated status options while honoring --json mode", async () => {
+    const registerCli = vi.fn();
+    const client = {
+      healthCheck: vi.fn().mockResolvedValue(true),
+      getLinkStatus: vi.fn().mockResolvedValue({ linked: false }),
+      knowledge: vi.fn(),
+      stats: vi.fn(),
+      recall: vi.fn(),
+      retrieve: vi.fn(),
+    };
+
+    registerCliCommands(registerCli, {
+      client: client as any,
+      config: {
+        baseUrl: "https://api.example.com",
+        autoRecall: true,
+        autoCapture: true,
+        dedupeWindowMinutes: 30,
+        toolTimeoutMs: 500,
+      } as any,
+      version: "test",
+      getUserId: () => "agent-user-opts",
+      userIdReady: Promise.resolve(),
+      getNamespace: () => "test",
+      sessionStats: makeSessionStats(),
+      loadPersistedStats: () => null,
+      isAbortError: () => false,
+      resetCompletedAfterAbort: async () => false,
+    });
+
+    const program = createCliNode("root");
+    const registrar = registerCli.mock.calls[0][0] as (ctx: { program: CliProgram; config: Record<string, unknown> }) => void;
+    registrar({ program: program as unknown as CliProgram, config: {} });
+
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    await program.children.get("cortex")?.children.get("status")?.actionHandler?.({
+      json: true,
+      unsupported_flag: true,
+    } as any);
+
+    const payload = JSON.parse(String(logSpy.mock.calls[0]?.[0]));
+    expect(payload).toMatchObject({
+      linked: false,
+      agent_user_id: "agent-user-opts",
+      status: "ok",
+    });
+  });
+
   it("keeps the manual cortex pair command flow intact", async () => {
     const registerCli = vi.fn();
     const client = {

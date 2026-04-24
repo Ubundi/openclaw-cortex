@@ -1,10 +1,63 @@
-import type { CortexClient } from "../cortex/client.js";
+import type { CortexClient, LinkOwnerType, LinkStatusResponse } from "../cortex/client.js";
 import type { CortexConfig } from "./config.js";
 import type { CliProgram, Logger } from "./types.js";
 import { coerceCliSearchQuery, coerceSearchMode, filterSearchResults, getMemoryDisplayScore, prepareSearchQuery } from "./search-query.js";
 import { classifyJobStatus, type WriteHealthState } from "../internal/write-health.js";
 
 const STATUS_FALLBACK_TIMEOUT_MS = 8_000;
+
+interface StatusCommandOptions {
+  json?: boolean;
+}
+
+interface NormalizedLinkStatus {
+  linked: boolean;
+  tootooUserId: string | null;
+  ownerType: LinkOwnerType | null;
+  ownerId: string | null;
+  shadowSubjectId: string | null;
+  claimedUserId: string | null;
+  linkedAt: string | null;
+}
+
+interface StatusJsonOutput {
+  linked: boolean;
+  agent_user_id: string | null;
+  tootoo_user_id: string | null;
+  owner_type: LinkOwnerType | null;
+  owner_id: string | null;
+  shadow_subject_id: string | null;
+  claimed_user_id: string | null;
+  linked_at: string | null;
+  status: "ok" | "api_unreachable" | "user_id_unavailable";
+  message: string;
+  detail: {
+    api_health: "ok" | "unreachable" | "not_checked";
+    used_knowledge_fallback: boolean;
+    health_latency_ms: number;
+    link_status: "ok" | "unavailable";
+    link_error?: string;
+  };
+}
+
+function normalizeLinkStatus(linkStatus?: LinkStatusResponse | null): NormalizedLinkStatus {
+  const link = linkStatus?.link;
+  const ownerTypeRaw = link?.owner_type ?? linkStatus?.owner_type;
+  const ownerType =
+    ownerTypeRaw === "shadow_subject" || ownerTypeRaw === "claimed_user"
+      ? ownerTypeRaw
+      : null;
+
+  return {
+    linked: Boolean(linkStatus?.linked),
+    tootooUserId: link?.tootoo_user_id ?? linkStatus?.tootoo_user_id ?? null,
+    ownerType,
+    ownerId: link?.owner_id ?? linkStatus?.owner_id ?? null,
+    shadowSubjectId: link?.shadow_subject_id ?? linkStatus?.shadow_subject_id ?? null,
+    claimedUserId: link?.claimed_user_id ?? linkStatus?.claimed_user_id ?? null,
+    linkedAt: link?.linked_at ?? null,
+  };
+}
 
 export interface SessionStats {
   saves: number;
@@ -60,17 +113,43 @@ export function registerCliCommands(
       cortex
         .command("status")
         .description("Check Cortex API health and show memory status")
-        .action(async () => {
+        .option("--json", "Output machine-readable status as JSON")
+        .action(async (opts: StatusCommandOptions = {}) => {
+          const jsonMode = opts.json === true;
           await userIdReady;
           const userId = getUserId();
           if (!userId) {
-            console.error("Cannot check status: user ID not available.");
+            if (jsonMode) {
+              const payload: StatusJsonOutput = {
+                linked: false,
+                agent_user_id: null,
+                tootoo_user_id: null,
+                owner_type: null,
+                owner_id: null,
+                shadow_subject_id: null,
+                claimed_user_id: null,
+                linked_at: null,
+                status: "user_id_unavailable",
+                message: "Cannot check status: user ID not available.",
+                detail: {
+                  api_health: "not_checked",
+                  used_knowledge_fallback: false,
+                  health_latency_ms: 0,
+                  link_status: "unavailable",
+                },
+              };
+              console.log(JSON.stringify(payload));
+            } else {
+              console.error("Cannot check status: user ID not available.");
+            }
             process.exitCode = 1;
             return;
           }
 
-          console.log("Cortex Status Check");
-          console.log("=".repeat(50));
+          if (!jsonMode) {
+            console.log("Cortex Status Check");
+            console.log("=".repeat(50));
+          }
 
           let cachedKnowledge: Awaited<ReturnType<CortexClient["knowledge"]>> | null = null;
           let cachedStats: Awaited<ReturnType<CortexClient["stats"]>> | null = null;
@@ -103,35 +182,91 @@ export function registerCliCommands(
           const healthLabel = healthy
             ? (usedKnowledgeFallback ? "OK (fallback via /v1/knowledge)" : "OK")
             : "UNREACHABLE";
-          console.log(`  API Health:     ${healthLabel} (${healthMs}ms)`);
+          if (!jsonMode) {
+            console.log(`  API Health:     ${healthLabel} (${healthMs}ms)`);
+          }
 
           if (!healthy) {
-            console.log("\nAPI is unreachable. Check baseUrl and network connectivity.");
+            if (jsonMode) {
+              const payload: StatusJsonOutput = {
+                linked: false,
+                agent_user_id: userId,
+                tootoo_user_id: null,
+                owner_type: null,
+                owner_id: null,
+                shadow_subject_id: null,
+                claimed_user_id: null,
+                linked_at: null,
+                status: "api_unreachable",
+                message: "Cortex API is unreachable; link metadata unavailable.",
+                detail: {
+                  api_health: "unreachable",
+                  used_knowledge_fallback: usedKnowledgeFallback,
+                  health_latency_ms: healthMs,
+                  link_status: "unavailable",
+                },
+              };
+              console.log(JSON.stringify(payload));
+            } else {
+              console.log("\nAPI is unreachable. Check baseUrl and network connectivity.");
+            }
             return;
           }
 
           // Link status
-          if (userId) {
-            try {
-              const linkStatus = await client.getLinkStatus(userId);
-              if (linkStatus.linked) {
-                const linkedAt = linkStatus.link?.linked_at;
-                const linkedDate = linkedAt ? new Date(linkedAt) : null;
-                const linkedDateLabel =
-                  linkedDate && !Number.isNaN(linkedDate.getTime())
-                    ? linkedDate.toISOString().slice(0, 10)
-                    : null;
-                if (linkedDateLabel) {
-                  console.log(`  TooToo Link:    ✓ Linked since ${linkedDateLabel}`);
-                } else {
-                  console.log("  TooToo Link:    ✓ Linked");
-                }
+          let linkStatus: LinkStatusResponse | null = null;
+          let linkStatusError: unknown;
+          try {
+            linkStatus = await client.getLinkStatus(userId);
+          } catch (err) {
+            linkStatusError = err;
+          }
+
+          if (jsonMode) {
+            const normalized = normalizeLinkStatus(linkStatus);
+            const payload: StatusJsonOutput = {
+              linked: linkStatus ? normalized.linked : false,
+              agent_user_id: userId,
+              tootoo_user_id: normalized.tootooUserId,
+              owner_type: normalized.ownerType,
+              owner_id: normalized.ownerId,
+              shadow_subject_id: normalized.shadowSubjectId,
+              claimed_user_id: normalized.claimedUserId,
+              linked_at: normalized.linkedAt,
+              status: "ok",
+              message: "Cortex status retrieved.",
+              detail: {
+                api_health: "ok",
+                used_knowledge_fallback: usedKnowledgeFallback,
+                health_latency_ms: healthMs,
+                link_status: linkStatus ? "ok" : "unavailable",
+                ...(linkStatusError ? { link_error: String(linkStatusError) } : {}),
+              },
+            };
+            console.log(JSON.stringify(payload));
+            return;
+          }
+
+          try {
+            if (linkStatus?.linked) {
+              const linkedAt = linkStatus.link?.linked_at;
+              const linkedDate = linkedAt ? new Date(linkedAt) : null;
+              const linkedDateLabel =
+                linkedDate && !Number.isNaN(linkedDate.getTime())
+                  ? linkedDate.toISOString().slice(0, 10)
+                  : null;
+              if (linkedDateLabel) {
+                console.log(`  TooToo Link:    ✓ Linked since ${linkedDateLabel}`);
               } else {
-                console.log(`  TooToo Link:    Not linked. Run \`openclaw cortex pair\` to connect.`);
+                console.log("  TooToo Link:    ✓ Linked");
               }
-            } catch {
-              console.log(`  TooToo Link:    Unable to check`);
+            } else if (linkStatus && !linkStatus.linked) {
+              console.log(`  TooToo Link:    Not linked. Run \`openclaw cortex pair\` to connect.`);
+            } else {
+              throw linkStatusError;
             }
+          } catch {
+            console.log(`  TooToo Link:    Unable to check`);
           }
 
           // Knowledge
