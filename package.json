@@ -1,6 +1,6 @@
 {
   "name": "@ubundi/openclaw-cortex",
-  "version": "2.17.0",
+  "version": "2.17.1",
   "description": "OpenClaw plugin for Cortex memory — Auto-Recall, Auto-Capture, and agent memory tools",
   "type": "module",
   "main": "./dist/index.js",
