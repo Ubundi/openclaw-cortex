@@ -42,6 +42,12 @@ interface DetectedBridgeExchange {
   sessionKey: string;
 }
 
+interface SkippedUnmappedQuestion {
+  question: string;
+  assistantIndex: number;
+  userIndex: number;
+}
+
 interface AgentEndEvent {
   messages?: unknown[];
   aborted?: boolean;
@@ -243,6 +249,15 @@ const SECTION_HINTS: Array<{ section: BridgeTargetSection; patterns: RegExp[]; k
       /\bwhat (?:takes|occupies|fills|consumes) (?:most of )?your (?:time|energy|day)\b/i,
       /\bhow do you (?:spend|structure|organize) your (?:time|day|week)\b/i,
       /\bwhat does your (?:daily|typical|average) (?:routine|rhythm|day) look like\b/i,
+      /\bwhat(?:'s| is) the right amount of pushback\b/i,
+      /\bhow should someone push back\b/i,
+      /\bwhat communication cadence\b/i,
+      /\bwhat checkpoint rhythm\b/i,
+      /\bwhat ownership pattern\b/i,
+      /\bwhat (?:work|operating) rhythm\b/i,
+      /\bwhat .*keeps? work from drifting\b/i,
+      /\bwhat .*helps .*team stay aligned\b/i,
+      /\bbefore it feels like nagging instead of helpful\b/i,
     ],
     keywords: [
       "practice",
@@ -263,6 +278,16 @@ const SECTION_HINTS: Array<{ section: BridgeTargetSection; patterns: RegExp[]; k
       "takes your time",
       "occupies your",
       "spend your time",
+      "operating rhythm",
+      "work rhythm",
+      "communication cadence",
+      "pushback",
+      "clear ownership",
+      "short written plans",
+      "low-drama execution",
+      "fast checkpoints",
+      "work drifts",
+      "work from drifting",
     ],
   },
   {
@@ -513,7 +538,7 @@ function buildBridgeQuestionId(input: {
     .slice(0, 32);
 }
 
-function detectBridgeQuestions(input: {
+export function detectBridgeQuestions(input: {
   messages: unknown[];
   sessionKey: string;
 }): DetectedBridgeQuestion[] {
@@ -578,6 +603,7 @@ export function detectBridgeExchanges(input: {
   messages: unknown[];
   agentUserId: string;
   sessionKey: string;
+  onSkippedUnmappedQuestion?: (skipped: SkippedUnmappedQuestion) => void;
 }): DetectedBridgeExchange[] {
   const normalized = normalizeConversationMessages(input.messages);
   if (normalized.length < 2) return [];
@@ -602,11 +628,18 @@ export function detectBridgeExchanges(input: {
     const question = extractLastQuestion(normalized[priorAssistantIndex].content);
     if (!question) continue;
 
-    const targetSection = inferTargetSection(question);
-    if (!targetSection) continue;
-
     const assistantIndex = normalized[priorAssistantIndex].originalIndex;
     const userIndex = normalized[userCursor].originalIndex;
+    const targetSection = inferTargetSection(question);
+    if (!targetSection) {
+      input.onSkippedUnmappedQuestion?.({
+        question,
+        assistantIndex,
+        userIndex,
+      });
+      continue;
+    }
+
     const requestId = buildBridgeRequestId({
       agentUserId: input.agentUserId,
       sessionKey: input.sessionKey,
@@ -647,7 +680,7 @@ export function buildTooTooBridgePrompt(): string {
     "<tootoo_bridge>",
     "[REQUIRED BEHAVIOR — the user linked this agent to TooToo.]",
     "When the user opens with something reflective or personal, you MUST respond with ONLY one short discovery question. Nothing else. No advice, no frameworks, no bullet points, no preamble, no follow-up offers.",
-    "Pick exactly one of these questions (or a very close paraphrase):",
+    "Pick exactly one of these questions. Do not invent a custom question:",
     "- \"What do you value most in your work?\"",
     "- \"What do you believe to be true?\"",
     "- \"What are your non-negotiables?\"",
@@ -656,7 +689,7 @@ export function buildTooTooBridgePrompt(): string {
     "- \"What practice keeps you grounded?\"",
     "- \"What are you afraid of?\"",
     "- \"How do you want to be remembered?\"",
-    "Choose the question that best fits what the user is talking about. Do NOT rephrase into creative or abstract alternatives — the exact wording matters for downstream processing.",
+    "Choose the question that best fits what the user is talking about. Do NOT rephrase into creative or abstract alternatives. Do NOT ask broad custom questions about work style, pushback, cadence, or checkpoints — use the closest listed question instead. The exact wording matters for downstream processing.",
     "WRONG: giving advice, then asking a question at the end. WRONG: asking the question, then adding context or suggestions. RIGHT: just the question, by itself.",
     "After the user answers a discovery question (on the NEXT turn), acknowledge in one plain sentence and move on. No enthusiasm, no praise, no coaching energy. Do not offer to build plans, frameworks, exercises, templates, or manifestos. Keep the response to 2-3 sentences total. Do not ask another discovery question.",
     "Only explicit user answers count. Do not infer or restate personal content the user did not clearly say.",
@@ -723,6 +756,7 @@ export function createBridgeHandler(
   let pendingLinkStatusCheck: Promise<LinkStatusSnapshot> | null = null;
   const handledRequestIds = new Map<string, number>();
   const handledQuestionIds = new Map<string, number>();
+  const skippedUnmappedQuestionIds = new Map<string, number>();
   const sessionStates = new Map<string, BridgeSessionState>();
 
   function resolveBridgeSessionKey(event: { sessionKey?: string; sessionId?: string }): string {
@@ -869,6 +903,7 @@ export function createBridgeHandler(
 
     trimHandledRequests(handledRequestIds);
     trimHandledRequests(handledQuestionIds);
+    trimHandledRequests(skippedUnmappedQuestionIds);
 
     const sessionKey = resolveBridgeSessionKey(event);
     const sessionState = getSessionState(sessionKey);
@@ -888,6 +923,18 @@ export function createBridgeHandler(
       messages: event.messages,
       agentUserId,
       sessionKey,
+      onSkippedUnmappedQuestion: ({ question, assistantIndex, userIndex }) => {
+        const questionId = buildBridgeQuestionId({
+          sessionKey,
+          assistantIndex,
+          question,
+        });
+        if (skippedUnmappedQuestionIds.has(questionId)) return;
+        skippedUnmappedQuestionIds.set(questionId, Date.now());
+        logger.debug?.(
+          `Cortex bridge: skipped candidate exchange: unmapped question questionId=${questionId} sessionId=${sessionKey} assistantIndex=${assistantIndex} userIndex=${userIndex}`,
+        );
+      },
     });
     const pendingExchanges = exchanges.filter((exchange) => {
       if (handledRequestIds.has(exchange.requestId)) {

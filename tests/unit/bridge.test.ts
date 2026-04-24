@@ -5,6 +5,7 @@ import {
   buildBridgeFollowUpPrompt,
   createBridgeHandler,
   detectBridgeExchange,
+  detectBridgeQuestions,
   detectBridgeExchanges,
   extractLastQuestion,
   inferTargetSection,
@@ -49,6 +50,9 @@ function discoveryExchangeMessages() {
     { role: "assistant", content: "That gives us a clear north star to work with." },
   ];
 }
+
+const WORK_STYLE_QUESTION = "When something needs attention — a blocker, a stalled task, a decision that's drifting — what's the right amount of pushback from me before it feels like nagging instead of helpful?";
+const WORK_STYLE_ANSWER = "Team Ubundi works best when there is clear ownership, short written plans, low-drama execution, and fast checkpoints before work drifts too far.";
 
 describe("TooToo bridge handler", () => {
   it("builds linked-user guidance for before_agent_start", async () => {
@@ -456,6 +460,15 @@ describe("TooToo bridge handler", () => {
 
     expect(await handler.handleAgentEnd({
       messages: [
+        { role: "assistant", content: "What checkpoint interval should the Redis worker use before retrying failed jobs?" },
+        { role: "user", content: "Every 30 seconds." },
+      ],
+      aborted: false,
+      sessionKey: "sess-technical-workflow",
+    })).toBe(false);
+
+    expect(await handler.handleAgentEnd({
+      messages: [
         { role: "assistant", content: "What do you value most in your work?" },
         { role: "user", content: "What do you mean by value exactly?" },
         { role: "assistant", content: "I mean the qualities that make work feel worth doing for you." },
@@ -464,7 +477,86 @@ describe("TooToo bridge handler", () => {
       sessionKey: "sess-clarifying",
     })).toBe(false);
 
+    expect(await handler.handleAgentEnd({
+      messages: [
+        { role: "assistant", content: WORK_STYLE_QUESTION },
+        { role: "user", content: "ok" },
+      ],
+      aborted: false,
+      sessionKey: "sess-low-signal-work-style",
+    })).toBe(false);
+
     expect((client.submitBridgeQA as any)).not.toHaveBeenCalled();
+  });
+
+  it("logs a non-content debug breadcrumb for explicit answers to unmapped questions", async () => {
+    const client = makeClient();
+    const handler = createBridgeHandler(client, {
+      logger,
+      getUserId: () => "agent-user-1",
+      userIdReady: Promise.resolve(),
+      pluginSessionId: "plugin-session-1",
+    });
+
+    const handled = await handler.handleAgentEnd({
+      messages: [
+        { role: "assistant", content: "What color should the deploy dashboard header be?" },
+        { role: "user", content: "It should be green and very compact." },
+      ],
+      aborted: false,
+      sessionKey: "sess-unmapped-debug",
+    });
+
+    expect(handled).toBe(false);
+    expect((client.submitBridgeQA as any)).not.toHaveBeenCalled();
+    expect(logger.debug).toHaveBeenCalledWith(expect.stringContaining("skipped candidate exchange: unmapped question"));
+    expect(logger.debug).toHaveBeenCalledWith(expect.stringContaining("sessionId=sess-unmapped-debug"));
+    expect(logger.debug).not.toHaveBeenCalledWith(expect.stringContaining("deploy dashboard header"));
+  });
+
+  it("maps practical work-style questions to practices", () => {
+    expect(inferTargetSection(WORK_STYLE_QUESTION)).toBe("practices");
+    expect(inferTargetSection("What communication cadence helps your team stay aligned?")).toBe("practices");
+    expect(inferTargetSection("What checkpoint rhythm keeps work from drifting too far?")).toBe("practices");
+    expect(inferTargetSection("How should someone push back when a decision is drifting?")).toBe("practices");
+    expect(inferTargetSection("What ownership pattern keeps execution low-drama?")).toBe("practices");
+  });
+
+  it("detects practical work-style bridge questions", () => {
+    const questions = detectBridgeQuestions({
+      messages: [
+        { role: "assistant", content: WORK_STYLE_QUESTION },
+      ],
+      sessionKey: "sess-work-style-question",
+    });
+
+    expect(questions).toHaveLength(1);
+    expect(questions[0]).toMatchObject({
+      question: WORK_STYLE_QUESTION,
+      targetSection: "practices",
+      assistantIndex: 0,
+    });
+  });
+
+  it("detects the live Slack work-style Q&A as one explicit bridge exchange", () => {
+    const exchanges = detectBridgeExchanges({
+      messages: [
+        { role: "assistant", content: WORK_STYLE_QUESTION },
+        { role: "user", content: WORK_STYLE_ANSWER },
+      ],
+      agentUserId: "agent-user-1",
+      sessionKey: "sess-live-slack-work-style",
+    });
+
+    expect(exchanges).toHaveLength(1);
+    expect(exchanges[0]).toMatchObject({
+      question: WORK_STYLE_QUESTION,
+      answer: WORK_STYLE_ANSWER,
+      targetSection: "practices",
+      assistantIndex: 0,
+      userIndex: 1,
+      sessionKey: "sess-live-slack-work-style",
+    });
   });
 
   it("uses a stable request_id and avoids duplicate sends for the same exchange", async () => {
