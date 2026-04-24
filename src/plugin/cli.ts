@@ -4,7 +4,9 @@ import type { CliProgram, Logger } from "./types.js";
 import { coerceCliSearchQuery, coerceSearchMode, filterSearchResults, getMemoryDisplayScore, prepareSearchQuery } from "./search-query.js";
 import { classifyJobStatus, type WriteHealthState } from "../internal/write-health.js";
 
+const STATUS_HEALTH_TIMEOUT_MS = 5_000;
 const STATUS_FALLBACK_TIMEOUT_MS = 8_000;
+const STATUS_LINK_TIMEOUT_MS = 5_000;
 
 interface StatusCommandOptions {
   json?: boolean;
@@ -35,9 +37,69 @@ interface StatusJsonOutput {
     api_health: "ok" | "unreachable" | "not_checked";
     used_knowledge_fallback: boolean;
     health_latency_ms: number;
+    health_probe_latency_ms: number;
+    knowledge_fallback_latency_ms: number;
+    user_id_ready_latency_ms: number;
+    link_latency_ms: number;
+    total_wall_time_ms: number;
+    health_timeout_ms: number;
+    knowledge_fallback_timeout_ms: number;
+    link_timeout_ms: number;
     link_status: "ok" | "unavailable";
     link_error?: string;
   };
+}
+
+interface TimedResult<T> {
+  value: T | null;
+  error: unknown;
+  latencyMs: number;
+}
+
+function statusTimingDetail(args: {
+  totalWallMs: number;
+  userIdReadyMs: number;
+  healthProbeMs: number;
+  knowledgeFallbackMs: number;
+  linkMs: number;
+}): Pick<
+  StatusJsonOutput["detail"],
+  | "health_probe_latency_ms"
+  | "knowledge_fallback_latency_ms"
+  | "user_id_ready_latency_ms"
+  | "link_latency_ms"
+  | "total_wall_time_ms"
+  | "health_timeout_ms"
+  | "knowledge_fallback_timeout_ms"
+  | "link_timeout_ms"
+> {
+  return {
+    health_probe_latency_ms: args.healthProbeMs,
+    knowledge_fallback_latency_ms: args.knowledgeFallbackMs,
+    user_id_ready_latency_ms: args.userIdReadyMs,
+    link_latency_ms: args.linkMs,
+    total_wall_time_ms: args.totalWallMs,
+    health_timeout_ms: STATUS_HEALTH_TIMEOUT_MS,
+    knowledge_fallback_timeout_ms: STATUS_FALLBACK_TIMEOUT_MS,
+    link_timeout_ms: STATUS_LINK_TIMEOUT_MS,
+  };
+}
+
+async function measureStatusStep<T>(fn: () => Promise<T>): Promise<TimedResult<T>> {
+  const start = Date.now();
+  try {
+    return {
+      value: await fn(),
+      error: undefined,
+      latencyMs: Date.now() - start,
+    };
+  } catch (err) {
+    return {
+      value: null,
+      error: err,
+      latencyMs: Date.now() - start,
+    };
+  }
 }
 
 function normalizeLinkStatus(linkStatus?: LinkStatusResponse | null): NormalizedLinkStatus {
@@ -116,9 +178,13 @@ export function registerCliCommands(
         .option("--json", "Output machine-readable status as JSON")
         .action(async (opts: StatusCommandOptions = {}) => {
           const jsonMode = opts.json === true;
+          const statusStart = Date.now();
+          const userIdReadyStart = Date.now();
           await userIdReady;
+          const userIdReadyMs = Date.now() - userIdReadyStart;
           const userId = getUserId();
           if (!userId) {
+            const totalWallMs = Date.now() - statusStart;
             if (jsonMode) {
               const payload: StatusJsonOutput = {
                 linked: false,
@@ -135,6 +201,13 @@ export function registerCliCommands(
                   api_health: "not_checked",
                   used_knowledge_fallback: false,
                   health_latency_ms: 0,
+                  ...statusTimingDetail({
+                    totalWallMs,
+                    userIdReadyMs,
+                    healthProbeMs: 0,
+                    knowledgeFallbackMs: 0,
+                    linkMs: 0,
+                  }),
                   link_status: "unavailable",
                 },
               };
@@ -157,28 +230,28 @@ export function registerCliCommands(
 
           // Health check with the same fallback used in startup bootstrap:
           // if /health misses, treat knowledge-read success as connected.
-          const startHealth = Date.now();
           let healthy = false;
           let usedKnowledgeFallback = false;
-          try {
-            healthy = await client.healthCheck();
-          } catch {
-            healthy = false;
-          }
+          const healthProbe = await measureStatusStep(() => client.healthCheck(STATUS_HEALTH_TIMEOUT_MS));
+          healthy = healthProbe.value === true;
+          let knowledgeFallbackMs = 0;
 
           if (!healthy) {
-            try {
-              cachedKnowledge = await client.knowledge(userId, STATUS_FALLBACK_TIMEOUT_MS);
-              fallbackStatsProbe = client.stats(userId, STATUS_FALLBACK_TIMEOUT_MS).catch(() => null);
+            const knowledgeFallback = await measureStatusStep(() => client.knowledge(userId, STATUS_FALLBACK_TIMEOUT_MS));
+            knowledgeFallbackMs = knowledgeFallback.latencyMs;
+            if (knowledgeFallback.value) {
+              cachedKnowledge = knowledgeFallback.value;
+              if (!jsonMode) {
+                fallbackStatsProbe = client.stats(userId, STATUS_FALLBACK_TIMEOUT_MS).catch(() => null);
+              }
               healthy = true;
               usedKnowledgeFallback = true;
-            } catch {
+            } else {
               healthy = false;
-              fallbackStatsProbe = null;
             }
           }
 
-          const healthMs = Date.now() - startHealth;
+          const healthMs = healthProbe.latencyMs + knowledgeFallbackMs;
           const healthLabel = healthy
             ? (usedKnowledgeFallback ? "OK (fallback via /v1/knowledge)" : "OK")
             : "UNREACHABLE";
@@ -187,6 +260,7 @@ export function registerCliCommands(
           }
 
           if (!healthy) {
+            const totalWallMs = Date.now() - statusStart;
             if (jsonMode) {
               const payload: StatusJsonOutput = {
                 linked: false,
@@ -203,6 +277,13 @@ export function registerCliCommands(
                   api_health: "unreachable",
                   used_knowledge_fallback: usedKnowledgeFallback,
                   health_latency_ms: healthMs,
+                  ...statusTimingDetail({
+                    totalWallMs,
+                    userIdReadyMs,
+                    healthProbeMs: healthProbe.latencyMs,
+                    knowledgeFallbackMs,
+                    linkMs: 0,
+                  }),
                   link_status: "unavailable",
                 },
               };
@@ -216,14 +297,13 @@ export function registerCliCommands(
           // Link status
           let linkStatus: LinkStatusResponse | null = null;
           let linkStatusError: unknown;
-          try {
-            linkStatus = await client.getLinkStatus(userId);
-          } catch (err) {
-            linkStatusError = err;
-          }
+          const linkStatusResult = await measureStatusStep(() => client.getLinkStatus(userId, STATUS_LINK_TIMEOUT_MS));
+          linkStatus = linkStatusResult.value;
+          linkStatusError = linkStatusResult.error ?? new Error("Link status unavailable");
 
           if (jsonMode) {
             const normalized = normalizeLinkStatus(linkStatus);
+            const totalWallMs = Date.now() - statusStart;
             const payload: StatusJsonOutput = {
               linked: linkStatus ? normalized.linked : false,
               agent_user_id: userId,
@@ -239,6 +319,13 @@ export function registerCliCommands(
                 api_health: "ok",
                 used_knowledge_fallback: usedKnowledgeFallback,
                 health_latency_ms: healthMs,
+                ...statusTimingDetail({
+                  totalWallMs,
+                  userIdReadyMs,
+                  healthProbeMs: healthProbe.latencyMs,
+                  knowledgeFallbackMs,
+                  linkMs: linkStatusResult.latencyMs,
+                }),
                 link_status: linkStatus ? "ok" : "unavailable",
                 ...(linkStatusError ? { link_error: String(linkStatusError) } : {}),
               },
@@ -256,17 +343,17 @@ export function registerCliCommands(
                   ? linkedDate.toISOString().slice(0, 10)
                   : null;
               if (linkedDateLabel) {
-                console.log(`  TooToo Link:    ✓ Linked since ${linkedDateLabel}`);
+                console.log(`  TooToo Link:    ✓ Linked since ${linkedDateLabel} (${linkStatusResult.latencyMs}ms)`);
               } else {
-                console.log("  TooToo Link:    ✓ Linked");
+                console.log(`  TooToo Link:    ✓ Linked (${linkStatusResult.latencyMs}ms)`);
               }
             } else if (linkStatus && !linkStatus.linked) {
-              console.log(`  TooToo Link:    Not linked. Run \`openclaw cortex pair\` to connect.`);
+              console.log(`  TooToo Link:    Not linked (${linkStatusResult.latencyMs}ms). Run \`openclaw cortex pair\` to connect.`);
             } else {
               throw linkStatusError;
             }
           } catch {
-            console.log(`  TooToo Link:    Unable to check`);
+            console.log(`  TooToo Link:    Unable to check (${linkStatusResult.latencyMs}ms)`);
           }
 
           // Knowledge

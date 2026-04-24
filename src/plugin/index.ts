@@ -150,7 +150,34 @@ function wasHealthyRecently(now = Date.now()): boolean {
 }
 
 function isExplicitCortexCliInvocation(): boolean {
-  return process.argv.some((arg: string) => arg === "cortex");
+  const args = process.argv.slice(2);
+  let skipNextOptionValue = false;
+
+  for (let i = 0; i < args.length; i += 1) {
+    const arg = args[i];
+
+    if (skipNextOptionValue) {
+      skipNextOptionValue = false;
+      continue;
+    }
+
+    if (arg === "--") {
+      return args[i + 1] === "cortex";
+    }
+
+    if (arg === "--profile") {
+      skipNextOptionValue = true;
+      continue;
+    }
+
+    if (arg.startsWith("--profile=") || arg.startsWith("-")) {
+      continue;
+    }
+
+    return arg === "cortex";
+  }
+
+  return false;
 }
 
 export interface KnowledgeState {
@@ -653,31 +680,57 @@ const plugin = {
             api.logger.warn("Cortex: could not persist user ID, using ephemeral ID for this session");
           });
 
+    const isCliInvocation = isExplicitCortexCliInvocation();
+    if (isCliInvocation) {
+      const cliSessionStats: SessionStats = loadPersistedStats() ?? {
+        saves: 0,
+        savesSkippedDedupe: 0,
+        savesSkippedNovelty: 0,
+        searches: 0,
+        recallCount: 0,
+        recallMemoriesTotal: 0,
+        recallDuplicatesCollapsed: 0,
+      };
+
+      if (api.registerCli) {
+        registerCliCommands(api.registerCli.bind(api), {
+          client,
+          config,
+          version,
+          getUserId: () => userId,
+          userIdReady,
+          getNamespace: () => namespace,
+          sessionStats: cliSessionStats,
+          loadPersistedStats,
+          loadPersistedWriteHealth,
+          persistWriteHealth,
+          isAbortError,
+          resetCompletedAfterAbort,
+        });
+
+        api.logger.debug?.("Cortex CLI registered: openclaw cortex {status,memories,search,config,pair,reset}");
+      }
+      return;
+    }
+
     // Health check + knowledge probe — runs after userId resolves so recall
     // knows whether memories exist. Must happen in register() because some
     // runtime instances never call start().
-    // Skip when running CLI commands (e.g. `openclaw cortex status`) — the
-    // async log races with command output and CLI commands fetch their own data.
-    const isCliInvocation = isExplicitCortexCliInvocation();
-    if (!isCliInvocation) {
-      void userIdReady.then(() => bootstrapClient(client, api.logger, knowledgeState, userId!));
-      void checkForUpdate(api.logger);
-    }
+    void userIdReady.then(() => bootstrapClient(client, api.logger, knowledgeState, userId!));
+    void checkForUpdate(api.logger);
 
     api.logger.info(`Cortex v${version} ready (early testing)`);
 
     // Show a getting-started hint on first install or after version upgrade
-    if (!isCliInvocation) {
-      try {
-        const versionFile = join(homedir(), ".openclaw", "cortex-last-version");
-        let lastVersion: string | undefined;
-        try { lastVersion = readFileSync(versionFile, "utf-8").trim(); } catch { /* first run */ }
-        if (lastVersion !== version) {
-          api.logger.info("Cortex: run `cortex help` to see available commands");
-          writeFileSync(versionFile, version, { encoding: "utf-8", mode: 0o600 });
-        }
-      } catch { /* non-fatal */ }
-    }
+    try {
+      const versionFile = join(homedir(), ".openclaw", "cortex-last-version");
+      let lastVersion: string | undefined;
+      try { lastVersion = readFileSync(versionFile, "utf-8").trim(); } catch { /* first run */ }
+      if (lastVersion !== version) {
+        api.logger.info("Cortex: run `cortex help` to see available commands");
+        writeFileSync(versionFile, version, { encoding: "utf-8", mode: 0o600 });
+      }
+    } catch { /* non-fatal */ }
 
     // --- Hooks ---
 
@@ -713,9 +766,7 @@ const plugin = {
       auditLogger: auditLoggerProxy,
     });
 
-    if (!isCliInvocation) {
-      void userIdReady.then(() => bridgeHandler.refreshLinkStatus(true));
-    }
+    void userIdReady.then(() => bridgeHandler.refreshLinkStatus(true));
 
     // before_agent_start also handles recovery and bridge prompt injection,
     // so this hook stays registered even when autoRecall is disabled.

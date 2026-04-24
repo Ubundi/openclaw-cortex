@@ -217,7 +217,7 @@ describe("registerCliCommands search output", () => {
     expect(client.healthCheck).toHaveBeenCalledOnce();
     expect(client.knowledge).toHaveBeenCalledTimes(1);
     expect(client.knowledge).toHaveBeenCalledWith("user-1", 8000);
-    expect(client.getLinkStatus).toHaveBeenCalledWith("user-1");
+    expect(client.getLinkStatus).toHaveBeenCalledWith("user-1", 5000);
     expect(client.recall).toHaveBeenCalledOnce();
     expect(client.retrieve).toHaveBeenCalledOnce();
     expect(logSpy).toHaveBeenCalledWith(expect.stringContaining("API Health:     OK (fallback via /v1/knowledge)"));
@@ -274,8 +274,8 @@ describe("registerCliCommands search output", () => {
 
     await program.children.get("cortex")?.children.get("status")?.actionHandler?.();
 
-    expect(client.getLinkStatus).toHaveBeenCalledWith("user-1");
-    expect(logSpy).toHaveBeenCalledWith("  TooToo Link:    ✓ Linked");
+    expect(client.getLinkStatus).toHaveBeenCalledWith("user-1", 5000);
+    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining("TooToo Link:    ✓ Linked"));
     expect(logSpy).not.toHaveBeenCalledWith("  TooToo Link:    Not linked. Run `openclaw cortex pair` to connect.");
   });
 
@@ -323,7 +323,7 @@ describe("registerCliCommands search output", () => {
     await program.children.get("cortex")?.children.get("status")?.actionHandler?.();
 
     expect(logSpy).toHaveBeenCalledWith("Cortex Status Check");
-    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining("TooToo Link:    Not linked."));
+    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining("TooToo Link:    Not linked"));
   });
 
   it("returns JSON status when the user ID is unavailable", async () => {
@@ -447,6 +447,98 @@ describe("registerCliCommands search output", () => {
     });
     expect(payload.detail.api_health).toBe("ok");
     expect(client.knowledge).not.toHaveBeenCalled();
+    expect(client.stats).not.toHaveBeenCalled();
+    expect(client.recall).not.toHaveBeenCalled();
+    expect(client.retrieve).not.toHaveBeenCalled();
+  });
+
+  it("includes JSON timing breakdown for slow health fallback and link status", async () => {
+    const registerCli = vi.fn();
+    let now = 1_000;
+    vi.spyOn(Date, "now").mockImplementation(() => now);
+    let resolveUserIdReady!: () => void;
+    const userIdReady = new Promise<void>((resolve) => {
+      resolveUserIdReady = resolve;
+    });
+    const client = {
+      healthCheck: vi.fn().mockImplementation(async () => {
+        now += 5_000;
+        return false;
+      }),
+      getLinkStatus: vi.fn().mockImplementation(async () => {
+        now += 28_000;
+        return {
+          linked: true,
+          link: {
+            owner_type: "shadow_subject",
+            owner_id: "owner-shadow-1",
+            shadow_subject_id: "shadow-subject-1",
+            claimed_user_id: null,
+            tootoo_user_id: null,
+            linked_at: "2026-04-24T09:00:00Z",
+          },
+        };
+      }),
+      knowledge: vi.fn().mockImplementation(async () => {
+        now += 8_000;
+        return {
+          total_memories: 53,
+          total_sessions: 6,
+          maturity: "cold",
+          entities: [],
+        };
+      }),
+      stats: vi.fn(),
+      recall: vi.fn(),
+      retrieve: vi.fn(),
+    };
+
+    registerCliCommands(registerCli, {
+      client: client as any,
+      config: {
+        baseUrl: "https://api.example.com",
+        autoRecall: true,
+        autoCapture: true,
+        dedupeWindowMinutes: 30,
+        toolTimeoutMs: 500,
+      } as any,
+      version: "test",
+      getUserId: () => "agent-user-shadow",
+      userIdReady,
+      getNamespace: () => "test",
+      sessionStats: makeSessionStats(),
+      loadPersistedStats: () => null,
+      isAbortError: () => false,
+      resetCompletedAfterAbort: async () => false,
+    });
+
+    const program = createCliNode("root");
+    const registrar = registerCli.mock.calls[0][0] as (ctx: { program: CliProgram; config: Record<string, unknown> }) => void;
+    registrar({ program: program as unknown as CliProgram, config: {} });
+
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    const actionPromise = program.children.get("cortex")?.children.get("status")?.actionHandler?.({ json: true });
+    await flushMicrotasks();
+    now += 37;
+    resolveUserIdReady();
+    await actionPromise;
+
+    const payload = JSON.parse(String(logSpy.mock.calls[0]?.[0]));
+    expect(payload.detail).toMatchObject({
+      api_health: "ok",
+      used_knowledge_fallback: true,
+      user_id_ready_latency_ms: 37,
+      health_latency_ms: 13_000,
+      health_probe_latency_ms: 5_000,
+      knowledge_fallback_latency_ms: 8_000,
+      link_latency_ms: 28_000,
+      total_wall_time_ms: 41_037,
+      health_timeout_ms: 5_000,
+      knowledge_fallback_timeout_ms: 8_000,
+      link_timeout_ms: 5_000,
+    });
+    expect(payload.detail.timing).toBeUndefined();
     expect(client.stats).not.toHaveBeenCalled();
     expect(client.recall).not.toHaveBeenCalled();
     expect(client.retrieve).not.toHaveBeenCalled();
@@ -652,7 +744,7 @@ describe("registerCliCommands search output", () => {
     expect(client.healthCheck).toHaveBeenCalledOnce();
     expect(client.knowledge).toHaveBeenCalledWith("user-1", 8000);
     expect(logSpy).toHaveBeenCalledWith(expect.stringContaining("API Health:     OK (fallback via /v1/knowledge)"));
-    expect(client.getLinkStatus).toHaveBeenCalledWith("user-1");
+    expect(client.getLinkStatus).toHaveBeenCalledWith("user-1", 5000);
 
     resolveStats?.({ pipeline_tier: 1, pipeline_maturity: "cold" });
     await actionPromise;

@@ -791,6 +791,54 @@ describe("plugin lifecycle contract", () => {
     expect(services).toHaveLength(0);
   });
 
+  it("registers only CLI commands during explicit cortex CLI invocations", async () => {
+    const originalArgv = process.argv;
+    const { api, cliRegistrars } = makeApi({ userId: "agent-cli-1" });
+    try {
+      process.argv = ["node", "openclaw", "cortex", "config"];
+      plugin.register(api as any);
+    } finally {
+      process.argv = originalArgv;
+    }
+
+    expect(api.registerCli).toHaveBeenCalledTimes(1);
+    expect(cliRegistrars[0]?.opts).toEqual({ commands: ["cortex"] });
+    expect(api.on).not.toHaveBeenCalled();
+    expect(api.registerHook).not.toHaveBeenCalled();
+    expect(api.registerTool).not.toHaveBeenCalled();
+    expect(api.registerCommand).not.toHaveBeenCalled();
+    expect(api.registerGatewayMethod).not.toHaveBeenCalled();
+    expect(api.registerService).not.toHaveBeenCalled();
+    expect(CortexClient.prototype.healthCheck).not.toHaveBeenCalled();
+    expect(CortexClient.prototype.knowledge).not.toHaveBeenCalled();
+
+    const program = createCliNode("root");
+    cliRegistrars[0]?.registrar({ program, config: {}, logger: api.logger });
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    await program.children.get("cortex")?.children.get("config")?.actionHandler?.();
+
+    expect(logSpy).toHaveBeenCalledWith("Version:          2.16.1");
+    expect(logSpy).toHaveBeenCalledWith("User ID:          agent-cli-1");
+  });
+
+  it("registers only CLI commands when cortex follows a valued global option", async () => {
+    const originalArgv = process.argv;
+    const { api, cliRegistrars } = makeApi({ userId: "agent-cli-1" });
+    try {
+      process.argv = ["node", "openclaw", "--profile", "work", "cortex", "status"];
+      plugin.register(api as any);
+    } finally {
+      process.argv = originalArgv;
+    }
+
+    expect(api.registerCli).toHaveBeenCalledTimes(1);
+    expect(cliRegistrars[0]?.opts).toEqual({ commands: ["cortex"] });
+    expect(api.on).not.toHaveBeenCalled();
+    expect(api.registerService).not.toHaveBeenCalled();
+    expect(CortexClient.prototype.healthCheck).not.toHaveBeenCalled();
+    expect(CortexClient.prototype.knowledge).not.toHaveBeenCalled();
+  });
+
   it("logs maturity and tier info on startup", async () => {
     vi.restoreAllMocks();
     mockClientHealth();
