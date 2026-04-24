@@ -4,3 +4,12 @@
  * Never commit a real key here.
  */
 export const BAKED_API_KEY = "__OPENCLAW_API_KEY__";
+
+export function resolveCortexApiKey(configApiKey?: string): string {
+  return (
+    configApiKey ||
+    process.env.CORTEX_API_KEY ||
+    (BAKED_API_KEY !== "__OPENCLAW_API_KEY__" && BAKED_API_KEY) ||
+    ""
+  );
+}

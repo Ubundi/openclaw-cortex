@@ -11,7 +11,7 @@ import { createBridgeHandler, buildBridgeFollowUpPrompt } from "../features/brid
 import { RetryQueue } from "../internal/retry-queue.js";
 import { LatencyMetrics } from "../internal/latency-metrics.js";
 import { loadOrCreateUserId } from "../internal/user-id.js";
-import { BAKED_API_KEY } from "../internal/api-key.js";
+import { resolveCortexApiKey } from "../internal/api-key.js";
 import { AuditLogger } from "../internal/audit-logger.js";
 import { RecentSaves } from "../internal/dedupe.js";
 import { RecallEchoStore } from "../internal/recall-echo-store.js";
@@ -555,13 +555,9 @@ const plugin = {
     const config: CortexConfig = finalParsed.success ? finalParsed.data : parsed.data;
 
     // Resolve API key: plugin config → CORTEX_API_KEY env var → baked build key.
-    // The baked key is a placeholder ("__OPENCLAW_API_KEY__") in source and may
-    // be empty in published builds, so user-provided keys take priority.
-    const resolvedApiKey =
-      config.apiKey ||
-      process.env.CORTEX_API_KEY ||
-      (BAKED_API_KEY !== "__OPENCLAW_API_KEY__" && BAKED_API_KEY) ||
-      "";
+    // The baked key is a placeholder in source and may be empty in published
+    // builds, so user-provided keys take priority.
+    const resolvedApiKey = resolveCortexApiKey(config.apiKey);
 
     if (!resolvedApiKey) {
       if (!isExplicitCortexCliInvocation() && wasHealthyRecently()) {
