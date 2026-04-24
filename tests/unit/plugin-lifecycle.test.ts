@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import plugin from "../../src/plugin/index.js";
+import packageJson from "../../package.json" with { type: "json" };
 import { CortexClient } from "../../src/cortex/client.js";
 import { RetryQueue } from "../../src/internal/retry-queue.js";
 import { SessionStateStore } from "../../src/internal/session-state.js";
@@ -817,7 +818,7 @@ describe("plugin lifecycle contract", () => {
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     await program.children.get("cortex")?.children.get("config")?.actionHandler?.();
 
-    expect(logSpy).toHaveBeenCalledWith("Version:          2.16.1");
+    expect(logSpy).toHaveBeenCalledWith(`Version:          ${packageJson.version}`);
     expect(logSpy).toHaveBeenCalledWith("User ID:          agent-cli-1");
   });
 
