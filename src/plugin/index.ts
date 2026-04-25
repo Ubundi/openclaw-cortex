@@ -39,6 +39,10 @@ import {
   createWriteHealthState,
   type WriteHealthState,
 } from "../internal/write-health.js";
+import {
+  createClawDeployBridgeTraceClient,
+  resolveClawDeployBridgeTraceConfig,
+} from "../internal/clawdeploy-bridge-traces.js";
 
 const version = packageJson.version;
 const PACKAGE_NAME = packageJson.name;
@@ -623,6 +627,11 @@ const plugin = {
       ?? undefined;
 
     const client = new CortexClient(config.baseUrl, resolvedApiKey);
+    const bridgeTraceConfig = resolveClawDeployBridgeTraceConfig(config);
+    const bridgeTraceClient = createClawDeployBridgeTraceClient({
+      ...bridgeTraceConfig,
+      logger: api.logger,
+    });
     const retryQueue = new RetryQueue(api.logger);
     const recallMetrics = new LatencyMetrics();
     const sessionState = new SessionStateStore();
@@ -764,6 +773,7 @@ const plugin = {
       userIdReady,
       pluginSessionId: sessionId,
       auditLogger: auditLoggerProxy,
+      bridgeTraceClient,
     });
 
     void userIdReady.then(() => bridgeHandler.refreshLinkStatus(true));

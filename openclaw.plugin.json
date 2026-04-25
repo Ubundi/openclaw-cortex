@@ -15,6 +15,14 @@
         "description": "Cortex API base URL",
         "default": "https://q5p64iw9c9.execute-api.us-east-1.amazonaws.com/prod"
       },
+      "clawDeployBaseUrl": {
+        "type": "string",
+        "description": "Optional ClawDeploy base URL for best-effort TooToo bridge trace emission. Can also be set via CLAWDEPLOY_BASE_URL."
+      },
+      "enableClawDeployBridgeTrace": {
+        "type": "boolean",
+        "description": "Enable best-effort TooToo bridge trace emission to ClawDeploy when CLAWDEPLOY_BASE_URL and OPENCLAW_GATEWAY_TOKEN are available."
+      },
       "userId": {
         "type": "string",
         "description": "User ID to scope memories to this installation. Auto-generated and persisted at ~/.openclaw/cortex-user-id if not set."
@@ -145,6 +153,16 @@
     "baseUrl": {
       "label": "Base URL",
       "advanced": true
+    },
+    "clawDeployBaseUrl": {
+      "label": "ClawDeploy Base URL",
+      "advanced": true,
+      "helpText": "Optional ClawDeploy API base URL for TooToo bridge trace observability. Can also be provided via CLAWDEPLOY_BASE_URL."
+    },
+    "enableClawDeployBridgeTrace": {
+      "label": "ClawDeploy Bridge Trace",
+      "advanced": true,
+      "helpText": "Best-effort trace emission for TooToo bridge Q&A when ClawDeploy URL and gateway token are available."
     },
     "autoRecall": {
       "label": "Auto Recall",

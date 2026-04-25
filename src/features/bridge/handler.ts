@@ -11,6 +11,8 @@ import {
   shouldUseUserMessageForMemory,
 } from "../../internal/message-provenance.js";
 import type { RetryQueue } from "../../internal/retry-queue.js";
+import type { ClawDeployBridgeTraceClient, ClawDeployBridgeTraceEvent } from "../../internal/clawdeploy-bridge-traces.js";
+import { redactBridgeTraceError } from "../../internal/clawdeploy-bridge-traces.js";
 import { isLowSignal, sanitizeConversationText } from "../capture/filter.js";
 
 type Logger = {
@@ -77,6 +79,7 @@ export interface CreateBridgeHandlerOptions {
   userIdReady?: Promise<void>;
   pluginSessionId?: string;
   auditLogger?: AuditLogger;
+  bridgeTraceClient?: ClawDeployBridgeTraceClient;
 }
 
 const LINK_STATUS_TTL_MS = 60_000;
@@ -747,6 +750,7 @@ export function createBridgeHandler(
     userIdReady,
     pluginSessionId,
     auditLogger,
+    bridgeTraceClient,
   } = options;
 
   let linkStatus: LinkStatusSnapshot = {
@@ -770,6 +774,27 @@ export function createBridgeHandler(
       sessionStates.set(sessionKey, state);
     }
     return state;
+  }
+
+  function emitBridgeTrace(
+    exchange: DetectedBridgeExchange,
+    agentUserId: string,
+    event: Omit<ClawDeployBridgeTraceEvent, "requestId" | "sessionKey" | "cortexAgentUserId" | "agentUserId" | "targetSection">,
+  ): void {
+    if (!bridgeTraceClient) return;
+
+    try {
+      bridgeTraceClient.emitBridgeTrace({
+        requestId: exchange.requestId,
+        sessionKey: exchange.sessionKey,
+        cortexAgentUserId: agentUserId,
+        agentUserId,
+        targetSection: exchange.targetSection,
+        ...event,
+      });
+    } catch (err) {
+      logger.debug?.(`Cortex bridge trace emission failed: ${redactBridgeTraceError(err)}`);
+    }
   }
 
   async function refreshLinkStatus(force = false): Promise<LinkStatusSnapshot> {
@@ -975,6 +1000,21 @@ export function createBridgeHandler(
         throw new Error(`Cortex bridge/qa failed: accepted=false requestId=${exchange.requestId}`);
       }
 
+      emitBridgeTrace(exchange, agentUserId, {
+        status: "accepted",
+        acceptedAt: new Date().toISOString(),
+        forwarded: response.forwarded,
+        queuedForRetry: response.queued_for_retry,
+        entriesSent: response.entries_sent,
+        metadata: {
+          source: "openclaw-cortex",
+          bridgeEventId: response.bridge_event_id,
+          suggestionsCreated: response.suggestions_created,
+          ownerType: response.owner_type,
+          hasTootooUserId: Boolean(response.tootoo_user_id),
+        },
+      });
+
       logger.info(
         `Cortex bridge: accepted requestId=${exchange.requestId} forwarded=${response.forwarded} queuedForRetry=${response.queued_for_retry} entries=${response.entries_sent}`,
       );
@@ -986,11 +1026,30 @@ export function createBridgeHandler(
       logger.info(
         `Cortex bridge: detected discovery exchange requestId=${exchange.requestId} sessionId=${exchange.sessionKey} section=${exchange.targetSection}`,
       );
+      emitBridgeTrace(exchange, agentUserId, {
+        status: "detected",
+        detectedAt: new Date().toISOString(),
+        metadata: {
+          source: "openclaw-cortex",
+          assistantIndex: exchange.assistantIndex,
+          userIndex: exchange.userIndex,
+          entriesDetected: pendingExchanges.length,
+        },
+      });
 
       try {
         await performSubmit(exchange);
         handledAny = true;
       } catch (err) {
+        emitBridgeTrace(exchange, agentUserId, {
+          status: "failed",
+          lastError: redactBridgeTraceError(err, [exchange.question, exchange.answer]),
+          metadata: {
+            source: "openclaw-cortex",
+            retryable: isRetryableBridgeError(err),
+            statusCode: extractErrorStatusCode(err),
+          },
+        });
         const statusCode = extractErrorStatusCode(err);
         if (statusCode === 404) {
           linkStatus = {

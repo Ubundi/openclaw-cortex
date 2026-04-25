@@ -27,6 +27,8 @@ export const CortexConfigSchema = z.object({
   baseUrl: httpsUrl.default(
     "https://q5p64iw9c9.execute-api.us-east-1.amazonaws.com/prod",
   ),
+  clawDeployBaseUrl: httpsUrl.optional(),
+  enableClawDeployBridgeTrace: z.boolean().optional(),
   userId: z.string().min(1).optional(),
   autoRecall: z.boolean().default(false),
   autoCapture: z.boolean().default(true),

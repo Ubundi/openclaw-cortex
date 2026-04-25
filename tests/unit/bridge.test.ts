@@ -10,6 +10,7 @@ import {
   extractLastQuestion,
   inferTargetSection,
 } from "../../src/features/bridge/handler.js";
+import type { ClawDeployBridgeTraceClient } from "../../src/internal/clawdeploy-bridge-traces.js";
 
 const logger = {
   debug: vi.fn(),
@@ -40,6 +41,12 @@ function makeClient(overrides: Partial<{
       suggestions_created: 2,
     }),
   } as unknown as CortexClient;
+}
+
+function makeTraceClient(): ClawDeployBridgeTraceClient {
+  return {
+    emitBridgeTrace: vi.fn(),
+  };
 }
 
 function discoveryExchangeMessages() {
@@ -391,6 +398,143 @@ describe("TooToo bridge handler", () => {
       },
     ]);
     expect(request.request_id).toMatch(/^openclaw-bridge-/);
+  });
+
+  it("emits a detected trace with request ID and section when a discovery exchange is found", async () => {
+    const client = makeClient();
+    const traceClient = makeTraceClient();
+    const handler = createBridgeHandler(client, {
+      logger,
+      bridgeTraceClient: traceClient,
+      getUserId: () => "agent-user-1",
+      userIdReady: Promise.resolve(),
+      pluginSessionId: "plugin-session-1",
+    });
+
+    await expect(handler.handleAgentEnd({
+      messages: discoveryExchangeMessages(),
+      aborted: false,
+      sessionKey: "sess-trace-detected",
+    })).resolves.toBe(true);
+
+    const detected = (traceClient.emitBridgeTrace as any).mock.calls
+      .map((call: any[]) => call[0])
+      .find((event: any) => event.status === "detected");
+    const request = (client.submitBridgeQA as any).mock.calls[0][0];
+    expect(detected).toMatchObject({
+      requestId: request.request_id,
+      sessionKey: "sess-trace-detected",
+      cortexAgentUserId: "agent-user-1",
+      agentUserId: "agent-user-1",
+      targetSection: "coreValues",
+      status: "detected",
+    });
+    expect(detected.detectedAt).toEqual(expect.any(String));
+    expect(JSON.stringify(detected)).not.toContain("What do you value most");
+    expect(JSON.stringify(detected)).not.toContain("Autonomy and creative freedom");
+  });
+
+  it("emits an accepted trace with bridge response status fields", async () => {
+    const client = makeClient({
+      submitBridgeQA: vi.fn().mockResolvedValue({
+        accepted: true,
+        forwarded: false,
+        queued_for_retry: true,
+        entries_sent: 1,
+        tootoo_user_id: "tt-user-1",
+        bridge_event_id: "bridge-event-accepted",
+        suggestions_created: null,
+      }),
+    });
+    const traceClient = makeTraceClient();
+    const handler = createBridgeHandler(client, {
+      logger,
+      bridgeTraceClient: traceClient,
+      getUserId: () => "agent-user-1",
+      userIdReady: Promise.resolve(),
+      pluginSessionId: "plugin-session-1",
+    });
+
+    await expect(handler.handleAgentEnd({
+      messages: discoveryExchangeMessages(),
+      aborted: false,
+      sessionKey: "sess-trace-accepted",
+    })).resolves.toBe(true);
+
+    const accepted = (traceClient.emitBridgeTrace as any).mock.calls
+      .map((call: any[]) => call[0])
+      .find((event: any) => event.status === "accepted");
+    expect(accepted).toMatchObject({
+      status: "accepted",
+      forwarded: false,
+      queuedForRetry: true,
+      entriesSent: 1,
+      requestId: (client.submitBridgeQA as any).mock.calls[0][0].request_id,
+      sessionKey: "sess-trace-accepted",
+      targetSection: "coreValues",
+    });
+    expect(accepted.acceptedAt).toEqual(expect.any(String));
+  });
+
+  it("emits a failed trace with redacted sensitive values when bridge submission fails", async () => {
+    const client = makeClient({
+      submitBridgeQA: vi.fn().mockRejectedValue(
+        new Error("Cortex bridge/qa failed: 503 Authorization: Bearer token-123 x-api-key=sk-secret answer=Autonomy and creative freedom."),
+      ),
+    });
+    const traceClient = makeTraceClient();
+    const handler = createBridgeHandler(client, {
+      logger,
+      bridgeTraceClient: traceClient,
+      getUserId: () => "agent-user-1",
+      userIdReady: Promise.resolve(),
+      pluginSessionId: "plugin-session-1",
+    });
+
+    await expect(handler.handleAgentEnd({
+      messages: discoveryExchangeMessages(),
+      aborted: false,
+      sessionKey: "sess-trace-failed",
+    })).resolves.toBe(false);
+
+    const failed = (traceClient.emitBridgeTrace as any).mock.calls
+      .map((call: any[]) => call[0])
+      .find((event: any) => event.status === "failed");
+    expect(failed).toMatchObject({
+      status: "failed",
+      requestId: (client.submitBridgeQA as any).mock.calls[0][0].request_id,
+      sessionKey: "sess-trace-failed",
+      targetSection: "coreValues",
+    });
+    expect(failed.lastError).toContain("[REDACTED");
+    expect(failed.lastError).not.toContain("token-123");
+    expect(failed.lastError).not.toContain("sk-secret");
+    expect(failed.lastError).not.toContain("Autonomy and creative freedom");
+  });
+
+  it("does not fail bridge submission when trace emission throws", async () => {
+    const client = makeClient();
+    const traceClient: ClawDeployBridgeTraceClient = {
+      emitBridgeTrace: vi.fn(() => {
+        throw new Error("trace endpoint down");
+      }),
+    };
+    const handler = createBridgeHandler(client, {
+      logger,
+      bridgeTraceClient: traceClient,
+      getUserId: () => "agent-user-1",
+      userIdReady: Promise.resolve(),
+      pluginSessionId: "plugin-session-1",
+    });
+
+    await expect(handler.handleAgentEnd({
+      messages: discoveryExchangeMessages(),
+      aborted: false,
+      sessionKey: "sess-trace-best-effort",
+    })).resolves.toBe(true);
+
+    expect((client.submitBridgeQA as any)).toHaveBeenCalledTimes(1);
+    expect(logger.debug).toHaveBeenCalledWith(expect.stringContaining("trace emission failed"));
   });
 
   it("attributes the pair to the assistant question before the latest user answer", async () => {
