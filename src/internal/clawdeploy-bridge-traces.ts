@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import type { BridgeTargetSection } from "../cortex/client.js";
 
 type Logger = {
@@ -41,6 +44,11 @@ export interface ClawDeployBridgeTraceConfig {
   gatewayToken?: string;
 }
 
+interface ResolveConfigOptions {
+  homeDir?: string;
+  readFile?: (path: string) => string;
+}
+
 const TRACE_ENDPOINT = "/api/agent/tootoo/bridge-traces";
 const DEFAULT_TIMEOUT_MS = 2_000;
 const ERROR_MAX_LENGTH = 2_000;
@@ -60,6 +68,14 @@ function isEnabled(value: unknown): boolean {
 
 function normalizeBaseUrl(baseUrl: string): string {
   return baseUrl.replace(/\/+$/u, "");
+}
+
+function readTrimmedFile(path: string, readFile: (path: string) => string): string | undefined {
+  try {
+    return trimOrUndefined(readFile(path));
+  } catch {
+    return undefined;
+  }
 }
 
 function redactSensitiveMetadata(metadata: Record<string, unknown> | undefined): Record<string, unknown> | undefined {
@@ -104,10 +120,19 @@ export function redactBridgeTraceError(error: unknown, privateFragments: string[
 export function resolveClawDeployBridgeTraceConfig(
   config: Record<string, unknown> = {},
   env: NodeJS.ProcessEnv = process.env,
+  options: ResolveConfigOptions = {},
 ): ClawDeployBridgeTraceConfig {
+  const home = options.homeDir ?? homedir();
+  const readFile = options.readFile ?? ((path: string) => readFileSync(path, "utf-8"));
+  const managedUrlFile = readTrimmedFile(join(home, ".kwanda", "clawdeploy-api-url"), readFile);
+
   return {
     enabled: isEnabled(config.enableClawDeployBridgeTrace ?? env.ENABLE_CLAWDEPLOY_BRIDGE_TRACE),
-    baseUrl: trimOrUndefined(config.clawDeployBaseUrl) ?? trimOrUndefined(env.CLAWDEPLOY_BASE_URL) ?? trimOrUndefined(env.CLAWDEPLOY_API_URL),
+    baseUrl:
+      trimOrUndefined(config.clawDeployBaseUrl)
+      ?? trimOrUndefined(env.CLAWDEPLOY_BASE_URL)
+      ?? trimOrUndefined(env.CLAWDEPLOY_API_URL)
+      ?? managedUrlFile,
     gatewayToken:
       trimOrUndefined(env.OPENCLAW_GATEWAY_TOKEN)
       ?? trimOrUndefined(env.GATEWAY_TOKEN),
@@ -127,8 +152,12 @@ export function createClawDeployBridgeTraceClient(options: CreateClientOptions):
         logger.debug?.("Cortex bridge trace emission skipped: disabled");
         return;
       }
-      if (!baseUrl || !gatewayToken) {
-        logger.debug?.("Cortex bridge trace emission skipped: missing ClawDeploy URL or gateway token");
+      if (!baseUrl) {
+        logger.debug?.("Cortex bridge trace emission skipped: missing ClawDeploy base URL");
+        return;
+      }
+      if (!gatewayToken) {
+        logger.debug?.("Cortex bridge trace emission skipped: missing_gateway_token");
         return;
       }
 

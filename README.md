@@ -128,6 +128,8 @@ Add to your `openclaw.json`:
 | `namespace`              | string  | `"openclaw"` | Memory namespace. Auto-derived from workspace directory when not set explicitly.                 |
 | `sessionGoal`            | boolean | `true`       | Enable session goal detection. When active, the agent sets a goal that biases recall and tags captures. |
 | `agentRole`              | string  | —            | Agent specialization: `"developer"`, `"researcher"`, `"manager"`, `"support"`, `"generalist"`. Tunes capture categories and recall context. |
+| `clawDeployBaseUrl`      | string  | —            | Optional ClawDeploy base URL for TooToo bridge trace emission. Explicit config and env override managed-instance discovery. |
+| `enableClawDeployBridgeTrace` | boolean | `true` | Optional bridge trace emission flag. Traces are still skipped unless a ClawDeploy URL and OpenClaw gateway token are available. |
 
 ## How It Works
 
@@ -293,6 +295,22 @@ Cortex connected — 1,173 memories, 4 sessions (cold), tier 1
 Recall latency percentiles are logged at debug level on shutdown. Enable verbose logging to see them, or run `openclaw cortex status` for live metrics.
 
 ![Observability](assets/readme_assets/Observability.png)
+
+### ClawDeploy Bridge Traces
+
+When a linked TooToo bridge Q&A exchange is detected, Cortex can emit best-effort trace events to ClawDeploy at `/api/agent/tootoo/bridge-traces`. The trace POST uses `Authorization: Bearer <OPENCLAW_GATEWAY_TOKEN>` and never includes raw question or answer text.
+
+ClawDeploy-managed OpenClaw instances discover the ClawDeploy base URL in this order:
+
+1. plugin config `clawDeployBaseUrl`
+2. `CLAWDEPLOY_BASE_URL`
+3. `CLAWDEPLOY_API_URL`
+4. `~/.kwanda/clawdeploy-api-url`
+
+Trace emission is skipped unless both a destination URL and the gateway token are available. Gateway logs include grep-friendly skip reasons:
+
+- `Cortex bridge trace emission skipped: missing ClawDeploy base URL`
+- `Cortex bridge trace emission skipped: missing_gateway_token`
 
 ## Privacy & Data
 

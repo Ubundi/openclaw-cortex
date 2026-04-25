@@ -79,6 +79,80 @@ describe("ClawDeploy bridge trace client", () => {
     expect(logger.debug).toHaveBeenCalledWith(expect.stringContaining("skipped"));
   });
 
+  it("uses CLAWDEPLOY_BASE_URL ahead of managed-instance file fallback", () => {
+    const config = resolveClawDeployBridgeTraceConfig(
+      {},
+      {
+        CLAWDEPLOY_BASE_URL: "https://env.example.com",
+        OPENCLAW_GATEWAY_TOKEN: "gateway-token-1",
+      },
+      {
+        homeDir: "/home/ubuntu",
+        readFile: vi.fn().mockReturnValue("https://file.example.com\n"),
+      },
+    );
+
+    expect(config.baseUrl).toBe("https://env.example.com");
+    expect(config.gatewayToken).toBe("gateway-token-1");
+  });
+
+  it("uses ~/.kwanda/clawdeploy-api-url as the managed-instance fallback URL", () => {
+    const readFile = vi.fn().mockImplementation((path: string) => {
+      expect(path).toBe("/home/ubuntu/.kwanda/clawdeploy-api-url");
+      return "https://agents.kwanda.ai\n";
+    });
+
+    const config = resolveClawDeployBridgeTraceConfig(
+      {},
+      { OPENCLAW_GATEWAY_TOKEN: "gateway-token-1" },
+      { homeDir: "/home/ubuntu", readFile },
+    );
+
+    expect(config).toEqual({
+      enabled: true,
+      baseUrl: "https://agents.kwanda.ai",
+      gatewayToken: "gateway-token-1",
+    });
+  });
+
+  it("skips with a grep-friendly message when the URL is missing", () => {
+    const fetchImpl = vi.fn();
+    const logger = makeLogger();
+    const client = createClawDeployBridgeTraceClient({
+      gatewayToken: "gateway-token-1",
+      logger,
+      fetchImpl,
+    });
+
+    client.emitBridgeTrace({
+      requestId: "openclaw-bridge-123",
+      status: "detected",
+    });
+
+    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(logger.debug).toHaveBeenCalledWith(
+      "Cortex bridge trace emission skipped: missing ClawDeploy base URL",
+    );
+  });
+
+  it("still requires the OpenClaw gateway token", () => {
+    const fetchImpl = vi.fn();
+    const logger = makeLogger();
+    const client = createClawDeployBridgeTraceClient({
+      baseUrl: "https://agents.kwanda.ai",
+      logger,
+      fetchImpl,
+    });
+
+    client.emitBridgeTrace({
+      requestId: "openclaw-bridge-123",
+      status: "detected",
+    });
+
+    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(logger.debug).toHaveBeenCalledWith(expect.stringContaining("missing_gateway_token"));
+  });
+
   it("does not throw when the trace endpoint fails", async () => {
     const fetchImpl = vi.fn().mockResolvedValue({ ok: false, status: 503, text: async () => "down" });
     const logger = makeLogger();
