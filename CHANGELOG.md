@@ -19,6 +19,13 @@ All notable changes to this project will be documented in this file.
 
 - **Async contract test drift**: Integration tests no longer expect synchronous memory summaries from `remember()` / `rememberConversation()`, matching the real accepted-for-processing API contract.
 
+## [2.18.3] - 2026-04-26
+
+### Fixed
+
+- **Slack TooToo bridge prompts**: Extract Slack DM bodies from OpenClaw runtime envelopes before bridge reflection checks and bridge Q&A forwarding, keeping untrusted metadata inert while preserving CLI prompt fallback behavior.
+- **Bridge decision diagnostics**: Standardized safe bridge prompt decision reasons (`injected_full`, `injected_followup`, `no_latest_user`, `not_reflective`, `link_inactive`, `heartbeat`, `provenance_filtered`, `cooldown`) for future Slack/CLI debugging.
+
 ## [2.3.0] - 2026-03-10
 
 ### Removed

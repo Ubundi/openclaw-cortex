@@ -8,6 +8,7 @@ import type { AuditLogger } from "../../internal/audit-logger.js";
 import { isHeartbeatTurn } from "../../internal/heartbeat-detect.js";
 import {
   filterConversationMessagesForMemory,
+  shouldUseUserMessageForMemory,
 } from "../../internal/message-provenance.js";
 import type { RetryQueue } from "../../internal/retry-queue.js";
 import type { ClawDeployBridgeTraceClient, ClawDeployBridgeTraceEvent } from "../../internal/clawdeploy-bridge-traces.js";
@@ -109,7 +110,7 @@ const LOOKUP_SHAPE_RE = /^(?:what (?:is|are|does|do)|which|where|when|how (?:man
 const TECHNICAL_LOOKUP_RE = /\b(?:file|files|repo|repository|package|dependency|dependencies|endpoint|api|port|timeout|ttl|database|schema|migration|commit|branch|log(?:s)?|stack trace|error|test(?:s)?|env|environment variable|config|setting|settings|version|runtime|token|cache|enum|function|method|class|module|library|table|column|redis)\b/i;
 const LOW_SIGNAL_ANSWER_RE = /^(?:ok|okay|yes|no|maybe|not sure|i don't know|idk|sure|sounds good|thanks|thank you)[.!?]*$/i;
 const CLARIFYING_QUESTION_RE = /^(?:what|why|how|who|where|when|which|can|could|would|do|does|did|is|are|am|should|will|have|has)\b/i;
-const REFLECTIVE_OPENING_RE = /\b(?:i(?:'m| am)?\s+(?:rethinking|wondering|feeling|struggling|stuck|lost|burned out|burnt out|questioning)|i(?:'ve| have) been\s+(?:rethinking|wondering|feeling|struggling)|i(?:'m| am) trying to figure out\b|what matters to me\b|what i want from\b|who i am\b|my future\b|i want my (?:life|work|future)\b)\b/i;
+const REFLECTIVE_OPENING_RE = /\b(?:i(?:'m| am)?\s+(?:rethinking|wondering|feeling|struggling|stuck|lost|burned out|burnt out|questioning)|i(?:'ve| have) been\s+(?:rethinking|wondering|feeling|struggling)|i(?:'m| am) trying to (?:figure out|understand)\b|what matters to me\b|what i want from\b|who i am\b|my future\b|i want my (?:life|work|future)\b)\b/i;
 const REFLECTIVE_SIGNAL_RE = /\b(?:value|values|believe|belief|care about|important|meaningful|purpose|aligned|future|dream|dreams|hope|aspire|fear|afraid|stuck|burned out|burnt out|lost|curious|wondering|rethinking|figuring out|non-negotiable|remembered|fulfilling|matters most)\b/i;
 const PERSONAL_DISCOVERY_RE = /\b(?:about myself|for me|to me|who i am|my (?:life|work|future|career|purpose|values|identity)|what matters to me|what i want from|what would feel (?:meaningful|aligned)|how i want to be remembered)\b/i;
 const FIRST_PERSON_RE = /\b(?:i|i'm|i’ve|i've|me|my|myself)\b/i;
@@ -528,12 +529,19 @@ function latestUserTextFromEvent(event: BridgePromptEvent): {
   normalizedMessages: BridgeConversationMessage[];
   source: "messages" | "prompt" | "none";
   missingMessages: boolean;
+  provenanceFiltered: boolean;
 } {
   const rawMessages = Array.isArray(event.messages) ? event.messages : [];
   const normalizedMessages = normalizeConversationMessages(rawMessages);
   const latestUser = getLatestEligibleUserMessage(normalizedMessages);
   const promptText = promptCandidateFromEvent(event);
   const missingMessages = rawMessages.length === 0;
+  const rawUserMessages = rawMessages.filter((message): message is Record<string, unknown> => (
+    typeof message === "object" &&
+    message !== null &&
+    (message as Record<string, unknown>).role === "user"
+  ));
+  const provenanceFiltered = rawUserMessages.length > 0 && rawUserMessages.every((message) => !shouldUseUserMessageForMemory(message));
 
   if (promptText && (missingMessages || (latestUser && !sameTurnText(latestUser.content, promptText)))) {
     return {
@@ -546,6 +554,7 @@ function latestUserTextFromEvent(event: BridgePromptEvent): {
       normalizedMessages,
       source: "prompt",
       missingMessages,
+      provenanceFiltered,
     };
   }
 
@@ -555,6 +564,7 @@ function latestUserTextFromEvent(event: BridgePromptEvent): {
       normalizedMessages,
       source: "messages",
       missingMessages,
+      provenanceFiltered,
     };
   }
 
@@ -562,6 +572,7 @@ function latestUserTextFromEvent(event: BridgePromptEvent): {
     normalizedMessages,
     source: "none",
     missingMessages,
+    provenanceFiltered,
   };
 }
 
@@ -868,8 +879,14 @@ export function createBridgeHandler(
     cooldownReason?: "answer" | "turn" | "time" | "none";
     linkStatus?: "active" | "inactive" | "unknown";
   }): void {
+    const reason = input.reason ??
+      (input.mode === "full"
+        ? "injected_full"
+        : input.mode === "followup"
+          ? "injected_followup"
+          : "no_injection");
     logger.debug?.(
-      `Cortex bridge: prompt decision mode=${input.mode || "none"} reason=${input.reason ?? "inject"} ` +
+      `Cortex bridge: prompt decision mode=${input.mode || "none"} reason=${reason} ` +
         `sessionId=${input.sessionKey} missingMessages=${input.missingMessages} ` +
         `latestUserTextSource=${input.latestUserTextSource} reflectiveOpportunity=${input.reflectiveOpportunity} ` +
         `cooldown=${input.cooldownReason ?? "none"} linkStatus=${input.linkStatus ?? linkStatusLabel()}`,
@@ -956,11 +973,11 @@ export function createBridgeHandler(
     }
 
     const userContext = latestUserTextFromEvent(event);
-    const { latestUser, normalizedMessages, source, missingMessages } = userContext;
+    const { latestUser, normalizedMessages, source, missingMessages, provenanceFiltered } = userContext;
     if (!latestUser) {
       logPromptDecision({
         mode: false,
-        reason: "missing-latest-user",
+        reason: provenanceFiltered ? "provenance_filtered" : "no_latest_user",
         sessionKey,
         missingMessages,
         latestUserTextSource: source,
@@ -1033,7 +1050,7 @@ export function createBridgeHandler(
         }
         logPromptDecision({
           mode: false,
-          reason: "unlinked",
+          reason: "link_inactive",
           sessionKey,
           missingMessages,
           latestUserTextSource: source,
@@ -1063,7 +1080,7 @@ export function createBridgeHandler(
     if (!reflectiveOpportunity) {
       logPromptDecision({
         mode: false,
-        reason: "not-reflective",
+        reason: "not_reflective",
         sessionKey,
         missingMessages,
         latestUserTextSource: source,
@@ -1076,7 +1093,7 @@ export function createBridgeHandler(
     if (!status.linked) {
       logPromptDecision({
         mode: false,
-        reason: "unlinked",
+        reason: "link_inactive",
         sessionKey,
         missingMessages,
         latestUserTextSource: source,

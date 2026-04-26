@@ -60,6 +60,32 @@ function discoveryExchangeMessages() {
 
 const WORK_STYLE_QUESTION = "When something needs attention — a blocker, a stalled task, a decision that's drifting — what's the right amount of pushback from me before it feels like nagging instead of helpful?";
 const WORK_STYLE_ANSWER = "Team Ubundi works best when there is clear ownership, short written plans, low-drama execution, and fast checkpoints before work drifts too far.";
+const SLACK_REFLECTIVE_BODY = "I'm trying to understand what kind of work gives me energy versus what quietly drains me. I want to spend more of my leadership time on the things that actually compound for the team.";
+const SLACK_ANSWER_BODY = "Autonomy, creative freedom, and helping the team build momentum without me becoming the bottleneck.";
+
+function slackDmEnvelope(body: string): string {
+  return [
+    `System: [2026-04-26 10:30:19 UTC] Slack DM from Matt: ${body}`,
+    "",
+    "Conversation info (untrusted metadata):",
+    "```json",
+    '{ "channel_type": "direct", "sender": "Matt", "message_id": "slack-1" }',
+    "```",
+    "",
+    body,
+  ].join("\n");
+}
+
+function slackMetadataOnlyEnvelope(): string {
+  return [
+    "System: [2026-04-26 10:30:19 UTC] Slack DM from Matt:",
+    "",
+    "Conversation info (untrusted metadata):",
+    "```json",
+    '{ "channel_type": "direct", "sender": "Matt", "message_id": "slack-1" }',
+    "```",
+  ].join("\n");
+}
 
 describe("TooToo bridge handler", () => {
   it("builds linked-user guidance for before_agent_start", async () => {
@@ -255,6 +281,72 @@ describe("TooToo bridge handler", () => {
     })).resolves.toBe("full");
   });
 
+  it("logs heartbeat bridge prompt skips", async () => {
+    const client = makeClient();
+    const handler = createBridgeHandler(client, {
+      logger,
+      getUserId: () => "agent-user-1",
+      userIdReady: Promise.resolve(),
+      pluginSessionId: "plugin-session-1",
+    });
+
+    await expect(handler.shouldInjectPrompt({
+      prompt: "HEARTBEAT_OK - if nothing needs attention, reply with a short status only.",
+      messages: [],
+      sessionKey: "sess-heartbeat-log",
+    })).resolves.toBe(false);
+
+    expect(logger.debug).toHaveBeenCalledWith(expect.stringContaining("reason=heartbeat"));
+  });
+
+  it("injects full prompt for wrapped Slack DM reflective prompts", async () => {
+    const client = makeClient();
+    const handler = createBridgeHandler(client, {
+      logger,
+      getUserId: () => "agent-user-1",
+      userIdReady: Promise.resolve(),
+      pluginSessionId: "plugin-session-1",
+    });
+
+    await expect(handler.shouldInjectPrompt({
+      prompt: slackDmEnvelope(SLACK_REFLECTIVE_BODY),
+      messages: [
+        {
+          role: "user",
+          content: slackDmEnvelope(SLACK_REFLECTIVE_BODY),
+          provenance: { kind: "external_user" },
+        },
+      ],
+      sessionKey: "agent:main:slack:direct:u0a6km77zdz",
+    })).resolves.toBe("full");
+
+    expect(logger.debug).toHaveBeenCalledWith(expect.stringContaining("reason=injected_full"));
+  });
+
+  it("does not inject bridge prompt for Slack metadata without a DM body", async () => {
+    const client = makeClient();
+    const handler = createBridgeHandler(client, {
+      logger,
+      getUserId: () => "agent-user-1",
+      userIdReady: Promise.resolve(),
+      pluginSessionId: "plugin-session-1",
+    });
+
+    await expect(handler.shouldInjectPrompt({
+      prompt: slackMetadataOnlyEnvelope(),
+      messages: [
+        {
+          role: "user",
+          content: slackMetadataOnlyEnvelope(),
+          provenance: { kind: "external_user" },
+        },
+      ],
+      sessionKey: "agent:main:slack:direct:metadata-only",
+    })).resolves.toBe(false);
+
+    expect(logger.debug).toHaveBeenCalledWith(expect.stringContaining("reason=no_latest_user"));
+  });
+
   it("does not use prompt fallback when non-empty messages were filtered by provenance", async () => {
     const client = makeClient();
     const handler = createBridgeHandler(client, {
@@ -275,6 +367,8 @@ describe("TooToo bridge handler", () => {
       ],
       sessionKey: "sess-filtered-provenance",
     })).resolves.toBe(false);
+
+    expect(logger.debug).toHaveBeenCalledWith(expect.stringContaining("reason=provenance_filtered"));
   });
 
   it("does not treat a tiny stale user message as matching a new reflective prompt", async () => {
@@ -477,6 +571,12 @@ describe("TooToo bridge handler", () => {
     });
 
     expect(await handler.getPromptContext()).toBeUndefined();
+    expect(await handler.shouldInjectPrompt({
+      prompt: "I've been wondering what kind of work would feel meaningful this year.",
+      messages: [],
+      sessionKey: "sess-unlinked-prompt",
+    })).toBe(false);
+    expect(logger.debug).toHaveBeenCalledWith(expect.stringContaining("reason=link_inactive"));
     expect(await handler.handleAgentEnd({
       messages: discoveryExchangeMessages(),
       aborted: false,
@@ -815,6 +915,48 @@ describe("TooToo bridge handler", () => {
       assistantIndex: 0,
       userIndex: 1,
       sessionKey: "sess-live-slack-work-style",
+    });
+  });
+
+  it("detects and submits wrapped Slack answer after a canonical bridge question", async () => {
+    const client = makeClient();
+    const handler = createBridgeHandler(client, {
+      logger,
+      getUserId: () => "agent-user-1",
+      userIdReady: Promise.resolve(),
+      pluginSessionId: "plugin-session-1",
+    });
+
+    await expect(handler.shouldInjectPrompt({
+      prompt: slackDmEnvelope(SLACK_REFLECTIVE_BODY),
+      messages: [],
+      sessionKey: "agent:main:slack:direct:qa",
+    })).resolves.toBe("full");
+
+    await handler.handleAgentEnd({
+      messages: [
+        { role: "user", content: slackDmEnvelope(SLACK_REFLECTIVE_BODY) },
+        { role: "assistant", content: "What do you value most in your work?" },
+      ],
+      aborted: false,
+      sessionKey: "agent:main:slack:direct:qa",
+    });
+
+    await expect(handler.handleAgentEnd({
+      messages: [
+        { role: "user", content: slackDmEnvelope(SLACK_REFLECTIVE_BODY) },
+        { role: "assistant", content: "What do you value most in your work?" },
+        { role: "user", content: slackDmEnvelope(SLACK_ANSWER_BODY) },
+      ],
+      aborted: false,
+      sessionKey: "agent:main:slack:direct:qa",
+    })).resolves.toBe(true);
+
+    expect((client.submitBridgeQA as any)).toHaveBeenCalledTimes(1);
+    expect((client.submitBridgeQA as any).mock.calls[0][0].entries[0]).toEqual({
+      question: "What do you value most in your work?",
+      answer: SLACK_ANSWER_BODY,
+      target_section: "coreValues",
     });
   });
 

@@ -98,6 +98,7 @@ const PLAINTEXT_METADATA_PREFIX_RE = new RegExp(
   String.raw`^\[(?:forwarded from|replying to|quoting|id:[^\]]*chat:[^\]]*|id:[^\]]*|${CHANNEL_ENVELOPE_RE})[^\]]*\]\s*`,
   "i",
 );
+const SLACK_DM_SYSTEM_LINE_RE = /^System:\s*\[[^\]]+\]\s*Slack DM from [^:\n]{1,120}:\s*(.*)$/i;
 
 function stripLeadingPattern(text: string, pattern: RegExp): string {
   let current = text;
@@ -159,10 +160,21 @@ export function stripPlaintextMetadataArtifacts(text: string): string {
   return cleaned.join("\n").replace(/\n{3,}/g, "\n\n").trim();
 }
 
+function extractSlackDmEnvelopeBody(text: string): string {
+  const normalized = text.replace(/\r\n/g, "\n");
+  const lines = normalized.split("\n");
+  const header = SLACK_DM_SYSTEM_LINE_RE.exec(lines[0]?.trim() ?? "");
+  if (!header) return text;
+
+  const headerBody = header[1]?.trim() ?? "";
+  const bodyAfterMetadata = stripPlaintextMetadataArtifacts(stripRuntimeMetadata(lines.slice(1).join("\n"))).trim();
+  return bodyAfterMetadata || headerBody;
+}
+
 export function sanitizeConversationText(text: string): string {
   return stripPlaintextMetadataArtifacts(
     stripRuntimeMetadata(
-      stripInjectedCortexBlocks(text),
+      extractSlackDmEnvelopeBody(stripInjectedCortexBlocks(text)),
     ),
   ).trim();
 }
