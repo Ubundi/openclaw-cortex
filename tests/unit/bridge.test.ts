@@ -221,6 +221,121 @@ describe("TooToo bridge handler", () => {
     })).resolves.toBe(false);
   });
 
+  it("injects full prompt for reflective live turns when messages are empty but prompt has the user text", async () => {
+    const client = makeClient();
+    const handler = createBridgeHandler(client, {
+      logger,
+      getUserId: () => "agent-user-1",
+      userIdReady: Promise.resolve(),
+      pluginSessionId: "plugin-session-1",
+    });
+
+    await expect(handler.shouldInjectPrompt({
+      prompt: "I've been wondering what really matters in my work right now and what I should optimize for.",
+      messages: [],
+      sessionKey: "sess-live-empty-messages",
+    })).resolves.toBe("full");
+
+    expect(logger.debug).toHaveBeenCalledWith(expect.stringContaining("latestUserTextSource=prompt"));
+  });
+
+  it("uses finalPromptText as the live user source when prompt is absent", async () => {
+    const client = makeClient();
+    const handler = createBridgeHandler(client, {
+      logger,
+      getUserId: () => "agent-user-1",
+      userIdReady: Promise.resolve(),
+      pluginSessionId: "plugin-session-1",
+    });
+
+    await expect(handler.shouldInjectPrompt({
+      finalPromptText: "I'm trying to figure out what kind of future I want from my work.",
+      messages: [],
+      sessionKey: "sess-live-final-prompt-text",
+    })).resolves.toBe("full");
+  });
+
+  it("does not use prompt fallback when non-empty messages were filtered by provenance", async () => {
+    const client = makeClient();
+    const handler = createBridgeHandler(client, {
+      logger,
+      getUserId: () => "agent-user-1",
+      userIdReady: Promise.resolve(),
+      pluginSessionId: "plugin-session-1",
+    });
+
+    await expect(handler.shouldInjectPrompt({
+      prompt: "I've been wondering what really matters in my work right now and what I should optimize for.",
+      messages: [
+        {
+          role: "user",
+          content: "Synthetic routing hint",
+          provenance: { kind: "internal_system" },
+        },
+      ],
+      sessionKey: "sess-filtered-provenance",
+    })).resolves.toBe(false);
+  });
+
+  it("does not treat a tiny stale user message as matching a new reflective prompt", async () => {
+    const client = makeClient();
+    const handler = createBridgeHandler(client, {
+      logger,
+      getUserId: () => "agent-user-1",
+      userIdReady: Promise.resolve(),
+      pluginSessionId: "plugin-session-1",
+    });
+
+    await expect(handler.shouldInjectPrompt({
+      prompt: "I've been rethinking what kind of work would feel meaningful this year.",
+      messages: [
+        {
+          role: "user",
+          content: "work",
+          provenance: { kind: "external_user" },
+        },
+      ],
+      sessionKey: "sess-stale-short-message",
+    })).resolves.toBe("full");
+  });
+
+  it("does not carry bridge cooldown into a new session key", async () => {
+    const client = makeClient();
+    const handler = createBridgeHandler(client, {
+      logger,
+      getUserId: () => "agent-user-1",
+      userIdReady: Promise.resolve(),
+      pluginSessionId: "plugin-session-1",
+    });
+
+    await expect(handler.shouldInjectPrompt({
+      prompt: "I've been rethinking the kind of life I want to build.",
+      messages: [
+        {
+          role: "user",
+          content: "I've been rethinking the kind of life I want to build and what would feel genuinely aligned.",
+          provenance: { kind: "external_user" },
+        },
+      ],
+      sessionKey: "sess-before-new",
+    })).resolves.toBe("full");
+
+    await handler.handleAgentEnd({
+      messages: [
+        { role: "user", content: "I want to understand myself better." },
+        { role: "assistant", content: "What do you value most in your work?" },
+      ],
+      aborted: false,
+      sessionKey: "sess-before-new",
+    });
+
+    await expect(handler.shouldInjectPrompt({
+      prompt: "I've been wondering what kind of future I actually want from my work.",
+      messages: [],
+      sessionKey: "sess-after-new",
+    })).resolves.toBe("full");
+  });
+
   it("suppresses repeated bridge prompts on nearby turns in the same session", async () => {
     const client = makeClient();
     const handler = createBridgeHandler(client, {
@@ -701,6 +816,52 @@ describe("TooToo bridge handler", () => {
       userIndex: 1,
       sessionKey: "sess-live-slack-work-style",
     });
+  });
+
+  it("does not forward non-canonical discovery-like questions unless they were bridge-tracked", async () => {
+    const client = makeClient();
+    const handler = createBridgeHandler(client, {
+      logger,
+      getUserId: () => "agent-user-1",
+      userIdReady: Promise.resolve(),
+      pluginSessionId: "plugin-session-1",
+    });
+
+    await expect(handler.handleAgentEnd({
+      messages: [
+        { role: "assistant", content: WORK_STYLE_QUESTION },
+        { role: "user", content: WORK_STYLE_ANSWER },
+      ],
+      aborted: false,
+      sessionKey: "sess-untracked-work-style",
+    })).resolves.toBe(false);
+    expect((client.submitBridgeQA as any)).not.toHaveBeenCalled();
+
+    await expect(handler.shouldInjectPrompt({
+      prompt: "I've been wondering what really matters in my work right now and what I should optimize for.",
+      messages: [],
+      sessionKey: "sess-tracked-work-style",
+    })).resolves.toBe("full");
+
+    await handler.handleAgentEnd({
+      messages: [
+        { role: "user", content: "I've been wondering what really matters in my work right now." },
+        { role: "assistant", content: WORK_STYLE_QUESTION },
+      ],
+      aborted: false,
+      sessionKey: "sess-tracked-work-style",
+    });
+
+    await expect(handler.handleAgentEnd({
+      messages: [
+        { role: "user", content: "I've been wondering what really matters in my work right now." },
+        { role: "assistant", content: WORK_STYLE_QUESTION },
+        { role: "user", content: WORK_STYLE_ANSWER },
+      ],
+      aborted: false,
+      sessionKey: "sess-tracked-work-style",
+    })).resolves.toBe(true);
+    expect((client.submitBridgeQA as any)).toHaveBeenCalledTimes(1);
   });
 
   it("uses a stable request_id and avoids duplicate sends for the same exchange", async () => {

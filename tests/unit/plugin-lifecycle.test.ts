@@ -493,6 +493,36 @@ describe("plugin lifecycle contract", () => {
     });
   });
 
+  it("adds linked TooToo guidance for live before_agent_start turns when messages are empty", async () => {
+    vi.spyOn(SessionStateStore.prototype, "readDirtyFromPriorLifecycle").mockResolvedValue(null);
+    vi.spyOn(CortexClient.prototype, "getLinkStatus").mockResolvedValue({
+      linked: true,
+      link: {
+        tootoo_user_id: "tt-user-1",
+        linked_at: "2026-03-01T10:00:00Z",
+      },
+    });
+
+    const { api, hooks, logger } = makeApi({
+      userId: "agent-user-1",
+    });
+
+    plugin.register(api as any);
+    await flushMicrotasks();
+
+    const beforeTurn = await hooks.before_agent_start[0](
+      {
+        prompt: "I've been wondering what really matters in my work right now and what I should optimize for.",
+        messages: [],
+      },
+      { sessionKey: "sess-live-empty-messages" },
+    );
+
+    expect(beforeTurn?.prependContext).toContain("<tootoo_bridge>");
+    expect(logger.info).toHaveBeenCalledWith("Cortex bridge: injecting full prompt into prependContext");
+    expect(logger.debug).toHaveBeenCalledWith(expect.stringContaining("latestUserTextSource=prompt"));
+  });
+
   it("treats an active shadow-owner link as linked and still forwards explicit bridge Q&A", async () => {
     vi.spyOn(CortexClient.prototype, "getLinkStatus").mockResolvedValue({
       linked: true,

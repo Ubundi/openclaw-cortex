@@ -784,7 +784,7 @@ const plugin = {
       api,
       "before_agent_start",
       async (
-        event: { prompt: string; messages?: unknown[] },
+        event: { prompt: string; finalPromptText?: string; messages?: unknown[] },
         ctx: { sessionKey?: string; sessionId?: string },
       ) => {
         const activeSessionKey = resolveSessionKey(ctx, sessionId);
