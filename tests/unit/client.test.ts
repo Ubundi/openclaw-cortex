@@ -19,6 +19,7 @@ describe("CortexClient", () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.useRealTimers();
   });
 
   describe("recall", () => {
@@ -539,6 +540,19 @@ describe("CortexClient", () => {
       await expect(client.getLinkStatus("agent-uuid-123")).rejects.toThrow(
         "Cortex auth/link failed: 500",
       );
+    });
+
+    it("rejects on timeout even when fetch never settles", async () => {
+      vi.useFakeTimers();
+      mockFetch.mockReturnValueOnce(new Promise(() => {}));
+
+      const result = client.getLinkStatus("agent-uuid-123", 10);
+      const assertion = expect(result).rejects.toMatchObject({
+        name: "AbortError",
+      });
+      await vi.advanceTimersByTimeAsync(10);
+
+      await assertion;
     });
   });
 

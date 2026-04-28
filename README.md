@@ -268,6 +268,8 @@ openclaw cortex reset              # Permanently delete all memories (prompts fo
 openclaw cortex reset --yes        # Skip confirmation
 ```
 
+`openclaw cortex status --json` emits one single-line JSON object from the plugin. Some OpenClaw runners may merge or reroute plugin stdout/stderr and prepend plugin status logs; callers that invoke OpenClaw as a subprocess should parse the first JSON object from the combined output rather than assuming the entire stream is raw JSON.
+
 ### Gateway RPC
 
 The `cortex.status` RPC method exposes plugin health and metrics programmatically:

@@ -334,6 +334,10 @@ const DEFAULT_SOURCE_ORIGIN = "openclaw";
 const DEFAULT_DERIVATION_MODE = "inferred";
 const DEFAULT_SOURCE_APP = "OpenClaw";
 
+function createTimeoutError(label: string, timeoutMs: number): DOMException {
+  return new DOMException(`Cortex ${label} timed out after ${timeoutMs}ms`, "AbortError");
+}
+
 export class CortexClient {
   constructor(
     private baseUrl: string,
@@ -356,31 +360,41 @@ export class CortexClient {
     label: string,
   ): Promise<T> {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    const timeoutPromise = new Promise<never>((_resolve, reject) => {
+      timeout = setTimeout(() => {
+        controller.abort();
+        reject(createTimeoutError(label, timeoutMs));
+      }, timeoutMs);
+    });
 
     try {
-      const res = await fetch(url, {
-        ...init,
-        headers: {
-          "x-api-key": this.apiKey,
-          "Content-Type": "application/json",
-          ...init.headers,
-        },
-        signal: controller.signal,
-      });
+      const requestPromise = (async () => {
+        const res = await fetch(url, {
+          ...init,
+          headers: {
+            "x-api-key": this.apiKey,
+            "Content-Type": "application/json",
+            ...init.headers,
+          },
+          signal: controller.signal,
+        });
 
-      if (!res.ok) {
-        let detail = "";
-        try {
-          const body = await res.text();
-          if (body) detail = ` — ${body.slice(0, 300)}`;
-        } catch {}
-        throw new Error(`Cortex ${label} failed: ${res.status}${detail}`);
-      }
+        if (!res.ok) {
+          let detail = "";
+          try {
+            const body = await res.text();
+            if (body) detail = ` — ${body.slice(0, 300)}`;
+          } catch {}
+          throw new Error(`Cortex ${label} failed: ${res.status}${detail}`);
+        }
 
-      return (await res.json()) as T;
+        return (await res.json()) as T;
+      })();
+
+      return await Promise.race([requestPromise, timeoutPromise]);
     } finally {
-      clearTimeout(timeout);
+      if (timeout) clearTimeout(timeout);
     }
   }
 
@@ -418,19 +432,25 @@ export class CortexClient {
 
   async healthCheck(timeoutMs = DEFAULT_HEALTH_TIMEOUT_MS): Promise<boolean> {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    const timeoutPromise = new Promise<boolean>((resolve) => {
+      timeout = setTimeout(() => {
+        controller.abort();
+        resolve(false);
+      }, timeoutMs);
+    });
 
     try {
-      const res = await fetch(`${this.baseUrl}/health`, {
+      const requestPromise = fetch(`${this.baseUrl}/health`, {
         method: "GET",
         headers: { "x-api-key": this.apiKey },
         signal: controller.signal,
-      });
-      return res.ok;
+      }).then((res) => res.ok);
+      return await Promise.race([requestPromise, timeoutPromise]);
     } catch {
       return false;
     } finally {
-      clearTimeout(timeout);
+      if (timeout) clearTimeout(timeout);
     }
   }
 

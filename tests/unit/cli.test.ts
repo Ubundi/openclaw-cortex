@@ -70,6 +70,7 @@ async function flushMicrotasks(turns = 6): Promise<void> {
 describe("registerCliCommands search output", () => {
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.useRealTimers();
     process.exitCode = undefined;
   });
 
@@ -382,6 +383,72 @@ describe("registerCliCommands search output", () => {
     expect(process.exitCode).toBe(1);
   });
 
+  it("returns JSON when user ID readiness never settles", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+    const registerCli = vi.fn();
+    const client = {
+      healthCheck: vi.fn(),
+      getLinkStatus: vi.fn(),
+      knowledge: vi.fn(),
+      stats: vi.fn(),
+      recall: vi.fn(),
+      retrieve: vi.fn(),
+    };
+
+    registerCliCommands(registerCli, {
+      client: client as any,
+      config: {
+        baseUrl: "https://api.example.com",
+        autoRecall: true,
+        autoCapture: true,
+        dedupeWindowMinutes: 30,
+        toolTimeoutMs: 500,
+      } as any,
+      version: "test",
+      getUserId: () => undefined,
+      userIdReady: new Promise<void>(() => {}),
+      getNamespace: () => "test",
+      sessionStats: makeSessionStats(),
+      loadPersistedStats: () => null,
+      isAbortError: () => false,
+      resetCompletedAfterAbort: async () => false,
+    });
+
+    const program = createCliNode("root");
+    const registrar = registerCli.mock.calls[0][0] as (ctx: { program: CliProgram; config: Record<string, unknown> }) => void;
+    registrar({ program: program as unknown as CliProgram, config: {} });
+
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const actionPromise = program.children.get("cortex")?.children.get("status")?.actionHandler?.({ json: true });
+
+    await flushMicrotasks();
+    expect(logSpy).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(5_000);
+    await actionPromise;
+
+    expect(errorSpy).not.toHaveBeenCalled();
+    expect(logSpy).toHaveBeenCalledTimes(1);
+    const payload = JSON.parse(String(logSpy.mock.calls[0]?.[0]));
+    expect(payload).toMatchObject({
+      linked: false,
+      agent_user_id: null,
+      status: "user_id_unavailable",
+      detail: {
+        api_health: "not_checked",
+        user_id_ready_latency_ms: 5_000,
+        user_id_ready_timeout_ms: 5_000,
+        link_status: "unavailable",
+      },
+    });
+    expect(payload.detail.user_id_ready_error).toContain("timed out");
+    expect(client.healthCheck).not.toHaveBeenCalled();
+    expect(client.getLinkStatus).not.toHaveBeenCalled();
+    expect(process.exitCode).toBe(1);
+  });
+
   it("returns JSON status for shadow-owner links with null tootoo_user_id", async () => {
     const registerCli = vi.fn();
     const client = {
@@ -542,6 +609,136 @@ describe("registerCliCommands search output", () => {
     expect(client.stats).not.toHaveBeenCalled();
     expect(client.recall).not.toHaveBeenCalled();
     expect(client.retrieve).not.toHaveBeenCalled();
+  });
+
+  it("returns JSON promptly when the health check never settles", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+    const registerCli = vi.fn();
+    const client = {
+      healthCheck: vi.fn().mockReturnValue(new Promise<boolean>(() => {})),
+      getLinkStatus: vi.fn().mockResolvedValue({ linked: false }),
+      knowledge: vi.fn().mockResolvedValue({
+        total_memories: 53,
+        total_sessions: 6,
+        maturity: "cold",
+        entities: [],
+      }),
+      stats: vi.fn(),
+      recall: vi.fn(),
+      retrieve: vi.fn(),
+    };
+
+    registerCliCommands(registerCli, {
+      client: client as any,
+      config: {
+        baseUrl: "https://api.example.com",
+        autoRecall: true,
+        autoCapture: true,
+        dedupeWindowMinutes: 30,
+        toolTimeoutMs: 500,
+      } as any,
+      version: "test",
+      getUserId: () => "agent-user-health-timeout",
+      userIdReady: Promise.resolve(),
+      getNamespace: () => "test",
+      sessionStats: makeSessionStats(),
+      loadPersistedStats: () => null,
+      isAbortError: () => false,
+      resetCompletedAfterAbort: async () => false,
+    });
+
+    const program = createCliNode("root");
+    const registrar = registerCli.mock.calls[0][0] as (ctx: { program: CliProgram; config: Record<string, unknown> }) => void;
+    registrar({ program: program as unknown as CliProgram, config: {} });
+
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const actionPromise = program.children.get("cortex")?.children.get("status")?.actionHandler?.({ json: true });
+
+    await flushMicrotasks();
+    expect(logSpy).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(5_000);
+    await actionPromise;
+
+    expect(logSpy).toHaveBeenCalledTimes(1);
+    const payload = JSON.parse(String(logSpy.mock.calls[0]?.[0]));
+    expect(payload).toMatchObject({
+      linked: false,
+      agent_user_id: "agent-user-health-timeout",
+      status: "ok",
+      detail: {
+        api_health: "ok",
+        used_knowledge_fallback: true,
+        health_probe_latency_ms: 5_000,
+        knowledge_fallback_latency_ms: 0,
+        link_status: "ok",
+      },
+    });
+    expect(payload.detail.health_error).toContain("timed out");
+    expect(payload.detail.total_wall_time_ms).toBe(5_000);
+    expect(client.knowledge).toHaveBeenCalledWith("agent-user-health-timeout", 8000);
+    expect(client.getLinkStatus).toHaveBeenCalledWith("agent-user-health-timeout", 5000);
+  });
+
+  it("returns JSON promptly when link status never settles", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+    const registerCli = vi.fn();
+    const client = {
+      healthCheck: vi.fn().mockResolvedValue(true),
+      getLinkStatus: vi.fn().mockReturnValue(new Promise(() => {})),
+      knowledge: vi.fn(),
+      stats: vi.fn(),
+      recall: vi.fn(),
+      retrieve: vi.fn(),
+    };
+
+    registerCliCommands(registerCli, {
+      client: client as any,
+      config: {
+        baseUrl: "https://api.example.com",
+        autoRecall: true,
+        autoCapture: true,
+        dedupeWindowMinutes: 30,
+        toolTimeoutMs: 500,
+      } as any,
+      version: "test",
+      getUserId: () => "agent-user-link-timeout",
+      userIdReady: Promise.resolve(),
+      getNamespace: () => "test",
+      sessionStats: makeSessionStats(),
+      loadPersistedStats: () => null,
+      isAbortError: () => false,
+      resetCompletedAfterAbort: async () => false,
+    });
+
+    const program = createCliNode("root");
+    const registrar = registerCli.mock.calls[0][0] as (ctx: { program: CliProgram; config: Record<string, unknown> }) => void;
+    registrar({ program: program as unknown as CliProgram, config: {} });
+
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const actionPromise = program.children.get("cortex")?.children.get("status")?.actionHandler?.({ json: true });
+
+    await flushMicrotasks();
+    await vi.advanceTimersByTimeAsync(5_000);
+    await actionPromise;
+
+    expect(logSpy).toHaveBeenCalledTimes(1);
+    const payload = JSON.parse(String(logSpy.mock.calls[0]?.[0]));
+    expect(payload).toMatchObject({
+      linked: false,
+      agent_user_id: "agent-user-link-timeout",
+      status: "ok",
+      detail: {
+        api_health: "ok",
+        used_knowledge_fallback: false,
+        link_latency_ms: 5_000,
+        link_status: "unavailable",
+      },
+    });
+    expect(payload.detail.link_error).toContain("timed out");
+    expect(payload.detail.total_wall_time_ms).toBe(5_000);
   });
 
   it("returns JSON status for legacy claimed-user link payloads", async () => {
@@ -739,7 +936,7 @@ describe("registerCliCommands search output", () => {
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
 
     const actionPromise = program.children.get("cortex")?.children.get("status")?.actionHandler?.();
-    await flushMicrotasks();
+    await flushMicrotasks(12);
 
     expect(client.healthCheck).toHaveBeenCalledOnce();
     expect(client.knowledge).toHaveBeenCalledWith("user-1", 8000);

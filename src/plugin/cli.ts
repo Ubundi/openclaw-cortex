@@ -7,6 +7,7 @@ import { classifyJobStatus, type WriteHealthState } from "../internal/write-heal
 const STATUS_HEALTH_TIMEOUT_MS = 5_000;
 const STATUS_FALLBACK_TIMEOUT_MS = 8_000;
 const STATUS_LINK_TIMEOUT_MS = 5_000;
+const STATUS_USER_ID_READY_TIMEOUT_MS = 5_000;
 
 interface StatusCommandOptions {
   json?: boolean;
@@ -45,7 +46,11 @@ interface StatusJsonOutput {
     health_timeout_ms: number;
     knowledge_fallback_timeout_ms: number;
     link_timeout_ms: number;
+    user_id_ready_timeout_ms: number;
     link_status: "ok" | "unavailable";
+    user_id_ready_error?: string;
+    health_error?: string;
+    knowledge_fallback_error?: string;
     link_error?: string;
   };
 }
@@ -72,6 +77,7 @@ function statusTimingDetail(args: {
   | "health_timeout_ms"
   | "knowledge_fallback_timeout_ms"
   | "link_timeout_ms"
+  | "user_id_ready_timeout_ms"
 > {
   return {
     health_probe_latency_ms: args.healthProbeMs,
@@ -82,14 +88,41 @@ function statusTimingDetail(args: {
     health_timeout_ms: STATUS_HEALTH_TIMEOUT_MS,
     knowledge_fallback_timeout_ms: STATUS_FALLBACK_TIMEOUT_MS,
     link_timeout_ms: STATUS_LINK_TIMEOUT_MS,
+    user_id_ready_timeout_ms: STATUS_USER_ID_READY_TIMEOUT_MS,
   };
 }
 
-async function measureStatusStep<T>(fn: () => Promise<T>): Promise<TimedResult<T>> {
+function createStatusTimeoutError(label: string, timeoutMs: number): Error {
+  return new Error(`Cortex status ${label} timed out after ${timeoutMs}ms`);
+}
+
+async function withStatusTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  label: string,
+): Promise<T> {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  const timeoutPromise = new Promise<never>((_resolve, reject) => {
+    timeout = setTimeout(() => reject(createStatusTimeoutError(label, timeoutMs)), timeoutMs);
+  });
+
+  try {
+    return await Promise.race([promise, timeoutPromise]);
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
+}
+
+async function measureStatusStep<T>(
+  fn: () => Promise<T>,
+  timeoutMs?: number,
+  label = "step",
+): Promise<TimedResult<T>> {
   const start = Date.now();
   try {
+    const promise = fn();
     return {
-      value: await fn(),
+      value: await (timeoutMs === undefined ? promise : withStatusTimeout(promise, timeoutMs, label)),
       error: undefined,
       latencyMs: Date.now() - start,
     };
@@ -179,9 +212,12 @@ export function registerCliCommands(
         .action(async (opts: StatusCommandOptions = {}) => {
           const jsonMode = opts.json === true;
           const statusStart = Date.now();
-          const userIdReadyStart = Date.now();
-          await userIdReady;
-          const userIdReadyMs = Date.now() - userIdReadyStart;
+          const userIdReadyResult = await measureStatusStep(
+            () => userIdReady,
+            STATUS_USER_ID_READY_TIMEOUT_MS,
+            "user ID readiness",
+          );
+          const userIdReadyMs = userIdReadyResult.latencyMs;
           const userId = getUserId();
           if (!userId) {
             const totalWallMs = Date.now() - statusStart;
@@ -209,6 +245,7 @@ export function registerCliCommands(
                     linkMs: 0,
                   }),
                   link_status: "unavailable",
+                  ...(userIdReadyResult.error ? { user_id_ready_error: String(userIdReadyResult.error) } : {}),
                 },
               };
               console.log(JSON.stringify(payload));
@@ -232,13 +269,23 @@ export function registerCliCommands(
           // if /health misses, treat knowledge-read success as connected.
           let healthy = false;
           let usedKnowledgeFallback = false;
-          const healthProbe = await measureStatusStep(() => client.healthCheck(STATUS_HEALTH_TIMEOUT_MS));
+          const healthProbe = await measureStatusStep(
+            () => client.healthCheck(STATUS_HEALTH_TIMEOUT_MS),
+            STATUS_HEALTH_TIMEOUT_MS,
+            "/health",
+          );
           healthy = healthProbe.value === true;
           let knowledgeFallbackMs = 0;
+          let knowledgeFallbackError: unknown;
 
           if (!healthy) {
-            const knowledgeFallback = await measureStatusStep(() => client.knowledge(userId, STATUS_FALLBACK_TIMEOUT_MS));
+            const knowledgeFallback = await measureStatusStep(
+              () => client.knowledge(userId, STATUS_FALLBACK_TIMEOUT_MS),
+              STATUS_FALLBACK_TIMEOUT_MS,
+              "/v1/knowledge fallback",
+            );
             knowledgeFallbackMs = knowledgeFallback.latencyMs;
+            knowledgeFallbackError = knowledgeFallback.error;
             if (knowledgeFallback.value) {
               cachedKnowledge = knowledgeFallback.value;
               if (!jsonMode) {
@@ -285,6 +332,8 @@ export function registerCliCommands(
                     linkMs: 0,
                   }),
                   link_status: "unavailable",
+                  ...(healthProbe.error ? { health_error: String(healthProbe.error) } : {}),
+                  ...(knowledgeFallbackError ? { knowledge_fallback_error: String(knowledgeFallbackError) } : {}),
                 },
               };
               console.log(JSON.stringify(payload));
@@ -297,9 +346,13 @@ export function registerCliCommands(
           // Link status
           let linkStatus: LinkStatusResponse | null = null;
           let linkStatusError: unknown;
-          const linkStatusResult = await measureStatusStep(() => client.getLinkStatus(userId, STATUS_LINK_TIMEOUT_MS));
+          const linkStatusResult = await measureStatusStep(
+            () => client.getLinkStatus(userId, STATUS_LINK_TIMEOUT_MS),
+            STATUS_LINK_TIMEOUT_MS,
+            "/v1/auth/link",
+          );
           linkStatus = linkStatusResult.value;
-          linkStatusError = linkStatusResult.error ?? new Error("Link status unavailable");
+          linkStatusError = linkStatus ? undefined : (linkStatusResult.error ?? new Error("Link status unavailable"));
 
           if (jsonMode) {
             const normalized = normalizeLinkStatus(linkStatus);
@@ -327,6 +380,8 @@ export function registerCliCommands(
                   linkMs: linkStatusResult.latencyMs,
                 }),
                 link_status: linkStatus ? "ok" : "unavailable",
+                ...(healthProbe.error ? { health_error: String(healthProbe.error) } : {}),
+                ...(knowledgeFallbackError ? { knowledge_fallback_error: String(knowledgeFallbackError) } : {}),
                 ...(linkStatusError ? { link_error: String(linkStatusError) } : {}),
               },
             };
