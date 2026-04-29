@@ -1,6 +1,6 @@
 import { basename, join } from "node:path";
 import { createHash, randomUUID } from "node:crypto";
-import { readFileSync, writeFileSync, statSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import packageJson from "../../package.json" with { type: "json" };
 import { CortexConfigSchema, configSchema, type CortexConfig } from "./config.js";
@@ -29,7 +29,7 @@ import type {
   PluginApi,
   Logger,
 } from "./types.js";
-import { registerCliCommands } from "./cli.js";
+import { registerCliCommands, type PluginDiscoveryDiagnostic } from "./cli.js";
 import { buildSearchMemoryTool, buildSaveMemoryTool, buildForgetMemoryTool, buildGetMemoryTool, buildSetSessionGoalTool } from "./tools.js";
 import { SessionGoalStore } from "../internal/session-goal.js";
 import { getRolePreset, detectAgentRole } from "../internal/agent-roles.js";
@@ -481,6 +481,96 @@ function persistMigratedConfig(
 }
 
 const PLUGIN_ID = "openclaw-cortex";
+let cachedPluginDiscoveryDiagnostic: PluginDiscoveryDiagnostic | null = null;
+
+function collectPluginDiscoveryDiagnostic(): PluginDiscoveryDiagnostic {
+  if (cachedPluginDiscoveryDiagnostic) return cachedPluginDiscoveryDiagnostic;
+
+  const openclawDir = join(homedir(), ".openclaw");
+  const configPath = join(openclawDir, "openclaw.json");
+  const extensionDirs = [
+    join(openclawDir, "extensions"),
+    join(openclawDir, "plugins"),
+  ];
+  const expectedInstallPaths = [
+    join(openclawDir, "extensions", PLUGIN_ID),
+    join(openclawDir, "extensions", PACKAGE_NAME),
+    join(openclawDir, "plugins", PLUGIN_ID),
+    join(openclawDir, "plugins", PACKAGE_NAME),
+  ];
+
+  let config: any = null;
+  try {
+    config = JSON.parse(readFileSync(configPath, "utf-8"));
+  } catch {
+    config = null;
+  }
+
+  const configuredPluginIds = new Set<string>();
+  if (config?.plugins?.entries && typeof config.plugins.entries === "object") {
+    for (const id of Object.keys(config.plugins.entries)) configuredPluginIds.add(id);
+  }
+  if (Array.isArray(config?.plugins)) {
+    for (const entry of config.plugins) {
+      if (typeof entry === "string") configuredPluginIds.add(entry);
+      if (typeof entry?.id === "string") configuredPluginIds.add(entry.id);
+      if (typeof entry?.package === "string") configuredPluginIds.add(entry.package);
+    }
+  }
+  const allowlist = Array.isArray(config?.plugins?.allow) ? config.plugins.allow : [];
+
+  const detectedExtensionDirs = extensionDirs.map((dir) => {
+    try {
+      return {
+        path: dir,
+        exists: true,
+        entries: readdirSync(dir).slice(0, 100),
+      };
+    } catch {
+      return { path: dir, exists: false, entries: [] };
+    }
+  });
+
+  let packageJsonPath: string | null = null;
+  let installedPackageVersion: string | null = null;
+  for (const installPath of expectedInstallPaths) {
+    const candidate = join(installPath, "package.json");
+    if (!existsSync(candidate)) continue;
+    packageJsonPath = candidate;
+    try {
+      const installed = JSON.parse(readFileSync(candidate, "utf-8"));
+      installedPackageVersion = typeof installed.version === "string" ? installed.version : null;
+    } catch {
+      installedPackageVersion = null;
+    }
+    break;
+  }
+
+  const configReferencesPlugin = configuredPluginIds.has(PLUGIN_ID) || configuredPluginIds.has(PACKAGE_NAME);
+  const allowlistIncludesPlugin = allowlist.includes(PLUGIN_ID) || allowlist.includes(PACKAGE_NAME);
+  const packageFound = packageJsonPath !== null;
+  const warnings: string[] = [];
+  if (configReferencesPlugin && !packageFound) {
+    warnings.push(`${PLUGIN_ID} is configured but no package.json was found in expected extension paths`);
+  }
+  if (configReferencesPlugin && !allowlistIncludesPlugin) {
+    warnings.push(`${PLUGIN_ID} is configured but not present in plugins.allow`);
+  }
+
+  cachedPluginDiscoveryDiagnostic = {
+    configured_plugin_id: PLUGIN_ID,
+    config_path: configPath,
+    config_references_plugin: configReferencesPlugin,
+    allowlist_includes_plugin: allowlistIncludesPlugin,
+    package_found: packageFound,
+    expected_install_paths: expectedInstallPaths,
+    detected_extension_dirs: detectedExtensionDirs,
+    installed_package_version: installedPackageVersion,
+    package_json_path: packageJsonPath,
+    warnings,
+  };
+  return cachedPluginDiscoveryDiagnostic;
+}
 
 /**
  * Ensures `plugins.allow` in the OpenClaw config includes our plugin id.
@@ -713,6 +803,7 @@ const plugin = {
           loadPersistedStats,
           loadPersistedWriteHealth,
           persistWriteHealth,
+          pluginDiscovery: collectPluginDiscoveryDiagnostic(),
           isAbortError,
           resetCompletedAfterAbort,
         });
@@ -1049,6 +1140,7 @@ const plugin = {
         loadPersistedStats,
         loadPersistedWriteHealth,
         persistWriteHealth: persistWriteHealthState,
+        pluginDiscovery: collectPluginDiscoveryDiagnostic(),
         isAbortError,
         resetCompletedAfterAbort,
       });

@@ -519,6 +519,70 @@ describe("registerCliCommands search output", () => {
     expect(client.retrieve).not.toHaveBeenCalled();
   });
 
+  it("includes plugin discovery diagnostics in JSON status output", async () => {
+    const registerCli = vi.fn();
+    const client = {
+      healthCheck: vi.fn().mockResolvedValue(true),
+      getLinkStatus: vi.fn().mockResolvedValue({ linked: false }),
+      knowledge: vi.fn(),
+      stats: vi.fn(),
+      recall: vi.fn(),
+      retrieve: vi.fn(),
+    };
+
+    registerCliCommands(registerCli, {
+      client: client as any,
+      config: {
+        baseUrl: "https://api.example.com",
+        autoRecall: true,
+        autoCapture: true,
+        dedupeWindowMinutes: 30,
+        toolTimeoutMs: 500,
+      } as any,
+      version: "test",
+      getUserId: () => "agent-user-discovery",
+      userIdReady: Promise.resolve(),
+      getNamespace: () => "test",
+      sessionStats: makeSessionStats(),
+      loadPersistedStats: () => null,
+      pluginDiscovery: {
+        configured_plugin_id: "openclaw-cortex",
+        config_path: "/home/test/.openclaw/openclaw.json",
+        config_references_plugin: true,
+        allowlist_includes_plugin: true,
+        package_found: false,
+        expected_install_paths: ["/home/test/.openclaw/extensions/openclaw-cortex"],
+        detected_extension_dirs: [{ path: "/home/test/.openclaw/extensions", exists: true, entries: ["openclaw-memory"] }],
+        installed_package_version: null,
+        package_json_path: null,
+        warnings: ["openclaw-cortex is configured but no package.json was found in expected extension paths"],
+      },
+      isAbortError: () => false,
+      resetCompletedAfterAbort: async () => false,
+    });
+
+    const program = createCliNode("root");
+    const registrar = registerCli.mock.calls[0][0] as (ctx: { program: CliProgram; config: Record<string, unknown> }) => void;
+    registrar({ program: program as unknown as CliProgram, config: {} });
+
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    await program.children.get("cortex")?.children.get("status")?.actionHandler?.({ json: true });
+
+    const payload = JSON.parse(String(logSpy.mock.calls[0]?.[0]));
+    expect(payload.detail.plugin_discovery).toMatchObject({
+      configured_plugin_id: "openclaw-cortex",
+      config_references_plugin: true,
+      allowlist_includes_plugin: true,
+      package_found: false,
+      installed_package_version: null,
+    });
+    expect(payload.detail.plugin_discovery.detected_extension_dirs[0]).toMatchObject({
+      exists: true,
+      entries: ["openclaw-memory"],
+    });
+  });
+
   it("includes JSON timing breakdown for slow health fallback and link status", async () => {
     const registerCli = vi.fn();
     let now = 1_000;
@@ -529,11 +593,11 @@ describe("registerCliCommands search output", () => {
     });
     const client = {
       healthCheck: vi.fn().mockImplementation(async () => {
-        now += 5_000;
+        now += 3_000;
         return false;
       }),
       getLinkStatus: vi.fn().mockImplementation(async () => {
-        now += 28_000;
+        now += 2_000;
         return {
           linked: true,
           link: {
@@ -547,7 +611,7 @@ describe("registerCliCommands search output", () => {
         };
       }),
       knowledge: vi.fn().mockImplementation(async () => {
-        now += 8_000;
+        now += 3_000;
         return {
           total_memories: 53,
           total_sessions: 6,
@@ -596,11 +660,11 @@ describe("registerCliCommands search output", () => {
       api_health: "ok",
       used_knowledge_fallback: true,
       user_id_ready_latency_ms: 37,
-      health_latency_ms: 13_000,
-      health_probe_latency_ms: 5_000,
-      knowledge_fallback_latency_ms: 8_000,
-      link_latency_ms: 28_000,
-      total_wall_time_ms: 41_037,
+      health_latency_ms: 6_000,
+      health_probe_latency_ms: 3_000,
+      knowledge_fallback_latency_ms: 3_000,
+      link_latency_ms: 2_000,
+      total_wall_time_ms: 8_037,
       health_timeout_ms: 5_000,
       knowledge_fallback_timeout_ms: 8_000,
       link_timeout_ms: 5_000,
@@ -677,8 +741,192 @@ describe("registerCliCommands search output", () => {
     });
     expect(payload.detail.health_error).toContain("timed out");
     expect(payload.detail.total_wall_time_ms).toBe(5_000);
-    expect(client.knowledge).toHaveBeenCalledWith("agent-user-health-timeout", 8000);
+    expect(client.knowledge).toHaveBeenCalledWith("agent-user-health-timeout", 7000);
     expect(client.getLinkStatus).toHaveBeenCalledWith("agent-user-health-timeout", 5000);
+  });
+
+  it("returns JSON timeout before an external 15s timeout can kill status", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+    const registerCli = vi.fn();
+    const client = {
+      healthCheck: vi.fn().mockReturnValue(new Promise<boolean>(() => {})),
+      getLinkStatus: vi.fn(),
+      knowledge: vi.fn().mockReturnValue(new Promise(() => {})),
+      stats: vi.fn(),
+      recall: vi.fn(),
+      retrieve: vi.fn(),
+    };
+
+    registerCliCommands(registerCli, {
+      client: client as any,
+      config: {
+        baseUrl: "https://api.example.com",
+        autoRecall: true,
+        autoCapture: true,
+        dedupeWindowMinutes: 30,
+        toolTimeoutMs: 500,
+      } as any,
+      version: "test",
+      getUserId: () => "agent-user-total-timeout",
+      userIdReady: Promise.resolve(),
+      getNamespace: () => "test",
+      sessionStats: makeSessionStats(),
+      loadPersistedStats: () => null,
+      isAbortError: () => false,
+      resetCompletedAfterAbort: async () => false,
+    });
+
+    const program = createCliNode("root");
+    const registrar = registerCli.mock.calls[0][0] as (ctx: { program: CliProgram; config: Record<string, unknown> }) => void;
+    registrar({ program: program as unknown as CliProgram, config: {} });
+
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const actionPromise = program.children.get("cortex")?.children.get("status")?.actionHandler?.({ json: true });
+
+    await flushMicrotasks();
+    await vi.advanceTimersByTimeAsync(11_999);
+    expect(logSpy).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(1);
+    await actionPromise;
+
+    expect(logSpy).toHaveBeenCalledTimes(1);
+    const payload = JSON.parse(String(logSpy.mock.calls[0]?.[0]));
+    expect(payload).toMatchObject({
+      linked: false,
+      agent_user_id: "agent-user-total-timeout",
+      status: "timeout",
+      detail: {
+        api_health: "unreachable",
+        total_timeout_ms: 12_000,
+        total_wall_time_ms: 12_000,
+      },
+    });
+    expect(payload.detail.health_error).toContain("timed out");
+    expect(payload.detail.knowledge_fallback_error).toContain("timed out");
+    expect(client.getLinkStatus).not.toHaveBeenCalled();
+    expect(process.exitCode).toBe(124);
+  });
+
+  it("sets exit code 124 when non-JSON status exhausts the total timeout budget", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+    const registerCli = vi.fn();
+    const client = {
+      healthCheck: vi.fn().mockReturnValue(new Promise<boolean>(() => {})),
+      getLinkStatus: vi.fn(),
+      knowledge: vi.fn().mockReturnValue(new Promise(() => {})),
+      stats: vi.fn(),
+      recall: vi.fn(),
+      retrieve: vi.fn(),
+    };
+
+    registerCliCommands(registerCli, {
+      client: client as any,
+      config: {
+        baseUrl: "https://api.example.com",
+        autoRecall: true,
+        autoCapture: true,
+        dedupeWindowMinutes: 30,
+        toolTimeoutMs: 500,
+      } as any,
+      version: "test",
+      getUserId: () => "agent-user-non-json-total-timeout",
+      userIdReady: Promise.resolve(),
+      getNamespace: () => "test",
+      sessionStats: makeSessionStats(),
+      loadPersistedStats: () => null,
+      isAbortError: () => false,
+      resetCompletedAfterAbort: async () => false,
+    });
+
+    const program = createCliNode("root");
+    const registrar = registerCli.mock.calls[0][0] as (ctx: { program: CliProgram; config: Record<string, unknown> }) => void;
+    registrar({ program: program as unknown as CliProgram, config: {} });
+
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const actionPromise = program.children.get("cortex")?.children.get("status")?.actionHandler?.({});
+
+    await flushMicrotasks();
+    await vi.advanceTimersByTimeAsync(12_000);
+    await actionPromise;
+
+    expect(logSpy).toHaveBeenCalledWith("\nAPI is unreachable. Check baseUrl and network connectivity.");
+    expect(process.exitCode).toBe(124);
+  });
+
+  it("returns structured JSON when SIGTERM interrupts status", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+    const originalSigintListeners = process.listeners("SIGINT");
+    const originalSigtermListeners = process.listeners("SIGTERM");
+    const registerCli = vi.fn();
+    const client = {
+      healthCheck: vi.fn().mockReturnValue(new Promise<boolean>(() => {})),
+      getLinkStatus: vi.fn(),
+      knowledge: vi.fn(),
+      stats: vi.fn(),
+      recall: vi.fn(),
+      retrieve: vi.fn(),
+    };
+
+    registerCliCommands(registerCli, {
+      client: client as any,
+      config: {
+        baseUrl: "https://api.example.com",
+        autoRecall: true,
+        autoCapture: true,
+        dedupeWindowMinutes: 30,
+        toolTimeoutMs: 500,
+      } as any,
+      version: "test",
+      getUserId: () => "agent-user-sigterm",
+      userIdReady: Promise.resolve(),
+      getNamespace: () => "test",
+      sessionStats: makeSessionStats(),
+      loadPersistedStats: () => null,
+      isAbortError: () => false,
+      resetCompletedAfterAbort: async () => false,
+    });
+
+    const program = createCliNode("root");
+    const registrar = registerCli.mock.calls[0][0] as (ctx: { program: CliProgram; config: Record<string, unknown> }) => void;
+    registrar({ program: program as unknown as CliProgram, config: {} });
+
+    const writeSpy = vi.spyOn(process.stdout, "write").mockImplementation(((chunk: string | Uint8Array, cb?: (err?: Error | null) => void) => {
+      if (typeof cb === "function") cb();
+      return true;
+    }) as never);
+    const exitSpy = vi.spyOn(process, "exit").mockImplementation(((code?: string | number | null) => {
+      throw new Error(`process.exit:${String(code)}`);
+    }) as never);
+
+    program.children.get("cortex")?.children.get("status")?.actionHandler?.({ json: true });
+    await flushMicrotasks();
+
+    try {
+      expect(() => process.emit("SIGTERM")).toThrow("process.exit:124");
+      expect(exitSpy).toHaveBeenCalledWith(124);
+
+      const payload = JSON.parse(String(writeSpy.mock.calls[0]?.[0]).trim());
+      expect(payload).toMatchObject({
+        linked: false,
+        agent_user_id: "agent-user-sigterm",
+        status: "timeout",
+        message: "Cortex status interrupted by SIGTERM.",
+        detail: {
+          api_health: "not_checked",
+          total_timeout_ms: 12_000,
+          link_status: "unavailable",
+        },
+      });
+    } finally {
+      process.removeAllListeners("SIGINT");
+      process.removeAllListeners("SIGTERM");
+      for (const listener of originalSigintListeners) process.on("SIGINT", listener);
+      for (const listener of originalSigtermListeners) process.on("SIGTERM", listener);
+    }
   });
 
   it("returns JSON promptly when link status never settles", async () => {
@@ -936,7 +1184,7 @@ describe("registerCliCommands search output", () => {
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
 
     const actionPromise = program.children.get("cortex")?.children.get("status")?.actionHandler?.();
-    await flushMicrotasks(12);
+    await flushMicrotasks(30);
 
     expect(client.healthCheck).toHaveBeenCalledOnce();
     expect(client.knowledge).toHaveBeenCalledWith("user-1", 8000);

@@ -366,6 +366,7 @@ export class CortexClient {
         controller.abort();
         reject(createTimeoutError(label, timeoutMs));
       }, timeoutMs);
+      timeout.unref?.();
     });
 
     try {
@@ -438,6 +439,7 @@ export class CortexClient {
         controller.abort();
         resolve(false);
       }, timeoutMs);
+      timeout.unref?.();
     });
 
     try {

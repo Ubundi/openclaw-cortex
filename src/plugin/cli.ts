@@ -8,9 +8,27 @@ const STATUS_HEALTH_TIMEOUT_MS = 5_000;
 const STATUS_FALLBACK_TIMEOUT_MS = 8_000;
 const STATUS_LINK_TIMEOUT_MS = 5_000;
 const STATUS_USER_ID_READY_TIMEOUT_MS = 5_000;
+const STATUS_TOTAL_TIMEOUT_MS = 12_000;
 
 interface StatusCommandOptions {
   json?: boolean;
+}
+
+export interface PluginDiscoveryDiagnostic {
+  configured_plugin_id: string;
+  config_path: string;
+  config_references_plugin: boolean;
+  allowlist_includes_plugin: boolean;
+  package_found: boolean;
+  expected_install_paths: string[];
+  detected_extension_dirs: Array<{
+    path: string;
+    exists: boolean;
+    entries: string[];
+  }>;
+  installed_package_version: string | null;
+  package_json_path: string | null;
+  warnings: string[];
 }
 
 interface NormalizedLinkStatus {
@@ -32,7 +50,7 @@ interface StatusJsonOutput {
   shadow_subject_id: string | null;
   claimed_user_id: string | null;
   linked_at: string | null;
-  status: "ok" | "api_unreachable" | "user_id_unavailable";
+  status: "ok" | "api_unreachable" | "user_id_unavailable" | "timeout";
   message: string;
   detail: {
     api_health: "ok" | "unreachable" | "not_checked";
@@ -47,7 +65,9 @@ interface StatusJsonOutput {
     knowledge_fallback_timeout_ms: number;
     link_timeout_ms: number;
     user_id_ready_timeout_ms: number;
+    total_timeout_ms: number;
     link_status: "ok" | "unavailable";
+    plugin_discovery?: PluginDiscoveryDiagnostic;
     user_id_ready_error?: string;
     health_error?: string;
     knowledge_fallback_error?: string;
@@ -78,6 +98,7 @@ function statusTimingDetail(args: {
   | "knowledge_fallback_timeout_ms"
   | "link_timeout_ms"
   | "user_id_ready_timeout_ms"
+  | "total_timeout_ms"
 > {
   return {
     health_probe_latency_ms: args.healthProbeMs,
@@ -89,11 +110,106 @@ function statusTimingDetail(args: {
     knowledge_fallback_timeout_ms: STATUS_FALLBACK_TIMEOUT_MS,
     link_timeout_ms: STATUS_LINK_TIMEOUT_MS,
     user_id_ready_timeout_ms: STATUS_USER_ID_READY_TIMEOUT_MS,
+    total_timeout_ms: STATUS_TOTAL_TIMEOUT_MS,
   };
 }
 
 function createStatusTimeoutError(label: string, timeoutMs: number): Error {
   return new Error(`Cortex status ${label} timed out after ${timeoutMs}ms`);
+}
+
+function remainingStatusBudget(statusStart: number): number {
+  return Math.max(0, STATUS_TOTAL_TIMEOUT_MS - (Date.now() - statusStart));
+}
+
+function boundedStatusTimeout(statusStart: number, stepTimeoutMs: number): number {
+  return Math.min(stepTimeoutMs, remainingStatusBudget(statusStart));
+}
+
+function createStatusBudgetExhaustedError(label: string): Error {
+  return new Error(`Cortex status ${label} skipped because total timeout budget was exhausted`);
+}
+
+async function measureBudgetedStatusStep<T>(
+  statusStart: number,
+  stepTimeoutMs: number,
+  label: string,
+  run: (timeoutMs: number) => Promise<T>,
+): Promise<TimedResult<T>> {
+  const timeoutMs = boundedStatusTimeout(statusStart, stepTimeoutMs);
+  if (timeoutMs <= 0) {
+    return {
+      value: null,
+      error: createStatusBudgetExhaustedError(label),
+      latencyMs: 0,
+    };
+  }
+
+  return measureStatusStep(
+    () => run(timeoutMs),
+    timeoutMs,
+    label,
+  );
+}
+
+function installStatusSignalHandlers(args: {
+  jsonMode: boolean;
+  statusStart: number;
+  getUserId: () => string | undefined;
+  pluginDiscovery?: PluginDiscoveryDiagnostic;
+}): () => void {
+  const signals: NodeJS.Signals[] = ["SIGTERM", "SIGINT"];
+  const handlers = new Map<NodeJS.Signals, NodeJS.SignalsListener>();
+  let handled = false;
+
+  for (const signal of signals) {
+    const handler: NodeJS.SignalsListener = () => {
+      if (handled) return;
+      handled = true;
+      const totalWallMs = Date.now() - args.statusStart;
+      if (args.jsonMode) {
+        const payload: StatusJsonOutput = {
+          linked: false,
+          agent_user_id: args.getUserId() ?? null,
+          tootoo_user_id: null,
+          owner_type: null,
+          owner_id: null,
+          shadow_subject_id: null,
+          claimed_user_id: null,
+          linked_at: null,
+          status: "timeout",
+          message: `Cortex status interrupted by ${signal}.`,
+          detail: {
+            api_health: "not_checked",
+            used_knowledge_fallback: false,
+            health_latency_ms: 0,
+            ...statusTimingDetail({
+              totalWallMs,
+              userIdReadyMs: 0,
+              healthProbeMs: 0,
+              knowledgeFallbackMs: 0,
+              linkMs: 0,
+            }),
+            link_status: "unavailable",
+            ...(args.pluginDiscovery ? { plugin_discovery: args.pluginDiscovery } : {}),
+          },
+        };
+        const code = signal === "SIGINT" ? 130 : 124;
+        process.stdout.write(`${JSON.stringify(payload)}\n`, () => process.exit(code));
+      } else {
+        const code = signal === "SIGINT" ? 130 : 124;
+        process.stderr.write(`Cortex status interrupted by ${signal}.\n`, () => process.exit(code));
+      }
+    };
+    handlers.set(signal, handler);
+    process.once(signal, handler);
+  }
+
+  return () => {
+    for (const [signal, handler] of handlers) {
+      process.off(signal, handler);
+    }
+  };
 }
 
 async function withStatusTimeout<T>(
@@ -177,6 +293,7 @@ export interface CliDeps {
   persistWriteHealth?: (state: WriteHealthState) => void;
   isAbortError: (err: unknown) => boolean;
   resetCompletedAfterAbort: (client: CortexClient, userId: string) => Promise<boolean>;
+  pluginDiscovery?: PluginDiscoveryDiagnostic;
 }
 
 export function registerCliCommands(
@@ -199,6 +316,7 @@ export function registerCliCommands(
     persistWriteHealth,
     isAbortError,
     resetCompletedAfterAbort,
+    pluginDiscovery,
   } = deps;
 
   registerCli(
@@ -212,10 +330,18 @@ export function registerCliCommands(
         .action(async (opts: StatusCommandOptions = {}) => {
           const jsonMode = opts.json === true;
           const statusStart = Date.now();
-          const userIdReadyResult = await measureStatusStep(
-            () => userIdReady,
+          const removeStatusSignalHandlers = installStatusSignalHandlers({
+            jsonMode,
+            statusStart,
+            getUserId,
+            pluginDiscovery,
+          });
+          try {
+          const userIdReadyResult = await measureBudgetedStatusStep(
+            statusStart,
             STATUS_USER_ID_READY_TIMEOUT_MS,
             "user ID readiness",
+            () => userIdReady,
           );
           const userIdReadyMs = userIdReadyResult.latencyMs;
           const userId = getUserId();
@@ -245,6 +371,7 @@ export function registerCliCommands(
                     linkMs: 0,
                   }),
                   link_status: "unavailable",
+                  ...(pluginDiscovery ? { plugin_discovery: pluginDiscovery } : {}),
                   ...(userIdReadyResult.error ? { user_id_ready_error: String(userIdReadyResult.error) } : {}),
                 },
               };
@@ -269,20 +396,22 @@ export function registerCliCommands(
           // if /health misses, treat knowledge-read success as connected.
           let healthy = false;
           let usedKnowledgeFallback = false;
-          const healthProbe = await measureStatusStep(
-            () => client.healthCheck(STATUS_HEALTH_TIMEOUT_MS),
+          const healthProbe = await measureBudgetedStatusStep(
+            statusStart,
             STATUS_HEALTH_TIMEOUT_MS,
             "/health",
+            (timeoutMs) => client.healthCheck(timeoutMs),
           );
           healthy = healthProbe.value === true;
           let knowledgeFallbackMs = 0;
           let knowledgeFallbackError: unknown;
 
           if (!healthy) {
-            const knowledgeFallback = await measureStatusStep(
-              () => client.knowledge(userId, STATUS_FALLBACK_TIMEOUT_MS),
+            const knowledgeFallback = await measureBudgetedStatusStep(
+              statusStart,
               STATUS_FALLBACK_TIMEOUT_MS,
               "/v1/knowledge fallback",
+              (timeoutMs) => client.knowledge(userId, timeoutMs),
             );
             knowledgeFallbackMs = knowledgeFallback.latencyMs;
             knowledgeFallbackError = knowledgeFallback.error;
@@ -299,6 +428,10 @@ export function registerCliCommands(
           }
 
           const healthMs = healthProbe.latencyMs + knowledgeFallbackMs;
+          if (healthy && remainingStatusBudget(statusStart) <= 0) {
+            healthy = false;
+            knowledgeFallbackError ??= createStatusBudgetExhaustedError("status");
+          }
           const healthLabel = healthy
             ? (usedKnowledgeFallback ? "OK (fallback via /v1/knowledge)" : "OK")
             : "UNREACHABLE";
@@ -308,6 +441,7 @@ export function registerCliCommands(
 
           if (!healthy) {
             const totalWallMs = Date.now() - statusStart;
+            const exhaustedTotalBudget = totalWallMs >= STATUS_TOTAL_TIMEOUT_MS;
             if (jsonMode) {
               const payload: StatusJsonOutput = {
                 linked: false,
@@ -318,8 +452,10 @@ export function registerCliCommands(
                 shadow_subject_id: null,
                 claimed_user_id: null,
                 linked_at: null,
-                status: "api_unreachable",
-                message: "Cortex API is unreachable; link metadata unavailable.",
+                status: exhaustedTotalBudget ? "timeout" : "api_unreachable",
+                message: exhaustedTotalBudget
+                  ? "Cortex status timed out before all probes completed."
+                  : "Cortex API is unreachable; link metadata unavailable.",
                 detail: {
                   api_health: "unreachable",
                   used_knowledge_fallback: usedKnowledgeFallback,
@@ -332,13 +468,20 @@ export function registerCliCommands(
                     linkMs: 0,
                   }),
                   link_status: "unavailable",
+                  ...(pluginDiscovery ? { plugin_discovery: pluginDiscovery } : {}),
                   ...(healthProbe.error ? { health_error: String(healthProbe.error) } : {}),
                   ...(knowledgeFallbackError ? { knowledge_fallback_error: String(knowledgeFallbackError) } : {}),
                 },
               };
               console.log(JSON.stringify(payload));
+              if (exhaustedTotalBudget) {
+                process.exitCode = 124;
+              }
             } else {
               console.log("\nAPI is unreachable. Check baseUrl and network connectivity.");
+            }
+            if (exhaustedTotalBudget) {
+              process.exitCode = 124;
             }
             return;
           }
@@ -346,10 +489,11 @@ export function registerCliCommands(
           // Link status
           let linkStatus: LinkStatusResponse | null = null;
           let linkStatusError: unknown;
-          const linkStatusResult = await measureStatusStep(
-            () => client.getLinkStatus(userId, STATUS_LINK_TIMEOUT_MS),
+          const linkStatusResult = await measureBudgetedStatusStep(
+            statusStart,
             STATUS_LINK_TIMEOUT_MS,
             "/v1/auth/link",
+            (timeoutMs) => client.getLinkStatus(userId, timeoutMs),
           );
           linkStatus = linkStatusResult.value;
           linkStatusError = linkStatus ? undefined : (linkStatusResult.error ?? new Error("Link status unavailable"));
@@ -380,6 +524,7 @@ export function registerCliCommands(
                   linkMs: linkStatusResult.latencyMs,
                 }),
                 link_status: linkStatus ? "ok" : "unavailable",
+                ...(pluginDiscovery ? { plugin_discovery: pluginDiscovery } : {}),
                 ...(healthProbe.error ? { health_error: String(healthProbe.error) } : {}),
                 ...(knowledgeFallbackError ? { knowledge_fallback_error: String(knowledgeFallbackError) } : {}),
                 ...(linkStatusError ? { link_error: String(linkStatusError) } : {}),
@@ -566,6 +711,9 @@ export function registerCliCommands(
           console.log(`  Avg memories/recall: ${avgRecallMemories}`);
           if (liveStats.recallDuplicatesCollapsed > 0) {
             console.log(`  Duplicates collapsed: ${liveStats.recallDuplicatesCollapsed}`);
+          }
+          } finally {
+            removeStatusSignalHandlers();
           }
         });
 
