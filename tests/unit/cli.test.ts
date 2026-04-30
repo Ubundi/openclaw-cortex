@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { registerCliCommands, type SessionStats } from "../../src/plugin/cli.js";
+import { readResetConfirmation, registerCliCommands, type SessionStats } from "../../src/plugin/cli.js";
 import type { CliProgram } from "../../src/plugin/types.js";
+import { PassThrough, Readable } from "node:stream";
 
 interface CliNode {
   name: string;
@@ -67,6 +68,22 @@ async function flushMicrotasks(turns = 6): Promise<void> {
   }
 }
 
+function spyOnStdout() {
+  const chunks: string[] = [];
+  const writeSpy = vi.spyOn(process.stdout, "write").mockImplementation(((chunk: string | Uint8Array, ...args: any[]) => {
+    chunks.push(chunk.toString());
+    const callback = args.find((arg) => typeof arg === "function");
+    callback?.();
+    return true;
+  }) as never);
+
+  return {
+    writeSpy,
+    text: () => chunks.join(""),
+    json: () => JSON.parse(chunks.join("")),
+  };
+}
+
 describe("registerCliCommands search output", () => {
   afterEach(() => {
     vi.restoreAllMocks();
@@ -118,6 +135,17 @@ describe("registerCliCommands search output", () => {
     expect(logSpy).toHaveBeenCalledWith("1. [0.43] Project uses PostgreSQL");
     expect(logSpy).not.toHaveBeenCalledWith("1. [1.00] Project uses PostgreSQL");
     expect(errorSpy).not.toHaveBeenCalled();
+  });
+
+  it("reads piped reset confirmation and returns the first line", async () => {
+    const output = new PassThrough();
+    const input = Readable.from(["no\nignored\n"]);
+    Object.defineProperty(input, "isTTY", { value: false });
+
+    const answer = await readResetConfirmation(input as NodeJS.ReadStream, output as NodeJS.WriteStream);
+
+    expect(answer).toBe("no");
+    expect(output.read()?.toString()).toContain("Type 'reset' to confirm");
   });
 
   it("filters low-score tail results for broad searches", async () => {
@@ -361,14 +389,14 @@ describe("registerCliCommands search output", () => {
     const registrar = registerCli.mock.calls[0][0] as (ctx: { program: CliProgram; config: Record<string, unknown> }) => void;
     registrar({ program: program as unknown as CliProgram, config: {} });
 
-    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const stdout = spyOnStdout();
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
     await program.children.get("cortex")?.children.get("status")?.actionHandler?.({ json: true });
 
     expect(errorSpy).not.toHaveBeenCalled();
-    expect(logSpy).toHaveBeenCalledTimes(1);
-    const payload = JSON.parse(String(logSpy.mock.calls[0]?.[0]));
+    expect(stdout.writeSpy).toHaveBeenCalledTimes(1);
+    const payload = stdout.json();
     expect(payload).toMatchObject({
       linked: false,
       agent_user_id: null,
@@ -419,19 +447,19 @@ describe("registerCliCommands search output", () => {
     const registrar = registerCli.mock.calls[0][0] as (ctx: { program: CliProgram; config: Record<string, unknown> }) => void;
     registrar({ program: program as unknown as CliProgram, config: {} });
 
-    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const stdout = spyOnStdout();
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     const actionPromise = program.children.get("cortex")?.children.get("status")?.actionHandler?.({ json: true });
 
     await flushMicrotasks();
-    expect(logSpy).not.toHaveBeenCalled();
+    expect(stdout.writeSpy).not.toHaveBeenCalled();
 
     await vi.advanceTimersByTimeAsync(5_000);
     await actionPromise;
 
     expect(errorSpy).not.toHaveBeenCalled();
-    expect(logSpy).toHaveBeenCalledTimes(1);
-    const payload = JSON.parse(String(logSpy.mock.calls[0]?.[0]));
+    expect(stdout.writeSpy).toHaveBeenCalledTimes(1);
+    const payload = stdout.json();
     expect(payload).toMatchObject({
       linked: false,
       agent_user_id: null,
@@ -493,14 +521,14 @@ describe("registerCliCommands search output", () => {
     const registrar = registerCli.mock.calls[0][0] as (ctx: { program: CliProgram; config: Record<string, unknown> }) => void;
     registrar({ program: program as unknown as CliProgram, config: {} });
 
-    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const stdout = spyOnStdout();
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
     await program.children.get("cortex")?.children.get("status")?.actionHandler?.({ json: true });
 
     expect(errorSpy).not.toHaveBeenCalled();
-    expect(logSpy).toHaveBeenCalledTimes(1);
-    const payload = JSON.parse(String(logSpy.mock.calls[0]?.[0]));
+    expect(stdout.writeSpy).toHaveBeenCalledTimes(1);
+    const payload = stdout.json();
     expect(payload).toMatchObject({
       linked: true,
       agent_user_id: "agent-user-shadow",
@@ -565,11 +593,11 @@ describe("registerCliCommands search output", () => {
     const registrar = registerCli.mock.calls[0][0] as (ctx: { program: CliProgram; config: Record<string, unknown> }) => void;
     registrar({ program: program as unknown as CliProgram, config: {} });
 
-    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const stdout = spyOnStdout();
 
     await program.children.get("cortex")?.children.get("status")?.actionHandler?.({ json: true });
 
-    const payload = JSON.parse(String(logSpy.mock.calls[0]?.[0]));
+    const payload = stdout.json();
     expect(payload.detail.plugin_discovery).toMatchObject({
       configured_plugin_id: "openclaw-cortex",
       config_references_plugin: true,
@@ -647,7 +675,7 @@ describe("registerCliCommands search output", () => {
     const registrar = registerCli.mock.calls[0][0] as (ctx: { program: CliProgram; config: Record<string, unknown> }) => void;
     registrar({ program: program as unknown as CliProgram, config: {} });
 
-    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const stdout = spyOnStdout();
 
     const actionPromise = program.children.get("cortex")?.children.get("status")?.actionHandler?.({ json: true });
     await flushMicrotasks();
@@ -655,7 +683,7 @@ describe("registerCliCommands search output", () => {
     resolveUserIdReady();
     await actionPromise;
 
-    const payload = JSON.parse(String(logSpy.mock.calls[0]?.[0]));
+    const payload = stdout.json();
     expect(payload.detail).toMatchObject({
       api_health: "ok",
       used_knowledge_fallback: true,
@@ -716,17 +744,17 @@ describe("registerCliCommands search output", () => {
     const registrar = registerCli.mock.calls[0][0] as (ctx: { program: CliProgram; config: Record<string, unknown> }) => void;
     registrar({ program: program as unknown as CliProgram, config: {} });
 
-    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const stdout = spyOnStdout();
     const actionPromise = program.children.get("cortex")?.children.get("status")?.actionHandler?.({ json: true });
 
     await flushMicrotasks();
-    expect(logSpy).not.toHaveBeenCalled();
+    expect(stdout.writeSpy).not.toHaveBeenCalled();
 
     await vi.advanceTimersByTimeAsync(5_000);
     await actionPromise;
 
-    expect(logSpy).toHaveBeenCalledTimes(1);
-    const payload = JSON.parse(String(logSpy.mock.calls[0]?.[0]));
+    expect(stdout.writeSpy).toHaveBeenCalledTimes(1);
+    const payload = stdout.json();
     expect(payload).toMatchObject({
       linked: false,
       agent_user_id: "agent-user-health-timeout",
@@ -781,18 +809,18 @@ describe("registerCliCommands search output", () => {
     const registrar = registerCli.mock.calls[0][0] as (ctx: { program: CliProgram; config: Record<string, unknown> }) => void;
     registrar({ program: program as unknown as CliProgram, config: {} });
 
-    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const stdout = spyOnStdout();
     const actionPromise = program.children.get("cortex")?.children.get("status")?.actionHandler?.({ json: true });
 
     await flushMicrotasks();
     await vi.advanceTimersByTimeAsync(11_999);
-    expect(logSpy).not.toHaveBeenCalled();
+    expect(stdout.writeSpy).not.toHaveBeenCalled();
 
     await vi.advanceTimersByTimeAsync(1);
     await actionPromise;
 
-    expect(logSpy).toHaveBeenCalledTimes(1);
-    const payload = JSON.parse(String(logSpy.mock.calls[0]?.[0]));
+    expect(stdout.writeSpy).toHaveBeenCalledTimes(1);
+    const payload = stdout.json();
     expect(payload).toMatchObject({
       linked: false,
       agent_user_id: "agent-user-total-timeout",
@@ -894,10 +922,7 @@ describe("registerCliCommands search output", () => {
     const registrar = registerCli.mock.calls[0][0] as (ctx: { program: CliProgram; config: Record<string, unknown> }) => void;
     registrar({ program: program as unknown as CliProgram, config: {} });
 
-    const writeSpy = vi.spyOn(process.stdout, "write").mockImplementation(((chunk: string | Uint8Array, cb?: (err?: Error | null) => void) => {
-      if (typeof cb === "function") cb();
-      return true;
-    }) as never);
+    const stdout = spyOnStdout();
     const exitSpy = vi.spyOn(process, "exit").mockImplementation(((code?: string | number | null) => {
       throw new Error(`process.exit:${String(code)}`);
     }) as never);
@@ -909,7 +934,7 @@ describe("registerCliCommands search output", () => {
       expect(() => process.emit("SIGTERM")).toThrow("process.exit:124");
       expect(exitSpy).toHaveBeenCalledWith(124);
 
-      const payload = JSON.parse(String(writeSpy.mock.calls[0]?.[0]).trim());
+      const payload = stdout.json();
       expect(payload).toMatchObject({
         linked: false,
         agent_user_id: "agent-user-sigterm",
@@ -965,15 +990,15 @@ describe("registerCliCommands search output", () => {
     const registrar = registerCli.mock.calls[0][0] as (ctx: { program: CliProgram; config: Record<string, unknown> }) => void;
     registrar({ program: program as unknown as CliProgram, config: {} });
 
-    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const stdout = spyOnStdout();
     const actionPromise = program.children.get("cortex")?.children.get("status")?.actionHandler?.({ json: true });
 
     await flushMicrotasks();
     await vi.advanceTimersByTimeAsync(5_000);
     await actionPromise;
 
-    expect(logSpy).toHaveBeenCalledTimes(1);
-    const payload = JSON.parse(String(logSpy.mock.calls[0]?.[0]));
+    expect(stdout.writeSpy).toHaveBeenCalledTimes(1);
+    const payload = stdout.json();
     expect(payload).toMatchObject({
       linked: false,
       agent_user_id: "agent-user-link-timeout",
@@ -1029,11 +1054,11 @@ describe("registerCliCommands search output", () => {
     const registrar = registerCli.mock.calls[0][0] as (ctx: { program: CliProgram; config: Record<string, unknown> }) => void;
     registrar({ program: program as unknown as CliProgram, config: {} });
 
-    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const stdout = spyOnStdout();
 
     await program.children.get("cortex")?.children.get("status")?.actionHandler?.({ json: true });
 
-    const payload = JSON.parse(String(logSpy.mock.calls[0]?.[0]));
+    const payload = stdout.json();
     expect(payload).toMatchObject({
       linked: true,
       agent_user_id: "agent-user-legacy",
@@ -1081,14 +1106,14 @@ describe("registerCliCommands search output", () => {
     const registrar = registerCli.mock.calls[0][0] as (ctx: { program: CliProgram; config: Record<string, unknown> }) => void;
     registrar({ program: program as unknown as CliProgram, config: {} });
 
-    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const stdout = spyOnStdout();
 
     await program.children.get("cortex")?.children.get("status")?.actionHandler?.({
       json: true,
       unsupported_flag: true,
     } as any);
 
-    const payload = JSON.parse(String(logSpy.mock.calls[0]?.[0]));
+    const payload = stdout.json();
     expect(payload).toMatchObject({
       linked: false,
       agent_user_id: "agent-user-opts",

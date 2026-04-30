@@ -265,6 +265,43 @@ describe("buildSaveMemoryTool", () => {
     expect(deps.sessionStats.saves).toBe(1);
   });
 
+  it("marks direct remember writes healthy when Cortex confirms completion", async () => {
+    const { client, deps } = makeDeps();
+    const persistWriteHealth = vi.fn();
+    deps.recentSaves = { record: vi.fn(), isDuplicate: vi.fn().mockReturnValue(false) } as any;
+    deps.writeHealthState = {
+      status: "unknown",
+      lastAttemptAt: 0,
+      lastAcceptedAt: 0,
+      lastConfirmedAt: 0,
+      lastFailureAt: 0,
+      consecutivePendingJobs: 0,
+      consecutiveFailures: 0,
+    };
+    deps.persistWriteHealth = persistWriteHealth;
+    client.remember = vi.fn().mockResolvedValue({
+      session_id: "active-session-123",
+      status: "completed",
+      job_id: "remember-job-1",
+    });
+
+    const tool = buildSaveMemoryTool(deps);
+    const result = await tool.execute("tool-1", { text: "Remember that Atlas deploys on Fridays." });
+    const responseText = result.content[0]?.text ?? "";
+
+    expect(responseText).toContain("confirmed");
+    expect(deps.writeHealthState.status).toBe("healthy");
+    expect(deps.writeHealthState.lastJobId).toBe("remember-job-1");
+    expect(deps.writeHealthState.lastJobStatus).toBe("completed");
+    expect(deps.writeHealthState.consecutivePendingJobs).toBe(0);
+    expect(deps.knowledgeState.hasMemories).toBe(true);
+    expect(persistWriteHealth).toHaveBeenLastCalledWith(expect.objectContaining({
+      status: "healthy",
+      lastJobId: "remember-job-1",
+      lastJobStatus: "completed",
+    }));
+  });
+
   it("counts async fallback acceptance even when confirmation stays pending", async () => {
     const { client, deps } = makeDeps();
     deps.recentSaves = { record: vi.fn(), isDuplicate: vi.fn().mockReturnValue(false) } as any;

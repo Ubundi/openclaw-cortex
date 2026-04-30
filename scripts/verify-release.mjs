@@ -31,6 +31,11 @@ async function main() {
 
   expectEqual("Version mismatch (package.json vs openclaw.plugin.json)", packageJson.version, manifest.version);
 
+  const commandAliases = Array.isArray(manifest.commandAliases) ? manifest.commandAliases : [];
+  if (!commandAliases.some((alias) => alias?.name === "cortex")) {
+    errors.push('openclaw.plugin.json must declare commandAliases: [{ "name": "cortex" }] so OpenClaw registers the cortex CLI root');
+  }
+
   if (!pluginRaw.includes('import packageJson from "../../package.json"')) {
     errors.push("src/plugin/index.ts must default-import package.json");
   }

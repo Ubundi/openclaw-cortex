@@ -13,6 +13,7 @@ import type { SessionGoalStore } from "../internal/session-goal.js";
 import { formatMemories } from "../features/recall/formatter.js";
 import { coerceSearchMode, filterSearchResults, prepareSearchQuery } from "./search-query.js";
 import {
+  classifyJobStatus,
   markWriteAccepted,
   markWriteConfirmed,
   markWriteFailed,
@@ -472,15 +473,42 @@ export function buildSaveMemoryTool(deps: ToolsDeps): ToolDefinition {
           "OpenClaw",
         );
         const rememberStatus = rememberResult.status ?? "accepted";
-        const acceptedWarning = "Cortex accepted the save for background processing, but write completion is not yet confirmed.";
+        recordAcceptedSave();
+        const rememberJobId = rememberResult.job_id;
+        const rememberState = classifyJobStatus(rememberStatus);
+
+        if (rememberState === "confirmed") {
+          if (knowledgeState) {
+            knowledgeState.hasMemories = true;
+          }
+          commitWriteHealth(() => {
+            markWriteConfirmed(writeHealthState!, {
+              jobId: rememberJobId,
+              jobStatus: rememberStatus,
+            });
+          });
+          logger.info(`Cortex remember confirmed (status=${rememberStatus}${rememberJobId ? `, job=${rememberJobId}` : ""})`);
+          return {
+            content: [{
+              type: "text",
+              text: rememberJobId
+                ? `Memory save confirmed (job ${rememberJobId}, status=${rememberStatus}).`
+                : `Memory save confirmed (status=${rememberStatus}).`,
+            }],
+          };
+        }
+
+        const acceptedWarning = rememberJobId
+          ? `Cortex accepted the save for background processing (job ${rememberJobId}, status=${rememberStatus}), but write completion is not yet confirmed.`
+          : "Cortex accepted the save for background processing, but write completion is not yet confirmed.";
         commitWriteHealth(() => {
           markWriteAccepted(writeHealthState!, {
             warning: acceptedWarning,
+            jobId: rememberJobId,
             jobStatus: rememberStatus,
           });
         });
-        recordAcceptedSave();
-        logger.info(`Cortex remember accepted (status=${rememberStatus}) — write not yet confirmed`);
+        logger.info(`Cortex remember accepted (status=${rememberStatus}${rememberJobId ? `, job=${rememberJobId}` : ""}) — write not yet confirmed`);
         return {
           content: [{
             type: "text",

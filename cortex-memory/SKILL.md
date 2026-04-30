@@ -1,6 +1,6 @@
 ---
 name: cortex-memory
-description: Long-term memory for OpenClaw agents — auto-capture after turns, on-demand search tools for cross-session recall.
+description: Use when searching, saving, or recalling cross-session memory. Auto-capture runs after every turn; explicit save needed for implementation specifics. Tools — `cortex_search_memory`, `cortex_save_memory`.
 ---
 
 # Kwanda Cortex Memory
@@ -120,5 +120,7 @@ When the user has linked their agent to TooToo, a `<tootoo_bridge>` prompt may a
 ## Privacy & Data Handling
 
 Conversation transcripts are sent to the Cortex API for fact extraction. Volatile state (versions, ports, task statuses) is stripped before capture. Secrets and credentials are filtered by the capture pipeline.
+
+Runtime credentials use a hybrid placement for compatibility. For managed Kwanda agents, `plugins.entries.openclaw-cortex.config.apiKey` must be a plain string because OpenClaw 2026.4.26 rejects provider-style SecretRef objects in plugin config. ClawDeploy also mirrors the same value into `~/.openclaw/secrets.json` under `cortex` for local tooling; do not replace the plugin field with a SecretRef unless the runtime adds first-class support.
 
 **User controls:** Disable auto-capture (`autoCapture: false`), disable auto-recall (`autoRecall: false`), forget specific memories (`cortex_forget`), audit all API traffic (`/audit on`). All data is scoped per user and per workspace (namespace isolation).

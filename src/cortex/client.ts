@@ -237,6 +237,7 @@ export interface RecallResponse {
 export interface RememberAcceptedResponse {
   session_id: string | null;
   status?: string;
+  job_id?: string;
 }
 
 export interface RememberResponse {

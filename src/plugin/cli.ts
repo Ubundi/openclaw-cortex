@@ -10,6 +10,57 @@ const STATUS_LINK_TIMEOUT_MS = 5_000;
 const STATUS_USER_ID_READY_TIMEOUT_MS = 5_000;
 const STATUS_TOTAL_TIMEOUT_MS = 12_000;
 
+export async function readResetConfirmation(
+  input: NodeJS.ReadStream = process.stdin,
+  output: NodeJS.WriteStream = process.stdout,
+): Promise<string> {
+  const prompt = "  Type 'reset' to confirm: ";
+
+  if (!input.isTTY) {
+    output.write(prompt);
+    return new Promise((resolve) => {
+      let buffer = "";
+      let settled = false;
+      const cleanup = () => {
+        input.off("data", onData);
+        input.off("end", onEnd);
+        input.off("error", onError);
+      };
+      const settle = (value: string) => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        resolve(value);
+      };
+      const firstLine = () => buffer.split(/\r?\n/, 1)[0] ?? "";
+      const onData = (chunk: Buffer | string) => {
+        buffer += chunk.toString();
+        if (/\r?\n/.test(buffer)) {
+          settle(firstLine());
+        }
+      };
+      const onEnd = () => settle(firstLine());
+      const onError = () => settle("");
+
+      input.setEncoding("utf8");
+      input.on("data", onData);
+      input.once("end", onEnd);
+      input.once("error", onError);
+      input.resume();
+    });
+  }
+
+  const { createInterface } = await import("node:readline");
+  const rl = createInterface({ input, output });
+  try {
+    return await new Promise<string>((resolve) => {
+      rl.question(prompt, resolve);
+    });
+  } finally {
+    rl.close();
+  }
+}
+
 interface StatusCommandOptions {
   json?: boolean;
 }
@@ -79,6 +130,10 @@ interface TimedResult<T> {
   value: T | null;
   error: unknown;
   latencyMs: number;
+}
+
+function writeStatusJson(payload: StatusJsonOutput, callback?: () => void): void {
+  process.stdout.write(`${JSON.stringify(payload)}\n`, callback);
 }
 
 function statusTimingDetail(args: {
@@ -195,7 +250,7 @@ function installStatusSignalHandlers(args: {
           },
         };
         const code = signal === "SIGINT" ? 130 : 124;
-        process.stdout.write(`${JSON.stringify(payload)}\n`, () => process.exit(code));
+        writeStatusJson(payload, () => process.exit(code));
       } else {
         const code = signal === "SIGINT" ? 130 : 124;
         process.stderr.write(`Cortex status interrupted by ${signal}.\n`, () => process.exit(code));
@@ -375,7 +430,7 @@ export function registerCliCommands(
                   ...(userIdReadyResult.error ? { user_id_ready_error: String(userIdReadyResult.error) } : {}),
                 },
               };
-              console.log(JSON.stringify(payload));
+              writeStatusJson(payload);
             } else {
               console.error("Cannot check status: user ID not available.");
             }
@@ -473,7 +528,7 @@ export function registerCliCommands(
                   ...(knowledgeFallbackError ? { knowledge_fallback_error: String(knowledgeFallbackError) } : {}),
                 },
               };
-              console.log(JSON.stringify(payload));
+              writeStatusJson(payload);
               if (exhaustedTotalBudget) {
                 process.exitCode = 124;
               }
@@ -530,7 +585,7 @@ export function registerCliCommands(
                 ...(linkStatusError ? { link_error: String(linkStatusError) } : {}),
               },
             };
-            console.log(JSON.stringify(payload));
+            writeStatusJson(payload);
             return;
           }
 
@@ -958,12 +1013,7 @@ export function registerCliCommands(
           console.log("");
 
           if (!opts.yes) {
-            const { createInterface } = await import("node:readline");
-            const rl = createInterface({ input: process.stdin, output: process.stdout });
-            const answer = await new Promise<string>((resolve) => {
-              rl.question("  Type 'reset' to confirm: ", resolve);
-            });
-            rl.close();
+            const answer = await readResetConfirmation();
 
             if (answer.trim().toLowerCase() !== "reset") {
               console.log("\n  Aborted. No data was deleted.");
