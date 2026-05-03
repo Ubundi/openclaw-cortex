@@ -114,6 +114,20 @@ describe("passive bridge extraction", () => {
     expect(candidates[0].source_message_indices).toEqual([2]);
   });
 
+  it("uses structured fallback extraction when the gate passes without a fixed phrase rule", () => {
+    const candidates = extractPassiveBridgeCandidates(messages("I value low-drama handoffs with explicit owners."));
+
+    expect(candidates).toHaveLength(1);
+    expect(candidates[0]).toMatchObject({
+      content: "Values low-drama handoffs with explicit owners.",
+      suggested_section: "practices",
+      evidence_quote: "I value low-drama handoffs with explicit owners.",
+      confidence: expect.any(Number),
+      risk_tier: "low",
+    });
+    expect(candidates[0].confidence).toBeGreaterThanOrEqual(0.75);
+  });
+
   it("builds stable request ids from session, turn, and candidate fingerprints", () => {
     const candidates = extractPassiveBridgeCandidates(messages("Hidden magic always burns us later."));
 

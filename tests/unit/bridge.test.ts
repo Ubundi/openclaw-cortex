@@ -441,7 +441,7 @@ describe("TooToo bridge handler", () => {
     })).resolves.toBe("full");
   });
 
-  it("suppresses repeated bridge prompts on nearby turns in the same session", async () => {
+  it("caps passive clarifier prompts to one per session", async () => {
     const client = makeClient();
     const handler = createBridgeHandler(client, {
       logger,
@@ -472,10 +472,10 @@ describe("TooToo bridge handler", () => {
         },
       ],
       sessionKey: "sess-cooldown",
-    })).resolves.toBe("full");
+    })).resolves.toBe(false);
   });
 
-  it("starts cooldown only after the assistant actually asks a qualifying question", async () => {
+  it("does not ask a second full passive clarifier before an assistant question is observed", async () => {
     const client = makeClient();
     const handler = createBridgeHandler(client, {
       logger,
@@ -506,7 +506,7 @@ describe("TooToo bridge handler", () => {
         },
       ],
       sessionKey: "sess-question-cooldown",
-    })).resolves.toBe("full");
+    })).resolves.toBe(false);
 
     await handler.handleAgentEnd({
       messages: [
@@ -803,6 +803,32 @@ describe("TooToo bridge handler", () => {
     })).resolves.toBe(true);
 
     expect((client.submitBridgePassive as any)).not.toHaveBeenCalled();
+    expect((client.submitBridgeQA as any)).toHaveBeenCalledTimes(1);
+  });
+
+  it("falls back to explicit Q&A when passive send fails transiently", async () => {
+    const client = makeClient({
+      submitBridgePassive: vi.fn().mockRejectedValue(new Error("Cortex bridge/passive failed: 503")),
+    });
+    const handler = createBridgeHandler(client, {
+      logger,
+      getUserId: () => "agent-user-1",
+      userIdReady: Promise.resolve(),
+      pluginSessionId: "plugin-session-1",
+    });
+
+    await expect(handler.handleAgentEnd({
+      messages: [
+        { role: "user", content: "I have been rethinking what kind of work I want this year." },
+        { role: "assistant", content: "What do you value most in your work?" },
+        { role: "user", content: "I prefer boring explicit checks because hidden magic burns us later." },
+        { role: "assistant", content: "I will make this explicit." },
+      ],
+      aborted: false,
+      sessionKey: "sess-passive-transient-fallback",
+    })).resolves.toBe(true);
+
+    expect((client.submitBridgePassive as any)).toHaveBeenCalledTimes(1);
     expect((client.submitBridgeQA as any)).toHaveBeenCalledTimes(1);
   });
 

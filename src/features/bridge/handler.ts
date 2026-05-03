@@ -22,6 +22,7 @@ import {
   extractPassiveBridgeCandidates,
   MAX_PASSIVE_CANDIDATES_PER_SESSION,
   PASSIVE_BRIDGE_EXTRACTOR_VERSION,
+  shouldAttemptPassiveBridgeExtraction,
 } from "./passive.js";
 
 type Logger = {
@@ -86,6 +87,7 @@ interface BridgeSessionState {
   awaitingBridgeQuestion?: boolean;
   passiveCandidatesSent?: number;
   passiveFingerprints?: Set<string>;
+  passiveClarifierPrompted?: boolean;
 }
 
 export interface CreateBridgeHandlerOptions {
@@ -865,11 +867,17 @@ export function createBridgeHandler(
   function getSessionState(sessionKey: string): BridgeSessionState {
     let state = sessionStates.get(sessionKey);
     if (!state) {
-      state = { userTurns: 0, passiveCandidatesSent: 0, passiveFingerprints: new Set<string>() };
+      state = {
+        userTurns: 0,
+        passiveCandidatesSent: 0,
+        passiveFingerprints: new Set<string>(),
+        passiveClarifierPrompted: false,
+      };
       sessionStates.set(sessionKey, state);
     }
     state.passiveFingerprints ??= new Set<string>();
     state.passiveCandidatesSent ??= 0;
+    state.passiveClarifierPrompted ??= false;
     return state;
   }
 
@@ -1130,6 +1138,19 @@ export function createBridgeHandler(
       return false;
     }
 
+    if (sessionState.passiveClarifierPrompted) {
+      logPromptDecision({
+        mode: false,
+        reason: "session_clarifier_cap",
+        sessionKey,
+        missingMessages,
+        latestUserTextSource: source,
+        reflectiveOpportunity,
+      });
+      logger.debug?.(`Cortex bridge: prompt suppressed by session clarifier cap sessionId=${sessionKey}`);
+      return false;
+    }
+
     const status = await refreshLinkStatus();
     if (!status.linked) {
       logPromptDecision({
@@ -1143,6 +1164,7 @@ export function createBridgeHandler(
       });
       return false;
     }
+    sessionState.passiveClarifierPrompted = true;
     sessionState.awaitingBridgeQuestion = true;
     logPromptDecision({
       mode: "full",
@@ -1185,13 +1207,20 @@ export function createBridgeHandler(
         MAX_PASSIVE_CANDIDATES_PER_SESSION - (sessionState.passiveCandidatesSent ?? 0),
       );
       if (remainingSessionSlots > 0) {
-        const extractedCandidates = extractPassiveBridgeCandidates(event.messages)
+        const passiveGate = shouldAttemptPassiveBridgeExtraction(event.messages);
+        if (!passiveGate.shouldExtract) {
+          logger.debug?.(`Cortex bridge: passive skipped reason=${passiveGate.reason ?? "unknown"} sessionId=${sessionKey}`);
+        }
+        const extractedCandidates = (passiveGate.shouldExtract ? extractPassiveBridgeCandidates(event.messages) : [])
           .filter((candidate) => {
             const fingerprint = buildPassiveCandidateFingerprint(candidate);
             if (sessionState.passiveFingerprints?.has(fingerprint)) return false;
             return true;
           })
           .slice(0, remainingSessionSlots);
+        if (passiveGate.shouldExtract && extractedCandidates.length === 0) {
+          logger.debug?.(`Cortex bridge: passive skipped reason=no_structured_candidates sessionId=${sessionKey}`);
+        }
 
         if (extractedCandidates.length > 0) {
           const request: PassiveBridgeRequest = {
@@ -1239,9 +1268,10 @@ export function createBridgeHandler(
                 linked: false,
                 checkedAt: Date.now(),
               };
+              logger.warn(`Cortex passive bridge failed requestId=${request.request_id}: ${String(err)}`);
+              return false;
             }
             logger.warn(`Cortex passive bridge failed requestId=${request.request_id}: ${String(err)}`);
-            return false;
           }
         }
       }

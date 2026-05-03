@@ -73,7 +73,7 @@ This package follows [semver](https://semver.org/). When the user asks to bump t
 
 ## Skills
 
-- `/release [patch|minor|major] [--dry-run]` — Bump version, run checks, commit, tag, and push to trigger npm publish. See `.Codex/skills/release.md`
+- `/release [patch|minor|major] [--dry-run]` — Bump version, run checks, commit, tag, and push to trigger npm publish. See `.claude/skills/release.md`
 
 ## Benchmarks
 

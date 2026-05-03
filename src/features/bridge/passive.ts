@@ -75,6 +75,8 @@ const CODE_FENCE_RE = /```[\s\S]*```/;
 const CODEISH_RE = /(?:^|\s)(?:const|let|var|function|class|interface|type|import|export|def|SELECT|CREATE|ERROR|WARN|INFO|Traceback|at\s+\S+\(|npm ERR!)\b|=>|[{};]{2,}/m;
 const PASTED_QUOTE_RE = /(?:^|\n)\s*(?:>|#{1,6}\s|[-*]\s)|\bREADME\b.*\bsays\b/i;
 const OWNERSHIP_RE = /\b(?:i|i'm|i am|i've|i have|my|me|for me|to me|honestly that's how i|that's how i|i like working|i prefer|i work best)\b/i;
+// v1 intentionally over-blocks turns touching diagnosis, crisis, or protected-trait terms.
+// Missing a benign candidate is safer than extracting sensitive identity or health claims.
 const TRANSIENT_OR_RISK_RE = /\b(?:flat all week|can't keep doing this|cannot keep doing this|kill myself|suicide|self[- ]harm|diagnosed|depressed|bipolar|adhd|autistic|trauma|panic attack)\b/i;
 const DURABLE_SIGNAL_RE = /\b(?:prefer|work best|like working|value|boundary|non-negotiable|written down|explicit checks?|hidden magic|fallback owner|clear owner|decision rights|short written plans?|low-drama|fast checkpoints?|follow through|ownership|owner|avoid them|shut down)\b/i;
 
@@ -215,6 +217,27 @@ function candidateRules(text: string): Array<{ content: string; reason: string; 
   return rules;
 }
 
+function structuredFallbackCandidate(text: string): { content: string; reason: string; section?: BridgeTargetSection; confidence?: number } | undefined {
+  const preferenceMatch = /\bI\s+(?:value|prefer|like|work best with|work best when)\s+(.+?)(?:[.!?]|$)/i.exec(text);
+  if (!preferenceMatch) return undefined;
+
+  const rawPreference = preferenceMatch[1]
+    .replace(/\b(?:because|since|as)\b[\s\S]*$/i, "")
+    .replace(/\b(?:for me|to me)\b/gi, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!rawPreference || countWords(rawPreference) < 2) return undefined;
+  if (TRANSIENT_OR_RISK_RE.test(rawPreference) || CODEISH_RE.test(rawPreference)) return undefined;
+
+  const normalizedPreference = rawPreference.replace(/\bowners\b/gi, "owners");
+  return {
+    content: `Values ${normalizedPreference}.`,
+    section: "practices",
+    confidence: 0.8,
+    reason: "Structured fallback extracted a first-person durable preference after the heuristic gate passed.",
+  };
+}
+
 export function extractPassiveBridgeCandidates(rawMessages: unknown[]): PassiveBridgeCandidate[] {
   const messages = normalizeConversationMessages(rawMessages).slice(-6);
   if (!shouldAttemptPassiveBridgeExtraction(rawMessages).shouldExtract) return [];
@@ -223,7 +246,13 @@ export function extractPassiveBridgeCandidates(rawMessages: unknown[]): PassiveB
 
   const candidates: PassiveBridgeCandidate[] = [];
   const seen = new Set<string>();
-  for (const rule of candidateRules(latestUser.content)) {
+  const rules = candidateRules(latestUser.content);
+  if (rules.length === 0) {
+    const fallback = structuredFallbackCandidate(latestUser.content);
+    if (fallback) rules.push(fallback);
+  }
+
+  for (const rule of rules) {
     const candidate = makeCandidate({
       content: rule.content,
       section: rule.section,
