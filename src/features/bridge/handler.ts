@@ -3,6 +3,8 @@ import type {
   BridgeQARequest,
   BridgeTargetSection,
   CortexClient,
+  LinkOwnerType,
+  PassiveBridgeRequest,
 } from "../../cortex/client.js";
 import type { AuditLogger } from "../../internal/audit-logger.js";
 import { isHeartbeatTurn } from "../../internal/heartbeat-detect.js";
@@ -14,6 +16,14 @@ import type { RetryQueue } from "../../internal/retry-queue.js";
 import type { ClawDeployBridgeTraceClient, ClawDeployBridgeTraceEvent } from "../../internal/clawdeploy-bridge-traces.js";
 import { redactBridgeTraceError } from "../../internal/clawdeploy-bridge-traces.js";
 import { isLowSignal, sanitizeConversationText } from "../capture/filter.js";
+import {
+  buildPassiveBridgeRequestId,
+  buildPassiveCandidateFingerprint,
+  extractPassiveBridgeCandidates,
+  MAX_PASSIVE_CANDIDATES_PER_SESSION,
+  PASSIVE_BRIDGE_EXTRACTOR_VERSION,
+  shouldAttemptPassiveBridgeExtraction,
+} from "./passive.js";
 
 type Logger = {
   debug?(...args: unknown[]): void;
@@ -25,6 +35,9 @@ type Logger = {
 interface LinkStatusSnapshot {
   linked: boolean;
   checkedAt: number;
+  ownerType?: LinkOwnerType;
+  ownerId?: string;
+  tootooUserId?: string | null;
 }
 
 interface BridgeConversationMessage {
@@ -72,6 +85,9 @@ interface BridgeSessionState {
   lastAnsweredTurn?: number;
   questionPending?: boolean;
   awaitingBridgeQuestion?: boolean;
+  passiveCandidatesSent?: number;
+  passiveFingerprints?: Set<string>;
+  passiveClarifierPrompted?: boolean;
 }
 
 export interface CreateBridgeHandlerOptions {
@@ -769,20 +785,13 @@ export function buildTooTooBridgePrompt(): string {
   return [
     "<tootoo_bridge>",
     "[REQUIRED BEHAVIOR — the user linked this agent to TooToo.]",
-    "When the user opens with something reflective or personal, you MUST respond with ONLY one short discovery question. Nothing else. No advice, no frameworks, no bullet points, no preamble, no follow-up offers.",
-    "Pick exactly one of these questions. Do not invent a custom question:",
-    "- \"What do you value most in your work?\"",
-    "- \"What do you believe to be true?\"",
-    "- \"What are your non-negotiables?\"",
-    "- \"What are you curious about right now?\"",
-    "- \"What do you dream about?\"",
-    "- \"What practice keeps you grounded?\"",
-    "- \"What are you afraid of?\"",
-    "- \"How do you want to be remembered?\"",
-    "Choose the question that best fits what the user is talking about. Do NOT rephrase into creative or abstract alternatives. Do NOT ask broad custom questions about work style, pushback, cadence, or checkpoints — use the closest listed question instead. The exact wording matters for downstream processing.",
-    "WRONG: giving advice, then asking a question at the end. WRONG: asking the question, then adding context or suggestions. RIGHT: just the question, by itself.",
-    "After the user answers a discovery question (on the NEXT turn), acknowledge in one plain sentence and move on. No enthusiasm, no praise, no coaching energy. Do not offer to build plans, frameworks, exercises, templates, or manifestos. Keep the response to 2-3 sentences total. Do not ask another discovery question.",
-    "Only explicit user answers count. Do not infer or restate personal content the user did not clearly say.",
+    "Help with the user's current task first. Do not switch into a questionnaire or standalone self-discovery mode.",
+    "If the user already hinted at a durable preference, boundary, value, recurring frustration, or work style, you MAY ask at most one short clarifier, but only when it genuinely helps the current task.",
+    "The clarifier should be practical and ordinary, for example: \"Do you want this optimized for speed, or for making ownership explicit?\"",
+    "Do NOT mention memory, TooToo, Codex, saving, profiling, review, or suggestions.",
+    "Do NOT ask abstract extraction questions like \"What value does this reveal about you?\" or \"What do you want me to remember?\"",
+    "Do NOT ask a clarifier if the answer would only fill a profile rather than improve the work now.",
+    "Only explicit user-authored answers count. Do not infer or restate personal content the user did not clearly say.",
     "</tootoo_bridge>",
   ].join("\n");
 }
@@ -858,10 +867,46 @@ export function createBridgeHandler(
   function getSessionState(sessionKey: string): BridgeSessionState {
     let state = sessionStates.get(sessionKey);
     if (!state) {
-      state = { userTurns: 0 };
+      state = {
+        userTurns: 0,
+        passiveCandidatesSent: 0,
+        passiveFingerprints: new Set<string>(),
+        passiveClarifierPrompted: false,
+      };
       sessionStates.set(sessionKey, state);
     }
+    state.passiveFingerprints ??= new Set<string>();
+    state.passiveCandidatesSent ??= 0;
+    state.passiveClarifierPrompted ??= false;
     return state;
+  }
+
+  function hasOwnerContext(status: LinkStatusSnapshot): boolean {
+    return status.linked && Boolean(status.ownerType && status.ownerId);
+  }
+
+  function trackLatestBridgeQuestion(input: {
+    messages: unknown[];
+    sessionKey: string;
+    sessionState: BridgeSessionState;
+  }): void {
+    const questions = detectBridgeQuestions({
+      messages: input.messages,
+      sessionKey: input.sessionKey,
+    });
+    const latestNewQuestion = [...questions].reverse().find((question) => !handledQuestionIds.has(question.questionId));
+    if (latestNewQuestion) {
+      handledQuestionIds.set(latestNewQuestion.questionId, Date.now());
+      if (input.sessionState.awaitingBridgeQuestion) {
+        trackedBridgeQuestionIds.set(latestNewQuestion.questionId, Date.now());
+      }
+      input.sessionState.lastQuestionTurn = input.sessionState.userTurns;
+      input.sessionState.lastQuestionAt = Date.now();
+      input.sessionState.questionPending = true;
+      input.sessionState.awaitingBridgeQuestion = false;
+    } else {
+      input.sessionState.awaitingBridgeQuestion = false;
+    }
   }
 
   function linkStatusLabel(): "active" | "inactive" | "unknown" {
@@ -930,9 +975,13 @@ export function createBridgeHandler(
 
     pendingLinkStatusCheck = client.getLinkStatus(agentUserId)
       .then((result) => {
+        const link = result.link;
         const next: LinkStatusSnapshot = {
           linked: result.linked,
           checkedAt: Date.now(),
+          ownerType: link?.owner_type ?? result.owner_type,
+          ownerId: link?.owner_id ?? result.owner_id,
+          tootooUserId: link?.tootoo_user_id ?? result.tootoo_user_id,
         };
         if (next.linked !== linkStatus.linked) {
           logger.info(`Cortex bridge: TooToo link ${next.linked ? "active" : "inactive"}`);
@@ -1089,6 +1138,19 @@ export function createBridgeHandler(
       return false;
     }
 
+    if (sessionState.passiveClarifierPrompted) {
+      logPromptDecision({
+        mode: false,
+        reason: "session_clarifier_cap",
+        sessionKey,
+        missingMessages,
+        latestUserTextSource: source,
+        reflectiveOpportunity,
+      });
+      logger.debug?.(`Cortex bridge: prompt suppressed by session clarifier cap sessionId=${sessionKey}`);
+      return false;
+    }
+
     const status = await refreshLinkStatus();
     if (!status.linked) {
       logPromptDecision({
@@ -1102,6 +1164,7 @@ export function createBridgeHandler(
       });
       return false;
     }
+    sessionState.passiveClarifierPrompted = true;
     sessionState.awaitingBridgeQuestion = true;
     logPromptDecision({
       mode: "full",
@@ -1132,22 +1195,88 @@ export function createBridgeHandler(
 
     const sessionKey = resolveBridgeSessionKey(event);
     const sessionState = getSessionState(sessionKey);
-    const questions = detectBridgeQuestions({
+    trackLatestBridgeQuestion({
       messages: event.messages,
       sessionKey,
+      sessionState,
     });
-    const latestNewQuestion = [...questions].reverse().find((question) => !handledQuestionIds.has(question.questionId));
-    if (latestNewQuestion) {
-      handledQuestionIds.set(latestNewQuestion.questionId, Date.now());
-      if (sessionState.awaitingBridgeQuestion) {
-        trackedBridgeQuestionIds.set(latestNewQuestion.questionId, Date.now());
+
+    if (hasOwnerContext(status)) {
+      const remainingSessionSlots = Math.max(
+        0,
+        MAX_PASSIVE_CANDIDATES_PER_SESSION - (sessionState.passiveCandidatesSent ?? 0),
+      );
+      if (remainingSessionSlots > 0) {
+        const passiveGate = shouldAttemptPassiveBridgeExtraction(event.messages);
+        if (!passiveGate.shouldExtract) {
+          logger.debug?.(`Cortex bridge: passive skipped reason=${passiveGate.reason ?? "unknown"} sessionId=${sessionKey}`);
+        }
+        const extractedCandidates = (passiveGate.shouldExtract ? extractPassiveBridgeCandidates(event.messages) : [])
+          .filter((candidate) => {
+            const fingerprint = buildPassiveCandidateFingerprint(candidate);
+            if (sessionState.passiveFingerprints?.has(fingerprint)) return false;
+            return true;
+          })
+          .slice(0, remainingSessionSlots);
+        if (passiveGate.shouldExtract && extractedCandidates.length === 0) {
+          logger.debug?.(`Cortex bridge: passive skipped reason=no_structured_candidates sessionId=${sessionKey}`);
+        }
+
+        if (extractedCandidates.length > 0) {
+          const request: PassiveBridgeRequest = {
+            user_id: agentUserId,
+            request_id: buildPassiveBridgeRequestId({
+              agentUserId,
+              sessionKey,
+              turnIndex: event.messages.length,
+              candidates: extractedCandidates,
+            }),
+            session_key: sessionKey,
+            extractor_version: PASSIVE_BRIDGE_EXTRACTOR_VERSION,
+            candidates: extractedCandidates,
+          };
+
+          if (auditLogger) {
+            await auditLogger.log({
+              feature: "bridge-passive",
+              method: "POST",
+              endpoint: "/v1/bridge/passive",
+              payload: JSON.stringify(request, null, 2),
+              sessionId: sessionKey,
+              userId: agentUserId,
+              messageCount: extractedCandidates.length,
+            });
+          }
+
+          try {
+            const response = await client.submitBridgePassive(request);
+            if (!response.accepted) {
+              throw new Error(`Cortex bridge/passive failed: accepted=false requestId=${request.request_id}`);
+            }
+            for (const candidate of extractedCandidates) {
+              sessionState.passiveFingerprints?.add(buildPassiveCandidateFingerprint(candidate));
+            }
+            sessionState.passiveCandidatesSent = (sessionState.passiveCandidatesSent ?? 0) + extractedCandidates.length;
+            logger.info(
+              `Cortex bridge: accepted passive requestId=${request.request_id} forwarded=${response.forwarded} queuedForRetry=${response.queued_for_retry} candidates=${response.candidates_sent}`,
+            );
+            return true;
+          } catch (err) {
+            const statusCode = extractErrorStatusCode(err);
+            if (statusCode === 404) {
+              linkStatus = {
+                linked: false,
+                checkedAt: Date.now(),
+              };
+              logger.warn(`Cortex passive bridge failed requestId=${request.request_id}: ${String(err)}`);
+              return false;
+            }
+            logger.warn(`Cortex passive bridge failed requestId=${request.request_id}: ${String(err)}`);
+          }
+        }
       }
-      sessionState.lastQuestionTurn = sessionState.userTurns;
-      sessionState.lastQuestionAt = Date.now();
-      sessionState.questionPending = true;
-      sessionState.awaitingBridgeQuestion = false;
     } else {
-      sessionState.awaitingBridgeQuestion = false;
+      logger.debug?.(`Cortex bridge: passive skipped missing owner context sessionId=${sessionKey}`);
     }
 
     const exchanges = detectBridgeExchanges({

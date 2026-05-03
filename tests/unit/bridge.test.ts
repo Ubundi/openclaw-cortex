@@ -22,12 +22,17 @@ const logger = {
 function makeClient(overrides: Partial<{
   getLinkStatus: ReturnType<typeof vi.fn>;
   submitBridgeQA: ReturnType<typeof vi.fn>;
+  submitBridgePassive: ReturnType<typeof vi.fn>;
 }> = {}): CortexClient {
   return {
     getLinkStatus: overrides.getLinkStatus ?? vi.fn().mockResolvedValue({
       linked: true,
       link: {
         tootoo_user_id: "tt-user-1",
+        owner_type: "claimed_user",
+        owner_id: "owner-1",
+        claimed_user_id: "tt-user-1",
+        shadow_subject_id: null,
         linked_at: "2026-03-01T10:00:00Z",
       },
     }),
@@ -39,6 +44,15 @@ function makeClient(overrides: Partial<{
       tootoo_user_id: "tt-user-1",
       bridge_event_id: "bridge-event-1",
       suggestions_created: 2,
+    }),
+    submitBridgePassive: overrides.submitBridgePassive ?? vi.fn().mockResolvedValue({
+      accepted: true,
+      forwarded: true,
+      queued_for_retry: false,
+      candidates_sent: 1,
+      tootoo_user_id: "tt-user-1",
+      bridge_event_id: "bridge-event-passive-1",
+      suggestions_created: 1,
     }),
   } as unknown as CortexClient;
 }
@@ -100,23 +114,20 @@ describe("TooToo bridge handler", () => {
     const prompt = await handler.getPromptContext();
 
     expect(prompt).toContain("<tootoo_bridge>");
-    expect(prompt).toContain("one short discovery question");
+    expect(prompt).toContain("Help with the user's current task first");
     expect((client.getLinkStatus as any)).toHaveBeenCalledWith("agent-user-1");
-    expect(buildTooTooBridgePrompt()).toContain("explicit user answers");
+    expect(buildTooTooBridgePrompt()).toContain("Only explicit user-authored answers count");
   });
 
-  it("nudges the model toward one direct discovery question before frameworks", () => {
+  it("nudges the model toward one natural task-helping clarifier", () => {
     const prompt = buildTooTooBridgePrompt();
 
-    expect(prompt).toContain("No advice, no frameworks, no bullet points");
-    expect(prompt).toContain("\"What do you value most in your work?\"");
-    expect(prompt).toContain("\"What do you believe to be true?\"");
-    expect(prompt).toContain("\"What are your non-negotiables?\"");
-    expect(prompt).toContain("\"What are you curious about right now?\"");
-    expect(prompt).toContain("acknowledge in one plain sentence and move on");
-    expect(prompt).toContain("Do NOT rephrase into creative or abstract alternatives");
-    expect(prompt).toContain("WRONG: giving advice");
-    expect(prompt).toContain("RIGHT: just the question, by itself");
+    expect(prompt).toContain("current task first");
+    expect(prompt).toContain("MAY ask at most one short clarifier");
+    expect(prompt).toContain("Do you want this optimized for speed, or for making ownership explicit?");
+    expect(prompt).toContain("Do NOT mention memory, TooToo, Codex, saving, profiling, review, or suggestions.");
+    expect(prompt).toContain("Do NOT ask abstract extraction questions");
+    expect(prompt).not.toContain("Pick exactly one");
   });
 
   it("builds a follow-up prompt that guides model back to practical help", () => {
@@ -430,7 +441,7 @@ describe("TooToo bridge handler", () => {
     })).resolves.toBe("full");
   });
 
-  it("suppresses repeated bridge prompts on nearby turns in the same session", async () => {
+  it("caps passive clarifier prompts to one per session", async () => {
     const client = makeClient();
     const handler = createBridgeHandler(client, {
       logger,
@@ -461,10 +472,10 @@ describe("TooToo bridge handler", () => {
         },
       ],
       sessionKey: "sess-cooldown",
-    })).resolves.toBe("full");
+    })).resolves.toBe(false);
   });
 
-  it("starts cooldown only after the assistant actually asks a qualifying question", async () => {
+  it("does not ask a second full passive clarifier before an assistant question is observed", async () => {
     const client = makeClient();
     const handler = createBridgeHandler(client, {
       logger,
@@ -495,7 +506,7 @@ describe("TooToo bridge handler", () => {
         },
       ],
       sessionKey: "sess-question-cooldown",
-    })).resolves.toBe("full");
+    })).resolves.toBe(false);
 
     await handler.handleAgentEnd({
       messages: [
@@ -689,6 +700,226 @@ describe("TooToo bridge handler", () => {
       targetSection: "coreValues",
     });
     expect(accepted.acceptedAt).toEqual(expect.any(String));
+  });
+
+  it("sends passive candidates at agent_end and suppresses explicit Q&A for the same turn", async () => {
+    const client = makeClient();
+    const handler = createBridgeHandler(client, {
+      logger,
+      getUserId: () => "agent-user-1",
+      userIdReady: Promise.resolve(),
+      pluginSessionId: "plugin-session-1",
+    });
+
+    await expect(handler.handleAgentEnd({
+      messages: [
+        { role: "user", content: "I have been rethinking what kind of work I want this year." },
+        { role: "assistant", content: "What do you value most in your work?" },
+        { role: "user", content: "Fix the deploy script. I prefer boring explicit checks because hidden magic burns us later." },
+        { role: "assistant", content: "I will make the deploy script explicit." },
+      ],
+      aborted: false,
+      sessionKey: "sess-passive-wins",
+    })).resolves.toBe(true);
+
+    expect((client.submitBridgePassive as any)).toHaveBeenCalledTimes(1);
+    expect((client.submitBridgeQA as any)).not.toHaveBeenCalled();
+    const request = (client.submitBridgePassive as any).mock.calls[0][0];
+    expect(request).toMatchObject({
+      user_id: "agent-user-1",
+      session_key: "sess-passive-wins",
+      extractor_version: "openclaw-cortex-passive-v1",
+      candidates: [
+        {
+          content: "Prefers boring explicit checks over hidden automation.",
+          suggested_section: "practices",
+          evidence_quote: "I prefer boring explicit checks because hidden magic burns us later.",
+        },
+      ],
+    });
+    expect(JSON.stringify(request)).not.toContain("What do you value most");
+    expect(JSON.stringify(request)).not.toContain("assistant");
+  });
+
+  it("records newly emitted bridge question state even when passive wins the turn", async () => {
+    const client = makeClient();
+    const handler = createBridgeHandler(client, {
+      logger,
+      getUserId: () => "agent-user-1",
+      userIdReady: Promise.resolve(),
+      pluginSessionId: "plugin-session-1",
+    });
+
+    await expect(handler.shouldInjectPrompt({
+      prompt: "I've been rethinking how I want this deploy process to work.",
+      messages: [
+        {
+          role: "user",
+          content: "I've been rethinking how I want this deploy process to work and what would feel aligned.",
+          provenance: { kind: "external_user" },
+        },
+      ],
+      sessionKey: "sess-passive-question-state",
+    })).resolves.toBe("full");
+
+    await expect(handler.handleAgentEnd({
+      messages: [
+        { role: "user", content: "I've been rethinking how I want this deploy process to work." },
+        { role: "assistant", content: "What do you value most in your work?" },
+        { role: "user", content: "I hate being the fallback owner for everything. Help me design a better decision process." },
+        { role: "assistant", content: "I will make ownership explicit." },
+      ],
+      aborted: false,
+      sessionKey: "sess-passive-question-state",
+    })).resolves.toBe(true);
+
+    await expect(handler.shouldInjectPrompt({
+      prompt: "Make ownership explicit.",
+      messages: [
+        {
+          role: "user",
+          content: "Make ownership explicit.",
+          provenance: { kind: "external_user" },
+        },
+      ],
+      sessionKey: "sess-passive-question-state",
+    })).resolves.toBe("followup");
+    expect((client.submitBridgeQA as any)).not.toHaveBeenCalled();
+  });
+
+  it("does not send passive traffic when no candidates exist and keeps explicit Q&A fallback", async () => {
+    const client = makeClient();
+    const handler = createBridgeHandler(client, {
+      logger,
+      getUserId: () => "agent-user-1",
+      userIdReady: Promise.resolve(),
+      pluginSessionId: "plugin-session-1",
+    });
+
+    await expect(handler.handleAgentEnd({
+      messages: discoveryExchangeMessages(),
+      aborted: false,
+      sessionKey: "sess-explicit-fallback",
+    })).resolves.toBe(true);
+
+    expect((client.submitBridgePassive as any)).not.toHaveBeenCalled();
+    expect((client.submitBridgeQA as any)).toHaveBeenCalledTimes(1);
+  });
+
+  it("falls back to explicit Q&A when passive send fails transiently", async () => {
+    const client = makeClient({
+      submitBridgePassive: vi.fn().mockRejectedValue(new Error("Cortex bridge/passive failed: 503")),
+    });
+    const handler = createBridgeHandler(client, {
+      logger,
+      getUserId: () => "agent-user-1",
+      userIdReady: Promise.resolve(),
+      pluginSessionId: "plugin-session-1",
+    });
+
+    await expect(handler.handleAgentEnd({
+      messages: [
+        { role: "user", content: "I have been rethinking what kind of work I want this year." },
+        { role: "assistant", content: "What do you value most in your work?" },
+        { role: "user", content: "I prefer boring explicit checks because hidden magic burns us later." },
+        { role: "assistant", content: "I will make this explicit." },
+      ],
+      aborted: false,
+      sessionKey: "sess-passive-transient-fallback",
+    })).resolves.toBe(true);
+
+    expect((client.submitBridgePassive as any)).toHaveBeenCalledTimes(1);
+    expect((client.submitBridgeQA as any)).toHaveBeenCalledTimes(1);
+  });
+
+  it("requires owner-aware link status before sending passive candidates", async () => {
+    const client = makeClient({
+      getLinkStatus: vi.fn().mockResolvedValue({
+        linked: true,
+        link: {
+          tootoo_user_id: "tt-user-legacy",
+          linked_at: "2026-03-01T10:00:00Z",
+        },
+      }),
+    });
+    const handler = createBridgeHandler(client, {
+      logger,
+      getUserId: () => "agent-user-1",
+      userIdReady: Promise.resolve(),
+      pluginSessionId: "plugin-session-1",
+    });
+
+    await expect(handler.handleAgentEnd({
+      messages: [
+        { role: "user", content: "Hidden magic always burns us later." },
+        { role: "assistant", content: "I will make the flow explicit." },
+      ],
+      aborted: false,
+      sessionKey: "sess-missing-owner",
+    })).resolves.toBe(false);
+
+    expect((client.submitBridgePassive as any)).not.toHaveBeenCalled();
+  });
+
+  it("suppresses duplicate passive candidates in the same session", async () => {
+    const client = makeClient();
+    const handler = createBridgeHandler(client, {
+      logger,
+      getUserId: () => "agent-user-1",
+      userIdReady: Promise.resolve(),
+      pluginSessionId: "plugin-session-1",
+    });
+
+    const event = {
+      messages: [
+        { role: "user", content: "Hidden magic always burns us later." },
+        { role: "assistant", content: "I will keep the checks explicit." },
+      ],
+      aborted: false,
+      sessionKey: "sess-passive-dupe",
+    };
+
+    await expect(handler.handleAgentEnd(event)).resolves.toBe(true);
+    await expect(handler.handleAgentEnd({
+      ...event,
+      messages: [...event.messages, { role: "user", content: "Hidden magic always burns us later." }],
+    })).resolves.toBe(false);
+
+    expect((client.submitBridgePassive as any)).toHaveBeenCalledTimes(1);
+  });
+
+  it("caps passive sends to five candidates per session in memory", async () => {
+    const client = makeClient();
+    const handler = createBridgeHandler(client, {
+      logger,
+      getUserId: () => "agent-user-1",
+      userIdReady: Promise.resolve(),
+      pluginSessionId: "plugin-session-1",
+    });
+
+    for (const [index, content] of [
+      "Hidden magic always burns us later.",
+      "I hate being the fallback owner for everything.",
+      "I don't trust Sarah to follow through unless everything is written down.",
+      "When projects have no owner, I shut down and avoid them.",
+      "I work best when there are short written plans and clear decision rights.",
+      "This README says to prefer explicit checks, and honestly that's how I like working too.",
+    ].entries()) {
+      await handler.handleAgentEnd({
+        messages: [
+          { role: "user", content },
+          { role: "assistant", content: "Understood." },
+        ],
+        aborted: false,
+        sessionKey: "sess-passive-cap",
+        sessionId: `turn-${index}`,
+      });
+    }
+
+    const totalCandidates = (client.submitBridgePassive as any).mock.calls
+      .flatMap((call: any[]) => call[0].candidates)
+      .length;
+    expect(totalCandidates).toBe(5);
   });
 
   it("emits a failed trace with redacted sensitive values when bridge submission fails", async () => {
