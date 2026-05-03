@@ -623,6 +623,56 @@ describe("CortexClient", () => {
     });
   });
 
+  describe("submitBridgePassive", () => {
+    it("sends extracted candidates to the passive bridge endpoint without transcript context", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          accepted: true,
+          forwarded: true,
+          queued_for_retry: false,
+          candidates_sent: 1,
+          tootoo_user_id: "tt-user-1",
+          bridge_event_id: "bridge-event-passive-1",
+          suggestions_created: 1,
+        }),
+      });
+
+      const request = {
+        user_id: "agent-user-1",
+        request_id: "passive-req-1",
+        session_key: "session-1",
+        extractor_version: "openclaw-cortex-passive-v1",
+        candidates: [
+          {
+            content: "Prefers explicit checks over hidden automation.",
+            suggested_section: "practices" as const,
+            source_type: "conversation",
+            confidence: 0.9,
+            risk_tier: "low" as const,
+            evidence_quote: "Hidden magic always burns us later.",
+            source_message_indices: [0],
+            reason: "User stated a durable work preference.",
+          },
+        ],
+      };
+
+      const result = await client.submitBridgePassive(request);
+
+      expect(mockFetch).toHaveBeenCalledWith(
+        "https://api.example.com/v1/bridge/passive",
+        expect.objectContaining({
+          method: "POST",
+          body: JSON.stringify(request),
+        }),
+      );
+      expect(result.accepted).toBe(true);
+      expect(result.suggestions_created).toBe(1);
+      expect(mockFetch.mock.calls[0][1].body).not.toContain("assistant");
+      expect(mockFetch.mock.calls[0][1].body).not.toContain("transcript");
+    });
+  });
+
   describe("reflect", () => {
     it("sends empty body to jobs/reflect", async () => {
       mockFetch.mockResolvedValueOnce({

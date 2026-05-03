@@ -188,6 +188,13 @@ describe("CortexConfigSchema", () => {
       }
     });
 
+    it("does not expose a passive bridge rollout flag", () => {
+      expect(CortexConfigSchema.shape).not.toHaveProperty("passiveBridge");
+      expect(CortexConfigSchema.shape).not.toHaveProperty("enablePassiveBridge");
+      expect(manifestProps).not.toHaveProperty("passiveBridge");
+      expect(manifestProps).not.toHaveProperty("enablePassiveBridge");
+    });
+
     it("manifest defaults match Zod defaults", () => {
       if (!zodDefaults.success) throw new Error("Zod parse failed");
       for (const [key, value] of Object.entries(zodDefaults.data)) {

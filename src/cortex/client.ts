@@ -181,6 +181,43 @@ export interface BridgeQAResponse {
   claimed_user_id?: string | null;
 }
 
+export interface PassiveBridgeCandidate {
+  content: string;
+  suggested_section: BridgeTargetSection;
+  source_type?: string;
+  confidence: number;
+  risk_tier: "low" | "medium" | "high" | "blocked" | string;
+  evidence_quote: string;
+  supporting_evidence_quotes?: string[];
+  evidence_pointer?: string;
+  source_message_indices?: number[];
+  reason?: string;
+}
+
+export interface PassiveBridgeRequest {
+  user_id: string;
+  request_id: string;
+  session_key?: string;
+  extractor_version?: string;
+  candidates: PassiveBridgeCandidate[];
+}
+
+export interface PassiveBridgeResponse {
+  accepted: boolean;
+  forwarded: boolean;
+  queued_for_retry: boolean;
+  candidates_sent: number;
+  tootoo_user_id: string | null;
+  bridge_event_id: string;
+  suggestions_created: number | null;
+  materialized?: number | null;
+  suppressed?: number | null;
+  owner_type?: LinkOwnerType;
+  owner_id?: string;
+  shadow_subject_id?: string | null;
+  claimed_user_id?: string | null;
+}
+
 export type LinkOwnerType = "shadow_subject" | "claimed_user";
 
 export interface LinkOwnerMetadata {
@@ -831,6 +868,18 @@ export class CortexClient {
       request,
       timeoutMs,
       "bridge/qa",
+    );
+  }
+
+  async submitBridgePassive(
+    request: PassiveBridgeRequest,
+    timeoutMs = DEFAULT_BRIDGE_TIMEOUT_MS,
+  ): Promise<PassiveBridgeResponse> {
+    return this.fetchJsonWithTimeout<PassiveBridgeResponse>(
+      `${this.baseUrl}/v1/bridge/passive`,
+      request,
+      timeoutMs,
+      "bridge/passive",
     );
   }
 
