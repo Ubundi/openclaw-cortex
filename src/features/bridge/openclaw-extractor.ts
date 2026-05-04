@@ -109,20 +109,21 @@ export async function loadRunEmbeddedPiAgent(): Promise<RunEmbeddedPiAgent | und
 
 async function loadRunEmbeddedPiAgentUncached(): Promise<RunEmbeddedPiAgent | undefined> {
   const require = createRequire(import.meta.url);
-  let openclawRoot: string;
   try {
     const openclawMain = require.resolve("openclaw");
-    openclawRoot = dirname(dirname(openclawMain));
+    return await loadRunEmbeddedPiAgentFromOpenClawRoot(dirname(dirname(openclawMain)));
+  } catch {
+    return undefined;
+  }
+}
+
+export async function loadRunEmbeddedPiAgentFromOpenClawRoot(openclawRoot: string): Promise<RunEmbeddedPiAgent | undefined> {
+  try {
     const embeddedPath = join(openclawRoot, "dist", "plugin-sdk", "agents", "pi-embedded.js");
     const mod = await import(pathToFileURL(embeddedPath).href) as { runEmbeddedPiAgent?: RunEmbeddedPiAgent };
-    return typeof mod.runEmbeddedPiAgent === "function" ? mod.runEmbeddedPiAgent : undefined;
+    if (typeof mod.runEmbeddedPiAgent === "function") return mod.runEmbeddedPiAgent;
   } catch {
-    try {
-      const openclawMain = require.resolve("openclaw");
-      openclawRoot = dirname(dirname(openclawMain));
-    } catch {
-      return undefined;
-    }
+    // Fall through to hashed bundle discovery below.
   }
 
   // Older OpenClaw packages ship declarations for plugin-sdk/agents/pi-embedded

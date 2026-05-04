@@ -1,8 +1,11 @@
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import {
   buildModelOnlyExtractorConfig,
   createOpenClawPassiveModelExtractor,
-  loadRunEmbeddedPiAgent,
+  loadRunEmbeddedPiAgentFromOpenClawRoot,
   PASSIVE_EXTRACTOR_SESSION_KEY,
 } from "../../src/features/bridge/openclaw-extractor.js";
 import { buildPassiveExtractorInput } from "../../src/features/bridge/passive.js";
@@ -165,8 +168,21 @@ describe("OpenClaw passive model extractor adapter", () => {
     expect(runEmbeddedAgent.mock.calls[0][0].config.tools).toEqual({});
   });
 
-  it("can load the embedded agent from the installed OpenClaw package fallback", async () => {
-    await expect(loadRunEmbeddedPiAgent()).resolves.toEqual(expect.any(Function));
+  it("can load the embedded agent from a shipped hashed OpenClaw dist bundle fallback", async () => {
+    const openclawRoot = join(await mkdtemp(join(tmpdir(), "openclaw-cortex-test-")), "openclaw");
+    const distDir = join(openclawRoot, "dist");
+    await mkdir(distDir, { recursive: true });
+    await writeFile(
+      join(distDir, "pi-embedded-test.js"),
+      [
+        "async function runEmbeddedPiAgent() {",
+        "  return { payloads: [{ text: '{\"candidates\":[]}' }] };",
+        "}",
+        "export { runEmbeddedPiAgent as t };",
+      ].join("\n"),
+    );
+
+    await expect(loadRunEmbeddedPiAgentFromOpenClawRoot(openclawRoot)).resolves.toEqual(expect.any(Function));
   });
 
   it("enforces a hard JavaScript timeout around embedded runs", async () => {
