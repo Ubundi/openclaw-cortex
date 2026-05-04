@@ -8,6 +8,10 @@ import { CortexClient } from "../cortex/client.js";
 import { createRecallHandler } from "../features/recall/handler.js";
 import { createCaptureHandler } from "../features/capture/handler.js";
 import { createBridgeHandler, buildBridgeFollowUpPrompt } from "../features/bridge/handler.js";
+import {
+  createOpenClawPassiveModelExtractor,
+  PASSIVE_EXTRACTOR_SESSION_KEY,
+} from "../features/bridge/openclaw-extractor.js";
 import { RetryQueue } from "../internal/retry-queue.js";
 import { LatencyMetrics } from "../internal/latency-metrics.js";
 import { loadOrCreateUserId } from "../internal/user-id.js";
@@ -865,6 +869,7 @@ const plugin = {
       pluginSessionId: sessionId,
       auditLogger: auditLoggerProxy,
       bridgeTraceClient,
+      passiveModelExtractor: createOpenClawPassiveModelExtractor(api, api.logger),
     });
 
     void userIdReady.then(() => bridgeHandler.refreshLinkStatus(true));
@@ -879,6 +884,7 @@ const plugin = {
         ctx: { sessionKey?: string; sessionId?: string },
       ) => {
         const activeSessionKey = resolveSessionKey(ctx, sessionId);
+        if (activeSessionKey === PASSIVE_EXTRACTOR_SESSION_KEY) return undefined;
         // Clear session goal when switching to a new session (e.g. /new)
         // so the previous chat's goal doesn't bias the new session's recall/capture.
         if (previousSessionKey && previousSessionKey !== activeSessionKey) {
@@ -975,9 +981,10 @@ const plugin = {
       api,
       "agent_end",
       async (event: { messages?: unknown[]; inputProvenance?: Record<string, unknown>; [key: string]: unknown }) => {
+        const activeSessionKey = resolveSessionKey(event, sessionId);
+        if (activeSessionKey === PASSIVE_EXTRACTOR_SESSION_KEY) return;
         if (event.messages?.length) {
           lastMessages = event.messages;
-          const activeSessionKey = resolveSessionKey(event, sessionId);
           currentSessionKey = activeSessionKey;
           const summary = buildSessionSummaryFromMessages(event.messages);
           try {
