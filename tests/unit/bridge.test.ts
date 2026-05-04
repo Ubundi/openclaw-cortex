@@ -332,6 +332,32 @@ describe("TooToo bridge handler", () => {
     expect(logger.debug).toHaveBeenCalledWith(expect.stringContaining("invalid_json"));
   });
 
+  it("logs and skips when passive extractor invocation fails", async () => {
+    const client = makeClient();
+    const evidence = "I want the handoff to make the owner and next step obvious.";
+    const passiveModelExtractor = vi.fn().mockRejectedValue(new Error("No callable tools remain"));
+    const handler = createBridgeHandler(client, {
+      logger,
+      getUserId: () => "agent-user-1",
+      userIdReady: Promise.resolve(),
+      pluginSessionId: "plugin-session-1",
+      passiveModelExtractor,
+    });
+
+    await expect(handler.handleAgentEnd({
+      messages: [
+        { role: "user", content: evidence },
+        { role: "assistant", content: "I will make ownership explicit." },
+      ],
+      aborted: false,
+      sessionKey: "sess-passive-extractor-fails",
+    })).resolves.toBe(false);
+
+    expect(passiveModelExtractor).toHaveBeenCalledTimes(1);
+    expect((client.submitBridgePassive as any)).not.toHaveBeenCalled();
+    expect(logger.debug).toHaveBeenCalledWith(expect.stringContaining("extractor_failed"));
+  });
+
   it("builds linked-user guidance for before_agent_start", async () => {
     const client = makeClient();
     const handler = createBridgeHandler(client, {

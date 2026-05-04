@@ -57,6 +57,51 @@ function configuredDefaultWorkspace(config: OpenClawConfigLike | undefined): str
   return typeof workspace === "string" && workspace.trim() ? workspace : undefined;
 }
 
+function stripToolPolicy(value: unknown): unknown {
+  const tools = recordValue(value);
+  if (!tools) return value;
+  const next = { ...tools };
+  delete next.allow;
+  delete next.deny;
+  delete next.profile;
+  delete next.alsoAllow;
+  delete next.byProvider;
+  return next;
+}
+
+function stripAgentToolPolicy(value: unknown): unknown {
+  const agent = recordValue(value);
+  if (!agent) return value;
+  if (!recordValue(agent.tools)) return agent;
+  return {
+    ...agent,
+    tools: stripToolPolicy(agent.tools),
+  };
+}
+
+export function buildModelOnlyExtractorConfig(config: OpenClawConfigLike | undefined): OpenClawConfigLike | undefined {
+  if (!config) return undefined;
+  const next: OpenClawConfigLike = { ...config };
+
+  if (recordValue(config.tools)) {
+    next.tools = stripToolPolicy(config.tools);
+  }
+
+  const agents = recordValue(config.agents);
+  if (agents) {
+    const nextAgents: Record<string, unknown> = { ...agents };
+    if (recordValue(agents.defaults)) {
+      nextAgents.defaults = stripAgentToolPolicy(agents.defaults);
+    }
+    if (Array.isArray(agents.list)) {
+      nextAgents.list = agents.list.map(stripAgentToolPolicy);
+    }
+    next.agents = nextAgents;
+  }
+
+  return next;
+}
+
 export async function loadRunEmbeddedPiAgent(): Promise<RunEmbeddedPiAgent | undefined> {
   cachedRunEmbeddedPiAgent ??= loadRunEmbeddedPiAgentUncached();
   return cachedRunEmbeddedPiAgent;
@@ -131,6 +176,7 @@ export function createOpenClawPassiveModelExtractor(
     }
 
     const config = api.config;
+    const extractorConfig = buildModelOnlyExtractorConfig(config);
     let tmpDir: string | undefined;
     try {
       const agentDir = api.runtime?.agent?.resolveAgentDir?.(config);
@@ -162,7 +208,7 @@ export function createOpenClawPassiveModelExtractor(
           ? join(agentDir, "sessions", `cortex-passive-extractor-${Date.now()}.jsonl`)
           : join(tmpDir!, "session.json"),
         workspaceDir,
-        config,
+        config: extractorConfig,
         prompt,
         timeoutMs,
         runId: `cortex-passive-extractor-${Date.now()}`,

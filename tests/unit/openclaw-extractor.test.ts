@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  buildModelOnlyExtractorConfig,
   createOpenClawPassiveModelExtractor,
   loadRunEmbeddedPiAgent,
   PASSIVE_EXTRACTOR_SESSION_KEY,
@@ -47,6 +48,121 @@ describe("OpenClaw passive model extractor adapter", () => {
     expect(call.prompt).toContain("CONVERSATION_WINDOW_JSON");
     expect(call).not.toHaveProperty("provider");
     expect(call).not.toHaveProperty("model");
+  });
+
+  it("strips explicit tool policy from model-only embedded extraction config", async () => {
+    const runEmbeddedAgent = vi.fn().mockResolvedValue({
+      payloads: [{ text: '{"candidates":[]}' }],
+    });
+    const extractor = createOpenClawPassiveModelExtractor({
+      config: {
+        tools: {
+          allow: ["*", "browser"],
+          deny: ["exec"],
+          profile: "coding",
+          alsoAllow: ["cortex_search_memory"],
+          byProvider: { openai: { allow: ["browser"] } },
+          exec: { timeoutSec: 30 },
+        },
+        agents: {
+          defaults: {
+            workspace: "/workspace-from-config",
+            model: { primary: "openai/gpt-5.5" },
+            tools: {
+              allow: ["browser"],
+              profile: "coding",
+              exec: { timeoutSec: 20 },
+            },
+          },
+          list: [
+            {
+              id: "main",
+              tools: {
+                allow: ["browser"],
+                deny: ["exec"],
+              },
+            },
+          ],
+        },
+      },
+      runtime: {
+        agent: {
+          runEmbeddedAgent,
+          resolveAgentDir: vi.fn(() => "/agent-dir"),
+        },
+      },
+    }, { debug: vi.fn() });
+
+    await extractor(buildPassiveExtractorInput([
+      { role: "user", content: "I want the handoff to make the owner and next step obvious." },
+    ]));
+
+    const call = runEmbeddedAgent.mock.calls[0][0];
+    expect(call.disableTools).toBe(true);
+    expect(call.config.tools).toEqual({ exec: { timeoutSec: 30 } });
+    expect(call.config.agents.defaults.tools).toEqual({ exec: { timeoutSec: 20 } });
+    expect(call.config.agents.defaults.model).toEqual({ primary: "openai/gpt-5.5" });
+    expect(call.config.agents.list[0].tools).toEqual({});
+    expect(call.config).not.toBe(call.config.tools);
+  });
+
+  it("builds a model-only config without mutating the user's config", () => {
+    const config = {
+      tools: { allow: ["*", "browser"], exec: { timeoutSec: 30 } },
+      agents: {
+        defaults: {
+          model: { primary: "anthropic/claude-sonnet" },
+          tools: { allow: ["browser"] },
+        },
+      },
+    };
+
+    const modelOnly = buildModelOnlyExtractorConfig(config);
+
+    expect(modelOnly?.tools).toEqual({ exec: { timeoutSec: 30 } });
+    expect((modelOnly?.agents as any).defaults.tools).toEqual({});
+    expect(config.tools.allow).toEqual(["*", "browser"]);
+    expect(config.agents.defaults.tools.allow).toEqual(["browser"]);
+  });
+
+  it("returns parsed JSON candidates from a successful model-only extractor run", async () => {
+    const evidence = "I want the handoff to make the owner and next step obvious.";
+    const runEmbeddedAgent = vi.fn().mockResolvedValue({
+      payloads: [{
+        text: JSON.stringify({
+          candidates: [{
+            content: "Prefers handoffs that make the owner and next step obvious.",
+            suggested_section: "practices",
+            evidence_quote: evidence,
+            confidence: 0.86,
+            risk_tier: "low",
+            reason: "Durable collaboration preference.",
+          }],
+        }),
+      }],
+    });
+    const extractor = createOpenClawPassiveModelExtractor({
+      config: {
+        tools: { allow: ["*", "browser"] },
+        agents: { defaults: { model: { primary: "openai/gpt-5.5" } } },
+      },
+      runtime: {
+        agent: {
+          runEmbeddedAgent,
+          resolveAgentDir: vi.fn(() => "/agent-dir"),
+        },
+      },
+    }, { debug: vi.fn() });
+
+    await expect(extractor(buildPassiveExtractorInput([
+      { role: "user", content: evidence },
+    ]))).resolves.toEqual({
+      candidates: [expect.objectContaining({
+        content: "Prefers handoffs that make the owner and next step obvious.",
+        evidence_quote: evidence,
+      })],
+    });
+    expect(runEmbeddedAgent.mock.calls[0][0].config.tools).toEqual({});
   });
 
   it("can load the embedded agent from the installed OpenClaw package fallback", async () => {
