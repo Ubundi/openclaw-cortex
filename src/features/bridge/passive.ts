@@ -117,8 +117,6 @@ const OWNERSHIP_RE = /\b(?:i|i'm|i am|i've|i have|my|me|for me|to me|honestly th
 // v1 intentionally over-blocks turns touching diagnosis, crisis, or protected-trait terms.
 // Missing a benign candidate is safer than extracting sensitive identity or health claims.
 const TRANSIENT_OR_RISK_RE = /\b(?:flat all week|can't keep doing this|cannot keep doing this|kill myself|suicide|self[- ]harm|diagnosed|depressed|bipolar|adhd|autistic|trauma|panic attack)\b/i;
-const DURABLE_SIGNAL_RE = /\b(?:prefer|work best|like working|value|boundary|non-negotiable|written down|explicit checks?|hidden magic|fallback owner|clear owner|decision rights|short written plans?|low-drama|fast checkpoints?|follow through|ownership|owner|person responsible|clear person|concrete next step|immediate next move|tracking it|let it go|carrying it|avoid them|shut down)\b/i;
-
 function latestUserMessage(messages: PassiveConversationMessage[]): PassiveConversationMessage | undefined {
   for (let i = messages.length - 1; i >= 0; i--) {
     if (messages[i].role === "user") return messages[i];
@@ -149,7 +147,6 @@ export function shouldAttemptPassiveBridgeExtraction(rawMessages: unknown[]): Pa
   if (isCodeOrLogOnly(text)) return { shouldExtract: false, reason: "code_or_log" };
   if (isPastedWithoutOwnership(text)) return { shouldExtract: false, reason: "pasted_without_ownership" };
   if (TASK_ONLY_RE.test(text)) return { shouldExtract: false, reason: "task_only" };
-  if (!DURABLE_SIGNAL_RE.test(text)) return { shouldExtract: false, reason: "no_durable_signal" };
 
   return { shouldExtract: true };
 }

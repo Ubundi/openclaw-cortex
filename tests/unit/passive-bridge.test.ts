@@ -28,6 +28,7 @@ function validOutput(content: string, evidence: string) {
 describe("passive bridge extraction gate and validation", () => {
   it.each([
     ["ok", "too_short"],
+    ["thanks", "too_short"],
     ["Fix the deploy script.", "task_only"],
     ["I've been flat all week.", "unsafe_or_transient"],
     ["I can't keep doing this.", "unsafe_or_transient"],
@@ -44,6 +45,9 @@ describe("passive bridge extraction gate and validation", () => {
     "Usually it’s that the next person isn’t totally clear on what they own, so I end up still carrying it in my head. I want the handoff to make the owner and next step obvious.",
     "The part that usually breaks down is ownership. If every action item has a clear person attached to it and one concrete next step, I can actually let it go instead of tracking it in my head.",
     "The main thing I want is for people to know what actually needs attention. Updates get messy when there are lots of topics but no clear person taking the next step, and then I end up tracking everything myself.",
+    "My instinct is to wait when the change affects something customer-facing. I’m okay moving fast for internal cleanup, but if users might notice it, I’d rather have one more verification pass than rush it out.",
+    "I tend to decide by asking who will notice the downside if we get it wrong.",
+    "For planning, I need a little quiet time before I can commit to a direction.",
     "Fix the deploy script. I prefer boring explicit checks because hidden magic burns us later.",
     "This README says to prefer explicit checks, and honestly that's how I like working too.",
   ])("opens the cheap gate for durable user-owned signal: %s", (content) => {

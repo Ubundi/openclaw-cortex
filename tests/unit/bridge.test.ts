@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { CortexClient } from "../../src/cortex/client.js";
 import {
   buildTooTooBridgePrompt,
@@ -18,6 +18,10 @@ const logger = {
   warn: vi.fn(),
   error: vi.fn(),
 };
+
+beforeEach(() => {
+  vi.clearAllMocks();
+});
 
 function makeClient(overrides: Partial<{
   getLinkStatus: ReturnType<typeof vi.fn>;
@@ -161,6 +165,15 @@ describe("TooToo bridge handler", () => {
 
     await expect(handler.handleAgentEnd({
       messages: [
+        { role: "user", content: "thanks" },
+        { role: "assistant", content: "You bet." },
+      ],
+      aborted: false,
+      sessionKey: "sess-passive-gate-thanks",
+    })).resolves.toBe(false);
+
+    await expect(handler.handleAgentEnd({
+      messages: [
         { role: "user", content: "Can you make a meeting recap template with action items?" },
         { role: "assistant", content: "Here is a compact template." },
       ],
@@ -170,6 +183,51 @@ describe("TooToo bridge handler", () => {
 
     expect(passiveModelExtractor).not.toHaveBeenCalled();
     expect((client.submitBridgePassive as any)).not.toHaveBeenCalled();
+    expect(logger.debug).toHaveBeenCalledWith(expect.stringContaining("passive skipped reason="));
+  });
+
+  it.each([
+    [
+      "assistant-only preference with weak assent",
+      [
+        { role: "assistant", content: "You prefer an extra verification pass before customer-facing changes." },
+        { role: "user", content: "yeah" },
+      ],
+    ],
+    [
+      "code/log dump",
+      [
+        { role: "user", content: "```\nERROR deploy failed\nat runBuild(index.js:12)\n```" },
+        { role: "assistant", content: "I can inspect that." },
+      ],
+    ],
+    [
+      "sensitive/transient statement",
+      [
+        { role: "user", content: "I've been flat all week." },
+        { role: "assistant", content: "That sounds heavy." },
+      ],
+    ],
+  ])("skips passive extraction for %s", async (_label, messages) => {
+    const client = makeClient();
+    const passiveModelExtractor = vi.fn().mockResolvedValue({ candidates: [] });
+    const handler = createBridgeHandler(client, {
+      logger,
+      getUserId: () => "agent-user-1",
+      userIdReady: Promise.resolve(),
+      pluginSessionId: "plugin-session-1",
+      passiveModelExtractor,
+    });
+
+    await expect(handler.handleAgentEnd({
+      messages,
+      aborted: false,
+      sessionKey: `sess-passive-gate-${_label}`,
+    })).resolves.toBe(false);
+
+    expect(passiveModelExtractor).not.toHaveBeenCalled();
+    expect((client.submitBridgePassive as any)).not.toHaveBeenCalled();
+    expect(logger.debug).toHaveBeenCalledWith(expect.stringContaining("passive skipped reason="));
   });
 
   it.each([
@@ -187,6 +245,11 @@ describe("TooToo bridge handler", () => {
       "weekly update signal",
       "The main thing I want is for people to know what actually needs attention. Updates get messy when there are lots of topics but no clear person taking the next step, and then I end up tracking everything myself.",
       "Prefers updates that make attention-needed items, owners, and next steps clear.",
+    ],
+    [
+      "customer-facing verification signal",
+      "My instinct is to wait when the change affects something customer-facing. I’m okay moving fast for internal cleanup, but if users might notice it, I’d rather have one more verification pass than rush it out.",
+      "Prefers an extra verification pass before shipping customer-facing changes, while moving faster on internal cleanup.",
     ],
   ])("uses the passive model extractor for the live %s", async (_label, evidence, content) => {
     const client = makeClient();
@@ -235,6 +298,32 @@ describe("TooToo bridge handler", () => {
       }),
     ]);
     expect(JSON.stringify(request)).not.toContain("I will make that explicit");
+  });
+
+  it("logs extractor_zero_candidates when the broadened gate calls the model and it returns none", async () => {
+    const client = makeClient();
+    const evidence = "My instinct is to wait when the change affects something customer-facing. I’m okay moving fast for internal cleanup, but if users might notice it, I’d rather have one more verification pass than rush it out.";
+    const passiveModelExtractor = vi.fn().mockResolvedValue({ candidates: [] });
+    const handler = createBridgeHandler(client, {
+      logger,
+      getUserId: () => "agent-user-1",
+      userIdReady: Promise.resolve(),
+      pluginSessionId: "plugin-session-1",
+      passiveModelExtractor,
+    });
+
+    await expect(handler.handleAgentEnd({
+      messages: [
+        { role: "user", content: evidence },
+        { role: "assistant", content: "That split between customer-facing and internal cleanup makes sense." },
+      ],
+      aborted: false,
+      sessionKey: "sess-passive-zero-candidates",
+    })).resolves.toBe(false);
+
+    expect(passiveModelExtractor).toHaveBeenCalledTimes(1);
+    expect((client.submitBridgePassive as any)).not.toHaveBeenCalled();
+    expect(logger.debug).toHaveBeenCalledWith(expect.stringContaining("extractor_zero_candidates"));
   });
 
   it("rejects passive model output when evidence is not an exact user-authored substring", async () => {
