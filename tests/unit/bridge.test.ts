@@ -361,6 +361,35 @@ describe("TooToo bridge handler", () => {
     expect(logger.debug).toHaveBeenCalledWith(expect.stringContaining("durationMs="));
   });
 
+  it("logs and skips ENOENT passive extractor session path failures", async () => {
+    const client = makeClient();
+    const evidence = "My instinct is to wait when the change affects something customer-facing. I’m okay moving fast for internal cleanup, but if users might notice it, I’d rather have one more verification pass than rush it out.";
+    const enoent = Object.assign(new Error("ENOENT: no such file or directory, mkdir '/tmp/openclaw-cortex-passive-old'"), {
+      code: "ENOENT",
+    });
+    const passiveModelExtractor = vi.fn().mockRejectedValue(enoent);
+    const handler = createBridgeHandler(client, {
+      logger,
+      getUserId: () => "agent-user-1",
+      userIdReady: Promise.resolve(),
+      pluginSessionId: "plugin-session-1",
+      passiveModelExtractor,
+    });
+
+    await expect(handler.handleAgentEnd({
+      messages: [
+        { role: "user", content: evidence },
+        { role: "assistant", content: "That split between user-facing and internal work is clear." },
+      ],
+      aborted: false,
+      sessionKey: "sess-passive-session-path-error",
+    })).resolves.toBe(false);
+
+    expect(passiveModelExtractor).toHaveBeenCalledTimes(1);
+    expect((client.submitBridgePassive as any)).not.toHaveBeenCalled();
+    expect(logger.debug).toHaveBeenCalledWith(expect.stringContaining("extractor_session_path_error"));
+  });
+
   it("rejects passive model output when evidence is not an exact user-authored substring", async () => {
     const client = makeClient();
     const passiveModelExtractor = vi.fn().mockResolvedValue({

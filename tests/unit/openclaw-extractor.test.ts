@@ -1,6 +1,6 @@
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import {
   buildModelOnlyExtractorConfig,
@@ -12,6 +12,7 @@ import { buildPassiveExtractorInput } from "../../src/features/bridge/passive.js
 
 describe("OpenClaw passive model extractor adapter", () => {
   it("prefers the documented api.runtime.agent.runEmbeddedAgent helper", async () => {
+    const agentDir = await mkdtemp(join(tmpdir(), "openclaw-cortex-agent-"));
     const runEmbeddedAgent = vi.fn().mockResolvedValue({
       payloads: [{ text: '{"candidates":[]}' }],
     });
@@ -27,7 +28,7 @@ describe("OpenClaw passive model extractor adapter", () => {
       runtime: {
         agent: {
           runEmbeddedAgent,
-          resolveAgentDir: vi.fn(() => "/agent-dir"),
+          resolveAgentDir: vi.fn(() => agentDir),
           resolveAgentWorkspaceDir: vi.fn(() => "/workspace-from-runtime"),
           resolveAgentTimeoutMs: vi.fn(() => 30_000),
         },
@@ -49,14 +50,15 @@ describe("OpenClaw passive model extractor adapter", () => {
       authProfileIdSource: "auto",
       skillsSnapshot: { prompt: "", skills: [], resolvedSkills: [], version: 0 },
     });
-    expect(call.workspaceDir).toContain("openclaw-cortex-passive-");
-    expect(call.sessionFile).toContain("/agent-dir/sessions/cortex-passive-extractor-");
+    expect(call.workspaceDir).toContain("openclaw-cortex-passive");
+    expect(call.sessionFile).toContain(`${agentDir}/sessions/cortex-passive-extractor-`);
     expect(call.prompt).toContain("CONVERSATION_WINDOW_JSON");
     expect(call).not.toHaveProperty("provider");
     expect(call).not.toHaveProperty("model");
   });
 
   it("strips explicit tool policy from model-only embedded extraction config", async () => {
+    const agentDir = await mkdtemp(join(tmpdir(), "openclaw-cortex-agent-"));
     const runEmbeddedAgent = vi.fn().mockResolvedValue({
       payloads: [{ text: '{"candidates":[]}' }],
     });
@@ -94,7 +96,7 @@ describe("OpenClaw passive model extractor adapter", () => {
       runtime: {
         agent: {
           runEmbeddedAgent,
-          resolveAgentDir: vi.fn(() => "/agent-dir"),
+          resolveAgentDir: vi.fn(() => agentDir),
         },
       },
     }, { debug: vi.fn() });
@@ -148,6 +150,7 @@ describe("OpenClaw passive model extractor adapter", () => {
   });
 
   it("returns parsed JSON candidates from a successful model-only extractor run", async () => {
+    const agentDir = await mkdtemp(join(tmpdir(), "openclaw-cortex-agent-"));
     const evidence = "I want the handoff to make the owner and next step obvious.";
     const runEmbeddedAgent = vi.fn().mockResolvedValue({
       payloads: [{
@@ -171,7 +174,7 @@ describe("OpenClaw passive model extractor adapter", () => {
       runtime: {
         agent: {
           runEmbeddedAgent,
-          resolveAgentDir: vi.fn(() => "/agent-dir"),
+          resolveAgentDir: vi.fn(() => agentDir),
         },
       },
     }, { debug: vi.fn() });
@@ -197,6 +200,78 @@ describe("OpenClaw passive model extractor adapter", () => {
     });
   });
 
+  it("can run without a resolved agentDir and creates stable session paths before the embedded run", async () => {
+    const runEmbeddedAgent = vi.fn(async (params: any) => {
+      await expect(stat(params.workspaceDir)).resolves.toBeTruthy();
+      await expect(stat(dirname(params.sessionFile))).resolves.toBeTruthy();
+      return { payloads: [{ text: '{"candidates":[]}' }] };
+    });
+    const extractor = createOpenClawPassiveModelExtractor({
+      runtime: {
+        agent: {
+          runEmbeddedAgent,
+          resolveAgentDir: vi.fn(() => undefined as unknown as string),
+        },
+      },
+    }, { debug: vi.fn() });
+
+    await extractor(buildPassiveExtractorInput([
+      { role: "user", content: "I want the handoff to make the owner and next step obvious." },
+    ]));
+
+    const call = runEmbeddedAgent.mock.calls[0][0];
+    expect(call.sessionFile).toContain("openclaw-cortex-passive/sessions/cortex-passive-extractor-");
+    expect(call.workspaceDir).toContain("openclaw-cortex-passive/workspace");
+    await expect(stat(call.workspaceDir)).resolves.toBeTruthy();
+  });
+
+  it("does not clean up stable extractor paths before the embedded runner fully resolves", async () => {
+    let resolveRun!: (value: { payloads: Array<{ text: string }> }) => void;
+    let extractionPromise!: Promise<unknown>;
+    const runStarted = new Promise<Record<string, unknown>>((resolve) => {
+      const runEmbeddedAgent = vi.fn((params: Record<string, unknown>) => {
+        resolve(params);
+        return new Promise<{ payloads: Array<{ text: string }> }>((runResolve) => {
+          resolveRun = runResolve;
+        });
+      });
+      const extractor = createOpenClawPassiveModelExtractor({
+        runtime: { agent: { runEmbeddedAgent } },
+      }, { debug: vi.fn() });
+      extractionPromise = extractor(buildPassiveExtractorInput([
+        { role: "user", content: "I want the handoff to make the owner and next step obvious." },
+      ]));
+    });
+
+    const params = await runStarted as { workspaceDir: string; sessionFile: string };
+    await expect(stat(params.workspaceDir)).resolves.toBeTruthy();
+    await expect(stat(dirname(params.sessionFile))).resolves.toBeTruthy();
+
+    resolveRun({ payloads: [{ text: '{"candidates":[]}' }] });
+    await extractionPromise;
+    await expect(stat(params.workspaceDir)).resolves.toBeTruthy();
+  });
+
+  it("logs ENOENT session path failures from the embedded runner", async () => {
+    const logger = { debug: vi.fn() };
+    const error = Object.assign(new Error("ENOENT: no such file or directory, mkdir '/tmp/openclaw-cortex-passive-old'"), {
+      code: "ENOENT",
+    });
+    const extractor = createOpenClawPassiveModelExtractor({
+      runtime: {
+        agent: {
+          runEmbeddedAgent: vi.fn().mockRejectedValue(error),
+        },
+      },
+    }, logger);
+
+    await expect(extractor(buildPassiveExtractorInput([
+      { role: "user", content: "I want the handoff to make the owner and next step obvious." },
+    ]))).rejects.toThrow("ENOENT");
+
+    expect(logger.debug).toHaveBeenCalledWith(expect.stringContaining("extractor_session_path_error"));
+  });
+
   it("can load the embedded agent from a shipped hashed OpenClaw dist bundle fallback", async () => {
     const openclawRoot = join(await mkdtemp(join(tmpdir(), "openclaw-cortex-test-")), "openclaw");
     const distDir = join(openclawRoot, "dist");
@@ -215,12 +290,13 @@ describe("OpenClaw passive model extractor adapter", () => {
   });
 
   it("enforces a hard JavaScript timeout around embedded runs", async () => {
+    const agentDir = await mkdtemp(join(tmpdir(), "openclaw-cortex-agent-"));
     const runEmbeddedAgent = vi.fn((_params: any) => new Promise(() => undefined));
     const extractor = createOpenClawPassiveModelExtractor({
       runtime: {
         agent: {
           runEmbeddedAgent,
-          resolveAgentDir: vi.fn(() => "/agent-dir"),
+          resolveAgentDir: vi.fn(() => agentDir),
           resolveAgentTimeoutMs: vi.fn(() => 5),
         },
       },

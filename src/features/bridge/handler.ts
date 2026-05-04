@@ -16,7 +16,11 @@ import type { RetryQueue } from "../../internal/retry-queue.js";
 import type { ClawDeployBridgeTraceClient, ClawDeployBridgeTraceEvent } from "../../internal/clawdeploy-bridge-traces.js";
 import { redactBridgeTraceError } from "../../internal/clawdeploy-bridge-traces.js";
 import { isLowSignal, sanitizeConversationText } from "../capture/filter.js";
-import { isPassiveExtractorTimeoutError, PASSIVE_EXTRACTOR_SESSION_KEY } from "./openclaw-extractor.js";
+import {
+  isPassiveExtractorSessionPathError,
+  isPassiveExtractorTimeoutError,
+  PASSIVE_EXTRACTOR_SESSION_KEY,
+} from "./openclaw-extractor.js";
 import {
   buildPassiveExtractorInput,
   buildPassiveBridgeRequestId,
@@ -1242,6 +1246,8 @@ export function createBridgeHandler(
             const durationMs = Date.now() - extractorStartedAt;
             const reason = isPassiveExtractorTimeoutError(err)
               ? "extractor_timeout"
+              : isPassiveExtractorSessionPathError(err)
+                ? "extractor_session_path_error"
               : err instanceof SyntaxError
                 ? "invalid_json"
                 : "extractor_failed";
