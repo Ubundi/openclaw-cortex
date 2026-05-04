@@ -1,5 +1,5 @@
 import { createRequire } from "node:module";
-import { mkdir, readdir, readFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -35,7 +35,6 @@ type RunEmbeddedPiAgent = (params: Record<string, unknown>) => Promise<{
 }>;
 
 let cachedRunEmbeddedPiAgent: Promise<RunEmbeddedPiAgent | undefined> | undefined;
-const FALLBACK_EXTRACTOR_ROOT = join(tmpdir(), "openclaw-cortex-passive");
 
 export class PassiveExtractorTimeoutError extends Error {
   readonly timeoutMs: number;
@@ -107,19 +106,20 @@ export function isPassiveExtractorSessionPathError(error: unknown): boolean {
     && (error as { code?: unknown }).code === "ENOENT";
 }
 
-async function prepareExtractorPaths(agentDir: string | undefined, runSuffix: number): Promise<{
+async function prepareExtractorPaths(runSuffix: number): Promise<{
+  rootDir: string;
   sessionFile: string;
   workspaceDir: string;
 }> {
-  const workspaceDir = join(FALLBACK_EXTRACTOR_ROOT, "workspace");
-  const sessionDir = agentDir
-    ? join(agentDir, "sessions")
-    : join(FALLBACK_EXTRACTOR_ROOT, "sessions");
+  const rootDir = await mkdtemp(join(tmpdir(), "openclaw-cortex-passive-"));
+  const workspaceDir = join(rootDir, "workspace");
+  const sessionDir = join(rootDir, "sessions");
 
   await mkdir(workspaceDir, { recursive: true });
   await mkdir(sessionDir, { recursive: true });
 
   return {
+    rootDir,
     workspaceDir,
     sessionFile: join(sessionDir, `cortex-passive-extractor-${runSuffix}.jsonl`),
   };
@@ -251,15 +251,16 @@ export function createOpenClawPassiveModelExtractor(
     const extractorConfig = buildModelOnlyExtractorConfig(config, input.activeModelRef);
     const activeModel = splitModelRef(input.activeModelRef);
     const startedAt = Date.now();
+    let rootDir: string | undefined;
     try {
-      const agentDir = api.runtime?.agent?.resolveAgentDir?.(config);
       const timeoutMs = Math.min(
         input.timeoutMs,
         api.runtime?.agent?.resolveAgentTimeoutMs?.(config) ?? input.timeoutMs,
       );
       logger.debug?.(`Cortex bridge: passive extractor_called runner=embedded_agent timeoutMs=${timeoutMs} maxOutputTokens=${input.maxOutputTokens} model=${input.activeModelRef ?? "default"}`);
       const runSuffix = Date.now();
-      const { sessionFile, workspaceDir } = await prepareExtractorPaths(agentDir, runSuffix);
+      const preparedPaths = await prepareExtractorPaths(runSuffix);
+      rootDir = preparedPaths.rootDir;
       const prompt = [
         input.prompt,
         "",
@@ -274,9 +275,8 @@ export function createOpenClawPassiveModelExtractor(
       const result = await withTimeout(runEmbeddedPiAgent({
         sessionId: `cortex-passive-extractor-${runSuffix}`,
         sessionKey: PASSIVE_EXTRACTOR_SESSION_KEY,
-        sessionFile,
-        workspaceDir,
-        ...(agentDir ? { agentDir } : {}),
+        sessionFile: preparedPaths.sessionFile,
+        workspaceDir: preparedPaths.workspaceDir,
         config: extractorConfig,
         prompt,
         timeoutMs,
@@ -309,6 +309,14 @@ export function createOpenClawPassiveModelExtractor(
         logger.debug?.(`Cortex bridge: passive extractor_session_path_error code=ENOENT durationMs=${Date.now() - startedAt}`);
       }
       throw err;
+    } finally {
+      if (rootDir) {
+        try {
+          await rm(rootDir, { recursive: true, force: true });
+        } catch {
+          // Best-effort cleanup only; extraction is already fail-closed.
+        }
+      }
     }
   };
 }

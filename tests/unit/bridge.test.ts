@@ -252,6 +252,21 @@ describe("TooToo bridge handler", () => {
       "My instinct is to wait when the change affects something customer-facing. I’m okay moving fast for internal cleanup, but if users might notice it, I’d rather have one more verification pass than rush it out.",
       "Prefers an extra verification pass before shipping customer-facing changes, while moving faster on internal cleanup.",
     ],
+    [
+      "async decision note signal",
+      "The thing I want to avoid is decisions disappearing into the thread. I work best when the options, tradeoffs, and final call are written down in one place, otherwise I keep second-guessing what we actually agreed.",
+      "Works best when async decisions capture the options, tradeoffs, and final call in one place.",
+    ],
+    [
+      "project pre-commitment signal",
+      "Part of me wants to say yes because it sounds useful, but I’ve been burned before by saying yes before the scope is clear. If I don’t know what 'done' looks like or who’s actually driving it, it usually turns into this vague thing I keep carrying around.",
+      "Avoids committing to useful-sounding projects until scope, definition of done, and ownership are clear.",
+    ],
+    [
+      "planning escalation signal",
+      "I want to be useful, but I’ve learned I do better when I know what decision I’m there to help unblock; otherwise I drift into the call, add opinions, and leave with more loose threads.",
+      "Does best joining planning conversations when there is a clear decision to unblock.",
+    ],
   ])("uses the passive model extractor for the live %s", async (_label, evidence, content) => {
     const client = makeClient();
     const passiveModelExtractor = vi.fn().mockResolvedValue({
@@ -284,6 +299,7 @@ describe("TooToo bridge handler", () => {
       sessionKey: `sess-passive-${_label}`,
     })).resolves.toBe(true);
 
+    await handler.drainPassiveJobs();
     expect(passiveModelExtractor).toHaveBeenCalledTimes(1);
     const extractorInput = passiveModelExtractor.mock.calls[0][0];
     expect(extractorInput.activeModelRef).toBe("bedrock/anthropic.claude-sonnet-4-6");
@@ -322,12 +338,12 @@ describe("TooToo bridge handler", () => {
       ],
       aborted: false,
       sessionKey: "sess-passive-zero-candidates",
-    })).resolves.toBe(false);
+    })).resolves.toBe(true);
 
+    await handler.drainPassiveJobs();
     expect(passiveModelExtractor).toHaveBeenCalledTimes(1);
     expect((client.submitBridgePassive as any)).not.toHaveBeenCalled();
-    expect(logger.debug).toHaveBeenCalledWith(expect.stringContaining("extractor_zero_candidates"));
-    expect(logger.debug).toHaveBeenCalledWith(expect.stringContaining("extractor_completed"));
+    expect(logger.info).toHaveBeenCalledWith(expect.stringContaining("passive_extractor_completed"));
   });
 
   it("logs timeout duration and sends no passive bridge request when extraction times out", async () => {
@@ -351,14 +367,14 @@ describe("TooToo bridge handler", () => {
       ],
       aborted: false,
       sessionKey: "sess-passive-timeout",
-    })).resolves.toBe(false);
+    })).resolves.toBe(true);
 
     expect(Date.now() - startedAt).toBeLessThan(250);
+    await handler.drainPassiveJobs();
     expect(passiveModelExtractor).toHaveBeenCalledTimes(1);
     expect(passiveModelExtractor.mock.calls[0][0].activeModelRef).toBe("bedrock/anthropic.claude-sonnet-4-6");
     expect((client.submitBridgePassive as any)).not.toHaveBeenCalled();
-    expect(logger.debug).toHaveBeenCalledWith(expect.stringContaining("extractor_timeout"));
-    expect(logger.debug).toHaveBeenCalledWith(expect.stringContaining("durationMs="));
+    expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining("passive_extractor_timeout"));
   });
 
   it("logs and skips ENOENT passive extractor session path failures", async () => {
@@ -383,11 +399,12 @@ describe("TooToo bridge handler", () => {
       ],
       aborted: false,
       sessionKey: "sess-passive-session-path-error",
-    })).resolves.toBe(false);
+    })).resolves.toBe(true);
 
+    await handler.drainPassiveJobs();
     expect(passiveModelExtractor).toHaveBeenCalledTimes(1);
     expect((client.submitBridgePassive as any)).not.toHaveBeenCalled();
-    expect(logger.debug).toHaveBeenCalledWith(expect.stringContaining("extractor_session_path_error"));
+    expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining("session_path_error"));
   });
 
   it("rejects passive model output when evidence is not an exact user-authored substring", async () => {
@@ -418,11 +435,12 @@ describe("TooToo bridge handler", () => {
       ],
       aborted: false,
       sessionKey: "sess-passive-reject-assistant-evidence",
-    })).resolves.toBe(false);
+    })).resolves.toBe(true);
 
+    await handler.drainPassiveJobs();
     expect((client.submitBridgePassive as any)).not.toHaveBeenCalled();
     expect((client.submitBridgeQA as any)).not.toHaveBeenCalled();
-    expect(logger.debug).toHaveBeenCalledWith(expect.stringContaining("validator_rejected"));
+    expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining("passive_validator_rejected"));
   });
 
   it("rejects medium and high risk passive model candidates", async () => {
@@ -454,10 +472,11 @@ describe("TooToo bridge handler", () => {
       ],
       aborted: false,
       sessionKey: "sess-passive-reject-risk",
-    })).resolves.toBe(false);
+    })).resolves.toBe(true);
 
+    await handler.drainPassiveJobs();
     expect((client.submitBridgePassive as any)).not.toHaveBeenCalled();
-    expect(logger.debug).toHaveBeenCalledWith(expect.stringContaining("validator_rejected"));
+    expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining("passive_validator_rejected"));
   });
 
   it("logs and skips invalid passive extractor JSON", async () => {
@@ -479,10 +498,11 @@ describe("TooToo bridge handler", () => {
       ],
       aborted: false,
       sessionKey: "sess-passive-invalid-json",
-    })).resolves.toBe(false);
+    })).resolves.toBe(true);
 
+    await handler.drainPassiveJobs();
     expect((client.submitBridgePassive as any)).not.toHaveBeenCalled();
-    expect(logger.debug).toHaveBeenCalledWith(expect.stringContaining("invalid_json"));
+    expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining("passive_extractor_invalid_json"));
   });
 
   it("logs and skips when passive extractor invocation fails", async () => {
@@ -504,11 +524,12 @@ describe("TooToo bridge handler", () => {
       ],
       aborted: false,
       sessionKey: "sess-passive-extractor-fails",
-    })).resolves.toBe(false);
+    })).resolves.toBe(true);
 
+    await handler.drainPassiveJobs();
     expect(passiveModelExtractor).toHaveBeenCalledTimes(1);
     expect((client.submitBridgePassive as any)).not.toHaveBeenCalled();
-    expect(logger.debug).toHaveBeenCalledWith(expect.stringContaining("extractor_failed"));
+    expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining("provider_unavailable"));
   });
 
   it("builds linked-user guidance for before_agent_start", async () => {
@@ -1150,8 +1171,9 @@ describe("TooToo bridge handler", () => {
       sessionKey: "sess-passive-wins",
     })).resolves.toBe(true);
 
+    await handler.drainPassiveJobs();
     expect((client.submitBridgePassive as any)).toHaveBeenCalledTimes(1);
-    expect((client.submitBridgeQA as any)).not.toHaveBeenCalled();
+    expect((client.submitBridgeQA as any)).toHaveBeenCalledTimes(1);
     const request = (client.submitBridgePassive as any).mock.calls[0][0];
     expect(request).toMatchObject({
       user_id: "agent-user-1",
@@ -1167,6 +1189,41 @@ describe("TooToo bridge handler", () => {
     });
     expect(JSON.stringify(request)).not.toContain("What do you value most");
     expect(JSON.stringify(request)).not.toContain("assistant");
+  });
+
+  it("records async passive bridge submissions in the audit log", async () => {
+    const client = makeClient();
+    const auditLogger = { log: vi.fn().mockResolvedValue(undefined) };
+    const handler = createBridgeHandler(client, {
+      logger,
+      getUserId: () => "agent-user-1",
+      userIdReady: Promise.resolve(),
+      pluginSessionId: "plugin-session-1",
+      auditLogger: auditLogger as any,
+      passiveModelExtractor: passiveExtractorFor(),
+    });
+
+    await expect(handler.handleAgentEnd({
+      messages: [
+        { role: "user", content: "I prefer explicit checks because hidden magic burns us later." },
+        { role: "assistant", content: "I will keep it explicit." },
+      ],
+      aborted: false,
+      sessionKey: "sess-passive-audit",
+    })).resolves.toBe(true);
+    await handler.drainPassiveJobs();
+
+    expect(auditLogger.log).toHaveBeenCalledWith(expect.objectContaining({
+      feature: "bridge-passive",
+      method: "POST",
+      endpoint: "/v1/bridge/passive",
+      sessionId: "sess-passive-audit",
+      userId: "agent-user-1",
+      messageCount: 1,
+    }));
+    const payload = JSON.parse(auditLogger.log.mock.calls[0][0].payload);
+    expect(payload.candidates).toHaveLength(1);
+    expect(JSON.stringify(payload)).not.toContain("I will keep it explicit");
   });
 
   it("records newly emitted bridge question state even when passive wins the turn", async () => {
@@ -1212,8 +1269,8 @@ describe("TooToo bridge handler", () => {
         },
       ],
       sessionKey: "sess-passive-question-state",
-    })).resolves.toBe("followup");
-    expect((client.submitBridgeQA as any)).not.toHaveBeenCalled();
+    })).resolves.toBe(false);
+    expect((client.submitBridgeQA as any)).toHaveBeenCalledTimes(1);
   });
 
   it("does not send passive traffic when no candidates exist and keeps explicit Q&A fallback", async () => {
@@ -1258,6 +1315,7 @@ describe("TooToo bridge handler", () => {
       sessionKey: "sess-passive-transient-fallback",
     })).resolves.toBe(true);
 
+    await handler.drainPassiveJobs();
     expect((client.submitBridgePassive as any)).toHaveBeenCalledTimes(1);
     expect((client.submitBridgeQA as any)).toHaveBeenCalledTimes(1);
   });
@@ -1311,10 +1369,12 @@ describe("TooToo bridge handler", () => {
     };
 
     await expect(handler.handleAgentEnd(event)).resolves.toBe(true);
+    await handler.drainPassiveJobs();
     await expect(handler.handleAgentEnd({
       ...event,
       messages: [...event.messages, { role: "user", content: "I prefer explicit checks because hidden magic burns us later." }],
-    })).resolves.toBe(false);
+    })).resolves.toBe(true);
+    await handler.drainPassiveJobs();
 
     expect((client.submitBridgePassive as any)).toHaveBeenCalledTimes(1);
   });
@@ -1341,10 +1401,12 @@ describe("TooToo bridge handler", () => {
     };
 
     await expect(handler.handleAgentEnd(event)).resolves.toBe(true);
+    await handler.drainPassiveJobs();
     await expect(handler.handleAgentEnd({
       ...event,
       messages: [...event.messages, { role: "user", content: evidence }],
-    })).resolves.toBe(false);
+    })).resolves.toBe(true);
+    await handler.drainPassiveJobs();
 
     expect((client.submitBridgePassive as any)).toHaveBeenCalledTimes(1);
     const request = (client.submitBridgePassive as any).mock.calls[0][0];
@@ -1379,6 +1441,7 @@ describe("TooToo bridge handler", () => {
       aborted: false,
       sessionKey: "sess-passive-action-item-after-handoff",
     })).resolves.toBe(true);
+    await handler.drainPassiveJobs();
     await expect(handler.handleAgentEnd({
       messages: [
         { role: "user", content: handoffEvidence },
@@ -1389,6 +1452,7 @@ describe("TooToo bridge handler", () => {
       aborted: false,
       sessionKey: "sess-passive-action-item-after-handoff",
     })).resolves.toBe(true);
+    await handler.drainPassiveJobs();
 
     expect((client.submitBridgePassive as any)).toHaveBeenCalledTimes(2);
     const secondRequest = (client.submitBridgePassive as any).mock.calls[1][0];
@@ -1427,6 +1491,7 @@ describe("TooToo bridge handler", () => {
         sessionKey: "sess-passive-cap",
         sessionId: `turn-${index}`,
       });
+      await handler.drainPassiveJobs();
     }
 
     const totalCandidates = (client.submitBridgePassive as any).mock.calls
