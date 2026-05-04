@@ -16,13 +16,16 @@ import type { RetryQueue } from "../../internal/retry-queue.js";
 import type { ClawDeployBridgeTraceClient, ClawDeployBridgeTraceEvent } from "../../internal/clawdeploy-bridge-traces.js";
 import { redactBridgeTraceError } from "../../internal/clawdeploy-bridge-traces.js";
 import { isLowSignal, sanitizeConversationText } from "../capture/filter.js";
+import { PASSIVE_EXTRACTOR_SESSION_KEY } from "./openclaw-extractor.js";
 import {
+  buildPassiveExtractorInput,
   buildPassiveBridgeRequestId,
   buildPassiveCandidateFingerprint,
-  extractPassiveBridgeCandidates,
   MAX_PASSIVE_CANDIDATES_PER_SESSION,
+  type PassiveModelExtractor,
   PASSIVE_BRIDGE_EXTRACTOR_VERSION,
   shouldAttemptPassiveBridgeExtraction,
+  validatePassiveExtractorCandidates,
 } from "./passive.js";
 
 type Logger = {
@@ -98,6 +101,7 @@ export interface CreateBridgeHandlerOptions {
   pluginSessionId?: string;
   auditLogger?: AuditLogger;
   bridgeTraceClient?: ClawDeployBridgeTraceClient;
+  passiveModelExtractor?: PassiveModelExtractor;
 }
 
 const LINK_STATUS_TTL_MS = 60_000;
@@ -847,6 +851,7 @@ export function createBridgeHandler(
     pluginSessionId,
     auditLogger,
     bridgeTraceClient,
+    passiveModelExtractor,
   } = options;
 
   let linkStatus: LinkStatusSnapshot = {
@@ -1180,6 +1185,7 @@ export function createBridgeHandler(
   async function handleAgentEnd(event: AgentEndEvent): Promise<boolean> {
     if (event.aborted) return false;
     if (!Array.isArray(event.messages) || event.messages.length === 0) return false;
+    if (event.sessionKey === PASSIVE_EXTRACTOR_SESSION_KEY || event.sessionId === PASSIVE_EXTRACTOR_SESSION_KEY) return false;
     if (userIdReady) await userIdReady;
 
     const agentUserId = getUserId();
@@ -1211,7 +1217,27 @@ export function createBridgeHandler(
         if (!passiveGate.shouldExtract) {
           logger.debug?.(`Cortex bridge: passive skipped reason=${passiveGate.reason ?? "unknown"} sessionId=${sessionKey}`);
         }
-        const rawPassiveCandidates = passiveGate.shouldExtract ? extractPassiveBridgeCandidates(event.messages) : [];
+        let rawPassiveCandidates: PassiveBridgeRequest["candidates"] = [];
+        if (passiveGate.shouldExtract && !passiveModelExtractor) {
+          logger.debug?.(`Cortex bridge: passive skipped reason=model_extractor_unavailable sessionId=${sessionKey}`);
+        } else if (passiveGate.shouldExtract && passiveModelExtractor) {
+          const extractorInput = buildPassiveExtractorInput(event.messages);
+          try {
+            const modelOutput = await passiveModelExtractor(extractorInput);
+            const validation = validatePassiveExtractorCandidates(modelOutput, extractorInput);
+            rawPassiveCandidates = validation.accepted;
+            if (modelOutput.candidates.length === 0) {
+              logger.debug?.(`Cortex bridge: passive skipped reason=extractor_zero_candidates sessionId=${sessionKey}`);
+            } else if (validation.rejected.length > 0) {
+              const buckets = [...new Set(validation.rejected.map((item) => item.reason))].join(",");
+              logger.debug?.(`Cortex bridge: passive skipped reason=validator_rejected rejected=${validation.rejected.length} buckets=${buckets} sessionId=${sessionKey}`);
+            }
+          } catch (err) {
+            const reason = err instanceof SyntaxError ? "invalid_json" : "extractor_failed";
+            logger.debug?.(`Cortex bridge: passive skipped reason=${reason} sessionId=${sessionKey}`);
+            rawPassiveCandidates = [];
+          }
+        }
         const duplicatePassiveCandidates = rawPassiveCandidates.filter((candidate) => {
           const fingerprint = buildPassiveCandidateFingerprint(candidate);
           return sessionState.passiveFingerprints?.has(fingerprint) ?? false;
@@ -1223,9 +1249,7 @@ export function createBridgeHandler(
             return true;
           })
           .slice(0, remainingSessionSlots);
-        if (passiveGate.shouldExtract && rawPassiveCandidates.length === 0) {
-          logger.debug?.(`Cortex bridge: passive skipped reason=no_structured_candidates sessionId=${sessionKey}`);
-        } else if (passiveGate.shouldExtract && extractedCandidates.length === 0 && duplicatePassiveCandidates > 0) {
+        if (passiveGate.shouldExtract && extractedCandidates.length === 0 && duplicatePassiveCandidates > 0) {
           logger.debug?.(`Cortex bridge: passive skipped reason=same_session_duplicate sessionId=${sessionKey}`);
         }
 

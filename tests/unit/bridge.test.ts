@@ -63,6 +63,43 @@ function makeTraceClient(): ClawDeployBridgeTraceClient {
   };
 }
 
+function passiveExtractorFor(contentByEvidence: Record<string, string> = {}) {
+  return vi.fn(async (input: any) => {
+    const latestUser = [...input.messages].reverse().find((message: any) => message.role === "user");
+    const evidence = latestUser?.content ?? "";
+    const content = contentByEvidence[evidence]
+      ?? (evidence.includes("boring explicit checks")
+        ? "Prefers boring explicit checks over hidden automation."
+        : evidence.includes("hidden magic")
+          ? "Prefers explicit checks over hidden automation."
+        : evidence.includes("fallback owner")
+          ? "Does not want to be the fallback owner for every decision."
+          : evidence.includes("clear person attached")
+            ? "Prefers action items to have a clear owner and one concrete next step."
+            : evidence.includes("written down")
+              ? "Prefers important follow-through expectations to be written down."
+              : evidence.includes("no owner")
+                ? "Works better when projects have a clear owner."
+                : evidence.includes("short written plans")
+                  ? "Works best with short written plans and clear decision rights."
+                  : evidence.includes("README")
+                    ? "Prefers explicit checks."
+                    : undefined);
+    return {
+      candidates: content ? [{
+        content,
+        suggested_section: "practices",
+        evidence_quote: evidence.includes("boring explicit checks because hidden magic burns us later")
+          ? "I prefer boring explicit checks because hidden magic burns us later."
+          : evidence,
+        confidence: 0.86,
+        risk_tier: "low",
+        reason: "Test extractor output.",
+      }] : [],
+    };
+  });
+}
+
 function discoveryExchangeMessages() {
   return [
     { role: "user", content: "I have been rethinking what kind of work I want this year." },
@@ -102,6 +139,199 @@ function slackMetadataOnlyEnvelope(): string {
 }
 
 describe("TooToo bridge handler", () => {
+  it("does not call the passive model extractor for acknowledgements or pure task requests", async () => {
+    const client = makeClient();
+    const passiveModelExtractor = vi.fn().mockResolvedValue({ candidates: [] });
+    const handler = createBridgeHandler(client, {
+      logger,
+      getUserId: () => "agent-user-1",
+      userIdReady: Promise.resolve(),
+      pluginSessionId: "plugin-session-1",
+      passiveModelExtractor,
+    });
+
+    await expect(handler.handleAgentEnd({
+      messages: [
+        { role: "user", content: "ok" },
+        { role: "assistant", content: "Done." },
+      ],
+      aborted: false,
+      sessionKey: "sess-passive-gate-ok",
+    })).resolves.toBe(false);
+
+    await expect(handler.handleAgentEnd({
+      messages: [
+        { role: "user", content: "Can you make a meeting recap template with action items?" },
+        { role: "assistant", content: "Here is a compact template." },
+      ],
+      aborted: false,
+      sessionKey: "sess-passive-gate-task",
+    })).resolves.toBe(false);
+
+    expect(passiveModelExtractor).not.toHaveBeenCalled();
+    expect((client.submitBridgePassive as any)).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [
+      "handoff signal",
+      "Usually it’s that the next person isn’t totally clear on what they own, so I end up still carrying it in my head. I want the handoff to make the owner and next step obvious.",
+      "Prefers handoffs that make the owner and next step obvious.",
+    ],
+    [
+      "meeting follow-up signal",
+      "The part that usually breaks down is ownership. If every action item has a clear person attached to it and one concrete next step, I can actually let it go instead of tracking it in my head.",
+      "Prefers action items with a clear owner and one concrete next step.",
+    ],
+    [
+      "weekly update signal",
+      "The main thing I want is for people to know what actually needs attention. Updates get messy when there are lots of topics but no clear person taking the next step, and then I end up tracking everything myself.",
+      "Prefers updates that make attention-needed items, owners, and next steps clear.",
+    ],
+  ])("uses the passive model extractor for the live %s", async (_label, evidence, content) => {
+    const client = makeClient();
+    const passiveModelExtractor = vi.fn().mockResolvedValue({
+      candidates: [
+        {
+          content,
+          suggested_section: "practices",
+          evidence_quote: evidence,
+          confidence: 0.86,
+          risk_tier: "low",
+          reason: "The user stated a durable collaboration preference.",
+        },
+      ],
+    });
+    const handler = createBridgeHandler(client, {
+      logger,
+      getUserId: () => "agent-user-1",
+      userIdReady: Promise.resolve(),
+      pluginSessionId: "plugin-session-1",
+      passiveModelExtractor,
+    });
+
+    await expect(handler.handleAgentEnd({
+      messages: [
+        { role: "user", content: evidence },
+        { role: "assistant", content: "I will make that explicit in the format." },
+      ],
+      aborted: false,
+      sessionKey: `sess-passive-${_label}`,
+    })).resolves.toBe(true);
+
+    expect(passiveModelExtractor).toHaveBeenCalledTimes(1);
+    const extractorInput = passiveModelExtractor.mock.calls[0][0];
+    expect(extractorInput.messages).toEqual(expect.arrayContaining([
+      expect.objectContaining({ role: "user", content: evidence }),
+    ]));
+    expect((client.submitBridgePassive as any)).toHaveBeenCalledTimes(1);
+    const request = (client.submitBridgePassive as any).mock.calls[0][0];
+    expect(request.candidates).toEqual([
+      expect.objectContaining({
+        content,
+        evidence_quote: evidence,
+        confidence: 0.86,
+        risk_tier: "low",
+      }),
+    ]);
+    expect(JSON.stringify(request)).not.toContain("I will make that explicit");
+  });
+
+  it("rejects passive model output when evidence is not an exact user-authored substring", async () => {
+    const client = makeClient();
+    const passiveModelExtractor = vi.fn().mockResolvedValue({
+      candidates: [
+        {
+          content: "Prefers explicit ownership.",
+          suggested_section: "practices",
+          evidence_quote: "I will make ownership explicit.",
+          confidence: 0.9,
+          risk_tier: "low",
+        },
+      ],
+    });
+    const handler = createBridgeHandler(client, {
+      logger,
+      getUserId: () => "agent-user-1",
+      userIdReady: Promise.resolve(),
+      pluginSessionId: "plugin-session-1",
+      passiveModelExtractor,
+    });
+
+    await expect(handler.handleAgentEnd({
+      messages: [
+        { role: "user", content: "I want the handoff to make the owner and next step obvious." },
+        { role: "assistant", content: "I will make ownership explicit." },
+      ],
+      aborted: false,
+      sessionKey: "sess-passive-reject-assistant-evidence",
+    })).resolves.toBe(false);
+
+    expect((client.submitBridgePassive as any)).not.toHaveBeenCalled();
+    expect((client.submitBridgeQA as any)).not.toHaveBeenCalled();
+    expect(logger.debug).toHaveBeenCalledWith(expect.stringContaining("validator_rejected"));
+  });
+
+  it("rejects medium and high risk passive model candidates", async () => {
+    const client = makeClient();
+    const evidence = "I want the handoff to make the owner and next step obvious.";
+    const passiveModelExtractor = vi.fn().mockResolvedValue({
+      candidates: [
+        {
+          content: "Prefers explicit ownership.",
+          suggested_section: "practices",
+          evidence_quote: evidence,
+          confidence: 0.9,
+          risk_tier: "medium",
+        },
+      ],
+    });
+    const handler = createBridgeHandler(client, {
+      logger,
+      getUserId: () => "agent-user-1",
+      userIdReady: Promise.resolve(),
+      pluginSessionId: "plugin-session-1",
+      passiveModelExtractor,
+    });
+
+    await expect(handler.handleAgentEnd({
+      messages: [
+        { role: "user", content: evidence },
+        { role: "assistant", content: "I will make ownership explicit." },
+      ],
+      aborted: false,
+      sessionKey: "sess-passive-reject-risk",
+    })).resolves.toBe(false);
+
+    expect((client.submitBridgePassive as any)).not.toHaveBeenCalled();
+    expect(logger.debug).toHaveBeenCalledWith(expect.stringContaining("validator_rejected"));
+  });
+
+  it("logs and skips invalid passive extractor JSON", async () => {
+    const client = makeClient();
+    const evidence = "I want the handoff to make the owner and next step obvious.";
+    const passiveModelExtractor = vi.fn().mockRejectedValue(new SyntaxError("invalid JSON"));
+    const handler = createBridgeHandler(client, {
+      logger,
+      getUserId: () => "agent-user-1",
+      userIdReady: Promise.resolve(),
+      pluginSessionId: "plugin-session-1",
+      passiveModelExtractor,
+    });
+
+    await expect(handler.handleAgentEnd({
+      messages: [
+        { role: "user", content: evidence },
+        { role: "assistant", content: "I will make ownership explicit." },
+      ],
+      aborted: false,
+      sessionKey: "sess-passive-invalid-json",
+    })).resolves.toBe(false);
+
+    expect((client.submitBridgePassive as any)).not.toHaveBeenCalled();
+    expect(logger.debug).toHaveBeenCalledWith(expect.stringContaining("invalid_json"));
+  });
+
   it("builds linked-user guidance for before_agent_start", async () => {
     const client = makeClient();
     const handler = createBridgeHandler(client, {
@@ -109,6 +339,9 @@ describe("TooToo bridge handler", () => {
       getUserId: () => "agent-user-1",
       userIdReady: Promise.resolve(),
       pluginSessionId: "plugin-session-1",
+      passiveModelExtractor: passiveExtractorFor({
+        "Fix the deploy script. I prefer boring explicit checks because hidden magic burns us later.": "Prefers boring explicit checks over hidden automation.",
+      }),
     });
 
     const prompt = await handler.getPromptContext();
@@ -148,6 +381,7 @@ describe("TooToo bridge handler", () => {
       getUserId: () => "agent-user-1",
       userIdReady: Promise.resolve(),
       pluginSessionId: "plugin-session-1",
+      passiveModelExtractor: passiveExtractorFor(),
     });
 
     // Turn 1: reflective opening triggers full bridge prompt
@@ -207,6 +441,7 @@ describe("TooToo bridge handler", () => {
       getUserId: () => "agent-user-1",
       userIdReady: Promise.resolve(),
       pluginSessionId: "plugin-session-1",
+      passiveModelExtractor: passiveExtractorFor(),
     });
 
     await expect(handler.shouldInjectPrompt({
@@ -265,6 +500,7 @@ describe("TooToo bridge handler", () => {
       getUserId: () => "agent-user-1",
       userIdReady: Promise.resolve(),
       pluginSessionId: "plugin-session-1",
+      passiveModelExtractor: passiveExtractorFor(),
     });
 
     await expect(handler.shouldInjectPrompt({
@@ -283,6 +519,7 @@ describe("TooToo bridge handler", () => {
       getUserId: () => "agent-user-1",
       userIdReady: Promise.resolve(),
       pluginSessionId: "plugin-session-1",
+      passiveModelExtractor: passiveExtractorFor(),
     });
 
     await expect(handler.shouldInjectPrompt({
@@ -299,6 +536,7 @@ describe("TooToo bridge handler", () => {
       getUserId: () => "agent-user-1",
       userIdReady: Promise.resolve(),
       pluginSessionId: "plugin-session-1",
+      passiveModelExtractor: passiveExtractorFor(),
     });
 
     await expect(handler.shouldInjectPrompt({
@@ -317,6 +555,7 @@ describe("TooToo bridge handler", () => {
       getUserId: () => "agent-user-1",
       userIdReady: Promise.resolve(),
       pluginSessionId: "plugin-session-1",
+      passiveModelExtractor: passiveExtractorFor(),
     });
 
     await expect(handler.shouldInjectPrompt({
@@ -341,6 +580,7 @@ describe("TooToo bridge handler", () => {
       getUserId: () => "agent-user-1",
       userIdReady: Promise.resolve(),
       pluginSessionId: "plugin-session-1",
+      passiveModelExtractor: passiveExtractorFor(),
     });
 
     await expect(handler.shouldInjectPrompt({
@@ -365,6 +605,9 @@ describe("TooToo bridge handler", () => {
       getUserId: () => "agent-user-1",
       userIdReady: Promise.resolve(),
       pluginSessionId: "plugin-session-1",
+      passiveModelExtractor: passiveExtractorFor({
+        "Fix the deploy script. I prefer boring explicit checks because hidden magic burns us later.": "Prefers boring explicit checks over hidden automation.",
+      }),
     });
 
     await expect(handler.shouldInjectPrompt({
@@ -389,6 +632,7 @@ describe("TooToo bridge handler", () => {
       getUserId: () => "agent-user-1",
       userIdReady: Promise.resolve(),
       pluginSessionId: "plugin-session-1",
+      passiveModelExtractor: passiveExtractorFor(),
     });
 
     await expect(handler.shouldInjectPrompt({
@@ -411,6 +655,7 @@ describe("TooToo bridge handler", () => {
       getUserId: () => "agent-user-1",
       userIdReady: Promise.resolve(),
       pluginSessionId: "plugin-session-1",
+      passiveModelExtractor: passiveExtractorFor(),
     });
 
     await expect(handler.shouldInjectPrompt({
@@ -448,6 +693,7 @@ describe("TooToo bridge handler", () => {
       getUserId: () => "agent-user-1",
       userIdReady: Promise.resolve(),
       pluginSessionId: "plugin-session-1",
+      passiveModelExtractor: passiveExtractorFor(),
     });
 
     await expect(handler.shouldInjectPrompt({
@@ -482,6 +728,7 @@ describe("TooToo bridge handler", () => {
       getUserId: () => "agent-user-1",
       userIdReady: Promise.resolve(),
       pluginSessionId: "plugin-session-1",
+      passiveModelExtractor: passiveExtractorFor(),
     });
 
     await expect(handler.shouldInjectPrompt({
@@ -537,6 +784,7 @@ describe("TooToo bridge handler", () => {
       getUserId: () => "agent-user-1",
       userIdReady: Promise.resolve(),
       pluginSessionId: "plugin-session-1",
+      passiveModelExtractor: passiveExtractorFor(),
     });
 
     await expect(handler.shouldInjectPrompt({
@@ -709,6 +957,7 @@ describe("TooToo bridge handler", () => {
       getUserId: () => "agent-user-1",
       userIdReady: Promise.resolve(),
       pluginSessionId: "plugin-session-1",
+      passiveModelExtractor: passiveExtractorFor(),
     });
 
     await expect(handler.handleAgentEnd({
@@ -748,6 +997,7 @@ describe("TooToo bridge handler", () => {
       getUserId: () => "agent-user-1",
       userIdReady: Promise.resolve(),
       pluginSessionId: "plugin-session-1",
+      passiveModelExtractor: passiveExtractorFor(),
     });
 
     await expect(handler.shouldInjectPrompt({
@@ -815,6 +1065,7 @@ describe("TooToo bridge handler", () => {
       getUserId: () => "agent-user-1",
       userIdReady: Promise.resolve(),
       pluginSessionId: "plugin-session-1",
+      passiveModelExtractor: passiveExtractorFor(),
     });
 
     await expect(handler.handleAgentEnd({
@@ -868,11 +1119,12 @@ describe("TooToo bridge handler", () => {
       getUserId: () => "agent-user-1",
       userIdReady: Promise.resolve(),
       pluginSessionId: "plugin-session-1",
+      passiveModelExtractor: passiveExtractorFor(),
     });
 
     const event = {
       messages: [
-        { role: "user", content: "Hidden magic always burns us later." },
+        { role: "user", content: "I prefer explicit checks because hidden magic burns us later." },
         { role: "assistant", content: "I will keep the checks explicit." },
       ],
       aborted: false,
@@ -882,7 +1134,7 @@ describe("TooToo bridge handler", () => {
     await expect(handler.handleAgentEnd(event)).resolves.toBe(true);
     await expect(handler.handleAgentEnd({
       ...event,
-      messages: [...event.messages, { role: "user", content: "Hidden magic always burns us later." }],
+      messages: [...event.messages, { role: "user", content: "I prefer explicit checks because hidden magic burns us later." }],
     })).resolves.toBe(false);
 
     expect((client.submitBridgePassive as any)).toHaveBeenCalledTimes(1);
@@ -890,13 +1142,16 @@ describe("TooToo bridge handler", () => {
 
   it("suppresses duplicate handoff passive candidates in the same session", async () => {
     const client = makeClient();
+    const evidence = "Usually it’s that the next person isn’t totally clear on what they own, so I end up still carrying it in my head. I want the handoff to make the owner and next step obvious.";
     const handler = createBridgeHandler(client, {
       logger,
       getUserId: () => "agent-user-1",
       userIdReady: Promise.resolve(),
       pluginSessionId: "plugin-session-1",
+      passiveModelExtractor: passiveExtractorFor({
+        [evidence]: "Prefers handoffs with a clearly named owner and explicit next step.",
+      }),
     });
-    const evidence = "Usually it’s that the next person isn’t totally clear on what they own, so I end up still carrying it in my head. I want the handoff to make the owner and next step obvious.";
     const event = {
       messages: [
         { role: "user", content: evidence },
@@ -924,14 +1179,18 @@ describe("TooToo bridge handler", () => {
 
   it("sends action-item ownership preference even after an older handoff candidate in the same session", async () => {
     const client = makeClient();
+    const handoffEvidence = "Usually it’s that the next person isn’t totally clear on what they own, so I end up still carrying it in my head. I want the handoff to make the owner and next step obvious.";
+    const actionItemEvidence = "The part that usually breaks down is ownership. If every action item has a clear person attached to it and one concrete next step, I can actually let it go instead of tracking it in my head.";
     const handler = createBridgeHandler(client, {
       logger,
       getUserId: () => "agent-user-1",
       userIdReady: Promise.resolve(),
       pluginSessionId: "plugin-session-1",
+      passiveModelExtractor: passiveExtractorFor({
+        [handoffEvidence]: "Prefers handoffs with a clearly named owner and explicit next step.",
+        [actionItemEvidence]: "Prefers action items to have a clear owner and one concrete next step.",
+      }),
     });
-    const handoffEvidence = "Usually it’s that the next person isn’t totally clear on what they own, so I end up still carrying it in my head. I want the handoff to make the owner and next step obvious.";
-    const actionItemEvidence = "The part that usually breaks down is ownership. If every action item has a clear person attached to it and one concrete next step, I can actually let it go instead of tracking it in my head.";
 
     await expect(handler.handleAgentEnd({
       messages: [
@@ -969,10 +1228,11 @@ describe("TooToo bridge handler", () => {
       getUserId: () => "agent-user-1",
       userIdReady: Promise.resolve(),
       pluginSessionId: "plugin-session-1",
+      passiveModelExtractor: passiveExtractorFor(),
     });
 
     for (const [index, content] of [
-      "Hidden magic always burns us later.",
+      "I prefer explicit checks because hidden magic burns us later.",
       "I hate being the fallback owner for everything.",
       "I don't trust Sarah to follow through unless everything is written down.",
       "When projects have no owner, I shut down and avoid them.",

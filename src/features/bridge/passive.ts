@@ -9,6 +9,8 @@ import { isLowSignal, sanitizeConversationText } from "../capture/filter.js";
 export const PASSIVE_BRIDGE_EXTRACTOR_VERSION = "openclaw-cortex-passive-v1";
 export const MAX_PASSIVE_CANDIDATES_PER_TURN = 3;
 export const MAX_PASSIVE_CANDIDATES_PER_SESSION = 5;
+export const PASSIVE_EXTRACTOR_TIMEOUT_MS = 8_000;
+export const PASSIVE_EXTRACTOR_MAX_OUTPUT_TOKENS = 900;
 
 type PassiveRole = "assistant" | "user";
 
@@ -22,6 +24,43 @@ export interface PassiveGateResult {
   shouldExtract: boolean;
   reason?: string;
 }
+
+export interface PassiveExtractorMessage {
+  role: PassiveRole;
+  content: string;
+  index: number;
+}
+
+export interface PassiveExtractorInput {
+  messages: PassiveExtractorMessage[];
+  prompt: string;
+  extractorVersion: string;
+  maxCandidates: number;
+  timeoutMs: number;
+  maxOutputTokens: number;
+}
+
+export interface PassiveExtractorOutput {
+  candidates: unknown[];
+}
+
+export type PassiveModelExtractor = (input: PassiveExtractorInput) => Promise<PassiveExtractorOutput>;
+
+export interface PassiveValidationResult {
+  accepted: PassiveBridgeCandidate[];
+  rejected: Array<{ reason: string }>;
+}
+
+const VALID_SECTIONS = new Set<BridgeTargetSection>([
+  "coreValues",
+  "beliefs",
+  "principles",
+  "ideas",
+  "dreams",
+  "practices",
+  "shadows",
+  "legacy",
+]);
 
 function extractContent(content: unknown): string {
   if (typeof content === "string") return content;
@@ -40,7 +79,7 @@ function extractContent(content: unknown): string {
   return "";
 }
 
-function normalizeConversationMessages(messages: unknown[]): PassiveConversationMessage[] {
+export function normalizePassiveConversationMessages(messages: unknown[]): PassiveConversationMessage[] {
   const candidates = filterConversationMessagesForMemory(
     messages.flatMap((message, index) => {
       if (typeof message !== "object" || message === null) return [];
@@ -98,7 +137,7 @@ function isCodeOrLogOnly(text: string): boolean {
 }
 
 export function shouldAttemptPassiveBridgeExtraction(rawMessages: unknown[]): PassiveGateResult {
-  const messages = normalizeConversationMessages(rawMessages).slice(-6);
+  const messages = normalizePassiveConversationMessages(rawMessages).slice(-6);
   const latestUser = latestUserMessage(messages);
   if (!latestUser) return { shouldExtract: false, reason: "no_user_evidence" };
 
@@ -115,188 +154,179 @@ export function shouldAttemptPassiveBridgeExtraction(rawMessages: unknown[]): Pa
   return { shouldExtract: true };
 }
 
+export function buildPassiveExtractorPrompt(): string {
+  return [
+    "You are reviewing a small recent conversation window after the assistant has helped the user.",
+    "Extract candidate Codex entries only if the user revealed something durable, useful, low-risk, and grounded in their own words.",
+    "Possible candidates can include preferences, boundaries, recurring patterns, collaboration style, communication preferences, planning habits, operating principles, stable self-descriptions, or other durable useful context.",
+    "Do not limit yourself to work preferences.",
+    "Do not extract from assistant-only claims or weak user assent like \"yeah\" or \"ok\".",
+    "Do not extract transient moods, crisis states, diagnoses, protected-trait guesses, or sensitive/private claims.",
+    "Do not create claims about named third parties.",
+    "If uncertain, return no candidates.",
+    "Return JSON only with this shape:",
+    "{\"candidates\":[{\"content\":\"string\",\"suggested_section\":\"practices\",\"evidence_quote\":\"exact user-authored quote\",\"supporting_evidence_quotes\":[\"optional exact user-authored quotes\"],\"confidence\":0.0,\"risk_tier\":\"low\",\"reason\":\"brief internal review note\"}]}",
+  ].join("\n");
+}
+
+export function buildPassiveExtractorInput(rawMessages: unknown[]): PassiveExtractorInput {
+  const messages = normalizePassiveConversationMessages(rawMessages)
+    .slice(-6)
+    .map((message) => ({
+      role: message.role,
+      content: message.content,
+      index: message.originalIndex,
+    }));
+
+  return {
+    messages,
+    prompt: buildPassiveExtractorPrompt(),
+    extractorVersion: PASSIVE_BRIDGE_EXTRACTOR_VERSION,
+    maxCandidates: MAX_PASSIVE_CANDIDATES_PER_TURN,
+    timeoutMs: PASSIVE_EXTRACTOR_TIMEOUT_MS,
+    maxOutputTokens: PASSIVE_EXTRACTOR_MAX_OUTPUT_TOKENS,
+  };
+}
+
+export function parsePassiveExtractorJson(raw: string): PassiveExtractorOutput {
+  const trimmed = raw.trim().replace(/^```(?:json)?\s*([\s\S]*?)\s*```$/i, "$1").trim();
+  const parsed = JSON.parse(trimmed) as unknown;
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    throw new SyntaxError("passive extractor JSON root must be an object");
+  }
+  const candidates = (parsed as { candidates?: unknown }).candidates;
+  if (!Array.isArray(candidates)) {
+    throw new SyntaxError("passive extractor JSON must include candidates array");
+  }
+  return { candidates };
+}
+
+function exactUserEvidenceSource(
+  quote: string,
+  messages: PassiveExtractorMessage[],
+): PassiveExtractorMessage | undefined {
+  if (!quote.trim()) return undefined;
+  return messages.find((message) => message.role === "user" && message.content.includes(quote));
+}
+
+function isAssistantOnlyEvidence(quote: string, messages: PassiveExtractorMessage[]): boolean {
+  if (!quote.trim()) return false;
+  const userHasQuote = messages.some((message) => message.role === "user" && message.content.includes(quote));
+  if (userHasQuote) return false;
+  return messages.some((message) => message.role === "assistant" && message.content.includes(quote));
+}
+
+const BLOCKED_CANDIDATE_RE = /\b(?:diagnosed|depressed|bipolar|adhd|autistic|trauma|panic attack|suicid|self[- ]harm|protected trait|ethnicity|religion|sexuality|pregnant|criminal|addict)\b/i;
+
+function normalizeConfidence(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function normalizeString(value: unknown): string | undefined {
+  return typeof value === "string" ? value.replace(/\s+/g, " ").trim() : undefined;
+}
+
+function normalizeSection(value: unknown): BridgeTargetSection | undefined {
+  const section = normalizeString(value);
+  if (!section || !VALID_SECTIONS.has(section as BridgeTargetSection)) return undefined;
+  return section as BridgeTargetSection;
+}
+
+function reject(reason: string): { reason: string } {
+  return { reason };
+}
+
+export function validatePassiveExtractorCandidates(
+  output: PassiveExtractorOutput,
+  input: PassiveExtractorInput,
+): PassiveValidationResult {
+  const accepted: PassiveBridgeCandidate[] = [];
+  const rejected: Array<{ reason: string }> = [];
+  const seen = new Set<string>();
+
+  for (const rawCandidate of output.candidates) {
+    if (accepted.length >= MAX_PASSIVE_CANDIDATES_PER_TURN) break;
+    if (typeof rawCandidate !== "object" || rawCandidate === null || Array.isArray(rawCandidate)) {
+      rejected.push(reject("invalid_shape"));
+      continue;
+    }
+
+    const typed = rawCandidate as Record<string, unknown>;
+    const content = normalizeString(typed.content);
+    const evidenceQuote = normalizeString(typed.evidence_quote);
+    const suggestedSection = normalizeSection(typed.suggested_section);
+    const confidence = normalizeConfidence(typed.confidence);
+    const riskTier = normalizeString(typed.risk_tier)?.toLowerCase();
+    const reason = normalizeString(typed.reason);
+    const supportingEvidence = Array.isArray(typed.supporting_evidence_quotes)
+      ? typed.supporting_evidence_quotes
+        .map(normalizeString)
+        .filter((quote): quote is string => Boolean(quote))
+      : undefined;
+
+    if (!content || countWords(content) < 4) {
+      rejected.push(reject("not_useful"));
+      continue;
+    }
+    if (!suggestedSection) {
+      rejected.push(reject("invalid_section"));
+      continue;
+    }
+    if (confidence === undefined || confidence < 0.75) {
+      rejected.push(reject("low_confidence"));
+      continue;
+    }
+    if (riskTier !== "low") {
+      rejected.push(reject("non_low_risk"));
+      continue;
+    }
+    if (!evidenceQuote) {
+      rejected.push(reject("missing_evidence"));
+      continue;
+    }
+    const evidenceSource = exactUserEvidenceSource(evidenceQuote, input.messages);
+    if (!evidenceSource) {
+      rejected.push(reject(isAssistantOnlyEvidence(evidenceQuote, input.messages) ? "assistant_authored_evidence" : "ungrounded_evidence"));
+      continue;
+    }
+    const invalidSupporting = supportingEvidence?.find((quote) => !exactUserEvidenceSource(quote, input.messages));
+    if (invalidSupporting) {
+      rejected.push(reject(isAssistantOnlyEvidence(invalidSupporting, input.messages) ? "assistant_authored_supporting_evidence" : "ungrounded_supporting_evidence"));
+      continue;
+    }
+    if (TRANSIENT_OR_RISK_RE.test(evidenceQuote) || BLOCKED_CANDIDATE_RE.test(content) || BLOCKED_CANDIDATE_RE.test(evidenceQuote)) {
+      rejected.push(reject("sensitive_or_transient"));
+      continue;
+    }
+    const candidate: PassiveBridgeCandidate = {
+      content,
+      suggested_section: suggestedSection,
+      source_type: "conversation",
+      confidence,
+      risk_tier: "low",
+      evidence_quote: evidenceQuote,
+      supporting_evidence_quotes: supportingEvidence,
+      source_message_indices: [evidenceSource.index],
+      evidence_pointer: `message:${evidenceSource.index}`,
+      reason,
+    };
+    const fingerprint = candidateFingerprint(candidate);
+    if (seen.has(fingerprint)) {
+      rejected.push(reject("duplicate_in_extractor_output"));
+      continue;
+    }
+    seen.add(fingerprint);
+    accepted.push(candidate);
+  }
+
+  return { accepted, rejected };
+}
+
 function candidateFingerprint(candidate: Pick<PassiveBridgeCandidate, "content" | "evidence_quote">): string {
   return createHash("sha256")
     .update(`${candidate.content.toLowerCase().replace(/\s+/g, " ").trim()}\n${candidate.evidence_quote.toLowerCase().replace(/\s+/g, " ").trim()}`)
     .digest("hex")
     .slice(0, 16);
-}
-
-function makeCandidate(input: {
-  content: string;
-  section?: BridgeTargetSection;
-  evidenceQuote: string;
-  sourceIndex: number;
-  reason: string;
-  confidence?: number;
-}): PassiveBridgeCandidate {
-  return {
-    content: input.content,
-    suggested_section: input.section ?? "practices",
-    source_type: "conversation",
-    confidence: input.confidence ?? 0.86,
-    risk_tier: "low",
-    evidence_quote: input.evidenceQuote,
-    source_message_indices: [input.sourceIndex],
-    evidence_pointer: `message:${input.sourceIndex}`,
-    reason: input.reason,
-  };
-}
-
-function evidenceSentence(text: string, required: RegExp[]): string {
-  const sentences = text
-    .split(/(?<=[.!?])\s+/)
-    .map((sentence) => sentence.trim())
-    .filter(Boolean);
-  return sentences.find((sentence) => required.every((pattern) => pattern.test(sentence))) ?? text;
-}
-
-function candidateRules(text: string): Array<{ content: string; reason: string; section?: BridgeTargetSection; confidence?: number }> {
-  const rules: Array<{ content: string; reason: string; section?: BridgeTargetSection; confidence?: number }> = [];
-
-  if (/\bboring explicit checks?\b/i.test(text) && /\bhidden magic\b/i.test(text)) {
-    rules.push({
-      content: "Prefers boring explicit checks over hidden automation.",
-      reason: "The user directly contrasted explicit checks with hidden magic.",
-      confidence: 0.91,
-    });
-  } else if (/\bhidden magic\b/i.test(text)) {
-    rules.push({
-      content: "Prefers explicit checks over hidden automation.",
-      reason: "The user described hidden magic as a recurring source of trouble.",
-      confidence: 0.84,
-    });
-  } else if (/\bprefer(?:s|red|ring)?\b/i.test(text) && /\bexplicit checks?\b/i.test(text)) {
-    rules.push({
-      content: "Prefers explicit checks.",
-      reason: "The user stated an explicit work preference.",
-      confidence: 0.86,
-    });
-  }
-
-  if (/\bfallback owner\b/i.test(text)) {
-    rules.push({
-      content: "Does not want to be the fallback owner for every decision.",
-      reason: "The user stated a durable boundary around default ownership.",
-      confidence: 0.88,
-    });
-  }
-
-  if (/\bno owner\b/i.test(text) || /\bclear owner\b/i.test(text)) {
-    rules.push({
-      content: "Works better when projects have a clear owner.",
-      reason: "The user linked ownership clarity to their work pattern.",
-      confidence: 0.82,
-    });
-  }
-
-  if (/\bwritten down\b/i.test(text) && /\bfollow through\b/i.test(text)) {
-    rules.push({
-      content: "Prefers important follow-through expectations to be written down.",
-      reason: "The user framed written expectations as a work preference, with third-party detail omitted.",
-      confidence: 0.84,
-    });
-  }
-
-  if (/\bwork best\b/i.test(text) && /\bshort written plans?\b/i.test(text)) {
-    rules.push({
-      content: "Works best with short written plans.",
-      reason: "The user stated a durable work-style preference.",
-      confidence: 0.87,
-    });
-  }
-
-  if (/\bdecision rights\b/i.test(text)) {
-    rules.push({
-      content: "Prefers clear decision rights.",
-      reason: "The user stated a durable preference for decision clarity.",
-      confidence: 0.86,
-    });
-  }
-
-  if (/\bhandoffs?\b/i.test(text) && /\b(?:owner|own|ownership)\b/i.test(text) && /\bnext step\b/i.test(text)) {
-    rules.push({
-      content: "Prefers handoffs with a clearly named owner and explicit next step.",
-      reason: "The user described a durable handoff preference and mental-load pattern.",
-      confidence: 0.88,
-    });
-  }
-
-  if (
-    /\b(?:action items?|follow-ups?|meeting recaps?|meeting follow-ups?|delegat(?:e|ion))\b/i.test(text) &&
-    /\b(?:clear person|person attached|person responsible|owner|owners|ownership|own)\b/i.test(text) &&
-    /\b(?:concrete next step|immediate next move|next steps?|next move)\b/i.test(text) &&
-    /\b(?:tracking it|let it go|carrying it)\b/i.test(text)
-  ) {
-    rules.push({
-      content: /\b(?:meeting recaps?|follow-ups?|meeting follow-ups?)\b/i.test(text)
-        ? "Prefers meeting follow-ups where each action item has a clear owner and next step."
-        : "Prefers action items to have a clear owner and one concrete next step.",
-      reason: "The user described a durable follow-up preference that reduces mental tracking load.",
-      confidence: 0.88,
-    });
-  }
-
-  return rules;
-}
-
-function structuredFallbackCandidate(text: string): { content: string; reason: string; section?: BridgeTargetSection; confidence?: number } | undefined {
-  const preferenceMatch = /\bI\s+(?:value|prefer|like|work best with|work best when)\s+(.+?)(?:[.!?]|$)/i.exec(text);
-  if (!preferenceMatch) return undefined;
-
-  const rawPreference = preferenceMatch[1]
-    .replace(/\b(?:because|since|as)\b[\s\S]*$/i, "")
-    .replace(/\b(?:for me|to me)\b/gi, "")
-    .replace(/\s+/g, " ")
-    .trim();
-  if (!rawPreference || countWords(rawPreference) < 2) return undefined;
-  if (TRANSIENT_OR_RISK_RE.test(rawPreference) || CODEISH_RE.test(rawPreference)) return undefined;
-
-  const normalizedPreference = rawPreference.replace(/\bowners\b/gi, "owners");
-  return {
-    content: `Values ${normalizedPreference}.`,
-    section: "practices",
-    confidence: 0.8,
-    reason: "Structured fallback extracted a first-person durable preference after the heuristic gate passed.",
-  };
-}
-
-export function extractPassiveBridgeCandidates(rawMessages: unknown[]): PassiveBridgeCandidate[] {
-  const messages = normalizeConversationMessages(rawMessages).slice(-6);
-  if (!shouldAttemptPassiveBridgeExtraction(rawMessages).shouldExtract) return [];
-  const latestUser = latestUserMessage(messages);
-  if (!latestUser) return [];
-
-  const candidates: PassiveBridgeCandidate[] = [];
-  const seen = new Set<string>();
-  const rules = candidateRules(latestUser.content);
-  if (rules.length === 0) {
-    const fallback = structuredFallbackCandidate(latestUser.content);
-    if (fallback) rules.push(fallback);
-  }
-
-  for (const rule of rules) {
-    const candidate = makeCandidate({
-      content: rule.content,
-      section: rule.section,
-      evidenceQuote: rule.content.includes("hidden automation")
-        ? evidenceSentence(latestUser.content, [
-            /hidden magic|explicit checks?/i,
-            rule.content.includes("boring explicit") ? /prefer/i : /./,
-          ])
-        : latestUser.content,
-      sourceIndex: latestUser.originalIndex,
-      reason: rule.reason,
-      confidence: rule.confidence,
-    });
-    const fingerprint = candidateFingerprint(candidate);
-    if (seen.has(fingerprint)) continue;
-    seen.add(fingerprint);
-    candidates.push(candidate);
-    if (candidates.length >= MAX_PASSIVE_CANDIDATES_PER_TURN) return candidates;
-  }
-
-  return candidates;
 }
 
 export function buildPassiveCandidateFingerprint(candidate: Pick<PassiveBridgeCandidate, "content" | "evidence_quote">): string {

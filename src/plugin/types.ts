@@ -33,6 +33,8 @@ export interface CommandContext {
 
 export interface PluginApi {
   pluginConfig?: Record<string, unknown>;
+  config?: Record<string, unknown>;
+  runtime?: Record<string, unknown>;
   logger: Logger;
   // Legacy hook registration (kept for backward compatibility)
   on?(hookName: string, handler: (...args: any[]) => any, opts?: { priority?: number }): void;

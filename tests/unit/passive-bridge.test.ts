@@ -1,202 +1,158 @@
 import { describe, expect, it } from "vitest";
 import {
   buildPassiveBridgeRequestId,
-  extractPassiveBridgeCandidates,
+  buildPassiveExtractorInput,
+  buildPassiveExtractorPrompt,
+  parsePassiveExtractorJson,
   shouldAttemptPassiveBridgeExtraction,
+  validatePassiveExtractorCandidates,
 } from "../../src/features/bridge/passive.js";
 
 function messages(content: string) {
   return [{ role: "user", content }];
 }
 
-describe("passive bridge extraction", () => {
-  it.each([
-    ["ok"],
-    ["Fix the deploy script."],
-    ["I've been flat all week."],
-    ["I can't keep doing this."],
-    ["```\nEngineers should prefer explicit checks.\n```"],
-    ["This README says:\n> Engineers should prefer explicit checks."],
-  ])("skips low-signal or unsafe turn: %s", (content) => {
-    expect(shouldAttemptPassiveBridgeExtraction(messages(content)).shouldExtract).toBe(false);
-    expect(extractPassiveBridgeCandidates(messages(content))).toEqual([]);
-  });
-
-  it("detects a durable preference inside an otherwise normal task request", () => {
-    const candidates = extractPassiveBridgeCandidates(messages(
-      "Fix the deploy script. I prefer boring explicit checks because hidden magic burns us later.",
-    ));
-
-    expect(candidates).toHaveLength(1);
-    expect(candidates[0]).toMatchObject({
-      content: "Prefers boring explicit checks over hidden automation.",
+function validOutput(content: string, evidence: string) {
+  return {
+    candidates: [{
+      content,
       suggested_section: "practices",
-      evidence_quote: "I prefer boring explicit checks because hidden magic burns us later.",
-      confidence: expect.any(Number),
+      evidence_quote: evidence,
+      confidence: 0.86,
       risk_tier: "low",
-      source_type: "conversation",
-      source_message_indices: [0],
+      reason: "The user stated a durable collaboration preference.",
+    }],
+  };
+}
+
+describe("passive bridge extraction gate and validation", () => {
+  it.each([
+    ["ok", "too_short"],
+    ["Fix the deploy script.", "task_only"],
+    ["I've been flat all week.", "unsafe_or_transient"],
+    ["I can't keep doing this.", "unsafe_or_transient"],
+    ["```\nEngineers should prefer explicit checks.\n```", "code_or_log"],
+    ["This README says:\n> Engineers should prefer explicit checks.", "pasted_without_ownership"],
+  ])("skips obvious non-candidates before model extraction: %s", (content, reason) => {
+    expect(shouldAttemptPassiveBridgeExtraction(messages(content))).toEqual({
+      shouldExtract: false,
+      reason,
     });
-    expect(candidates[0].confidence).toBeGreaterThanOrEqual(0.75);
-  });
-
-  it("does not let assistant-authored context become evidence", () => {
-    const candidates = extractPassiveBridgeCandidates([
-      { role: "assistant", content: "You prefer explicit checks." },
-      { role: "user", content: "yeah" },
-    ]);
-
-    expect(candidates).toEqual([]);
   });
 
   it.each([
-    [
-      "I hate being the fallback owner for everything. Help me design a better decision process.",
-      "Does not want to be the fallback owner for every decision.",
-    ],
-    [
-      "Hidden magic always burns us later.",
-      "Prefers explicit checks over hidden automation.",
-    ],
-    [
-      "When projects have no owner, I shut down and avoid them.",
-      "Works better when projects have a clear owner.",
-    ],
-    [
-      "I don't trust my manager to follow through unless everything is written down.",
-      "Prefers important follow-through expectations to be written down.",
-    ],
-    [
-      "I don't trust Sarah to follow through unless everything is written down.",
-      "Prefers important follow-through expectations to be written down.",
-    ],
-    [
-      "This README says to prefer explicit checks, and honestly that's how I like working too.",
-      "Prefers explicit checks.",
-    ],
-  ])("extracts safe durable candidate wording for %s", (content, expectedCandidate) => {
-    const candidates = extractPassiveBridgeCandidates(messages(content));
-
-    expect(candidates).toHaveLength(1);
-    expect(candidates[0].content).toBe(expectedCandidate);
-    expect(candidates[0].evidence_quote).toBe(content);
-    expect(candidates[0].content).not.toContain("Sarah");
-    expect(candidates[0].content).not.toContain("manager");
+    "Usually it’s that the next person isn’t totally clear on what they own, so I end up still carrying it in my head. I want the handoff to make the owner and next step obvious.",
+    "The part that usually breaks down is ownership. If every action item has a clear person attached to it and one concrete next step, I can actually let it go instead of tracking it in my head.",
+    "The main thing I want is for people to know what actually needs attention. Updates get messy when there are lots of topics but no clear person taking the next step, and then I end up tracking everything myself.",
+    "Fix the deploy script. I prefer boring explicit checks because hidden magic burns us later.",
+    "This README says to prefer explicit checks, and honestly that's how I like working too.",
+  ])("opens the cheap gate for durable user-owned signal: %s", (content) => {
+    expect(shouldAttemptPassiveBridgeExtraction(messages(content)).shouldExtract).toBe(true);
   });
 
-  it("requires a primary user-authored evidence quote and caps candidates", () => {
-    const candidates = extractPassiveBridgeCandidates(messages(
-      [
-        "I prefer boring explicit checks because hidden magic burns us later.",
-        "I work best when there are short written plans and clear decision rights.",
-        "I hate being the fallback owner for everything.",
-        "I like working with written follow-through.",
-      ].join(" "),
-    ));
-
-    expect(candidates).toHaveLength(3);
-    for (const candidate of candidates) {
-      expect(candidate.evidence_quote.length).toBeGreaterThan(0);
-      expect(candidate.reason).toBeTruthy();
-      expect(candidate.supporting_evidence_quotes ?? []).not.toContain("assistant");
-    }
-  });
-
-  it("extracts only from the latest user message that passed the gate", () => {
-    const candidates = extractPassiveBridgeCandidates([
-      { role: "user", content: "Hidden magic always burns us later." },
+  it("builds a bounded extractor prompt and recent message window", () => {
+    const evidence = "I want the handoff to make the owner and next step obvious.";
+    const input = buildPassiveExtractorInput([
+      { role: "user", content: "Earlier low-signal setup." },
+      { role: "assistant", content: "I can help." },
+      { role: "user", content: evidence },
       { role: "assistant", content: "I will make that explicit." },
-      { role: "user", content: "I hate being the fallback owner for everything. Help me design a better decision process." },
     ]);
 
-    expect(candidates).toHaveLength(1);
-    expect(candidates[0].content).toBe("Does not want to be the fallback owner for every decision.");
-    expect(candidates[0].source_message_indices).toEqual([2]);
-  });
-
-  it("uses structured fallback extraction when the gate passes without a fixed phrase rule", () => {
-    const candidates = extractPassiveBridgeCandidates(messages("I value low-drama handoffs with explicit owners."));
-
-    expect(candidates).toHaveLength(1);
-    expect(candidates[0]).toMatchObject({
-      content: "Values low-drama handoffs with explicit owners.",
-      suggested_section: "practices",
-      evidence_quote: "I value low-drama handoffs with explicit owners.",
-      confidence: expect.any(Number),
-      risk_tier: "low",
-    });
-    expect(candidates[0].confidence).toBeGreaterThanOrEqual(0.75);
-  });
-
-  it("extracts the live handoff owner and next-step preference", () => {
-    const evidence = "Usually it’s that the next person isn’t totally clear on what they own, so I end up still carrying it in my head. I want the handoff to make the owner and next step obvious.";
-    const candidates = extractPassiveBridgeCandidates(messages(evidence));
-
-    expect(candidates).toHaveLength(1);
-    expect(candidates[0]).toMatchObject({
-      content: "Prefers handoffs with a clearly named owner and explicit next step.",
-      suggested_section: "practices",
-      evidence_quote: evidence,
-      confidence: expect.any(Number),
-      risk_tier: "low",
-      source_type: "conversation",
-      source_message_indices: [0],
-    });
-    expect(candidates[0].confidence).toBeGreaterThanOrEqual(0.75);
-    expect(candidates[0].reason).toContain("durable handoff preference");
-  });
-
-  it("extracts the live action-item ownership and next-step preference", () => {
-    const evidence = "The part that usually breaks down is ownership. If every action item has a clear person attached to it and one concrete next step, I can actually let it go instead of tracking it in my head.";
-    const candidates = extractPassiveBridgeCandidates(messages(evidence));
-
-    expect(candidates).toHaveLength(1);
-    expect(candidates[0]).toMatchObject({
-      content: "Prefers action items to have a clear owner and one concrete next step.",
-      suggested_section: "practices",
-      evidence_quote: evidence,
-      confidence: expect.any(Number),
-      risk_tier: "low",
-      source_type: "conversation",
-      source_message_indices: [0],
-    });
-    expect(candidates[0].confidence).toBeGreaterThanOrEqual(0.75);
-    expect(candidates[0].reason).toContain("durable follow-up preference");
-  });
-
-  it("extracts ownership preferences for meeting follow-ups without requiring handoff wording", () => {
-    const evidence = "For meeting recaps, I want every follow-up to name the person responsible and the immediate next move, otherwise I keep tracking it myself.";
-    const candidates = extractPassiveBridgeCandidates(messages(evidence));
-
-    expect(candidates).toHaveLength(1);
-    expect(candidates[0]).toMatchObject({
-      content: "Prefers meeting follow-ups where each action item has a clear owner and next step.",
-      suggested_section: "practices",
-      evidence_quote: evidence,
-      confidence: expect.any(Number),
-      risk_tier: "low",
-    });
-    expect(candidates[0].confidence).toBeGreaterThanOrEqual(0.75);
-  });
-
-  it("does not extract from a pure meeting recap template request", () => {
-    const content = "Can you make a meeting recap template with action items?";
-
-    expect(shouldAttemptPassiveBridgeExtraction(messages(content)).shouldExtract).toBe(false);
-    expect(extractPassiveBridgeCandidates(messages(content))).toEqual([]);
-  });
-
-  it("does not extract action-item preferences from assistant-authored summaries with weak assent", () => {
-    const candidates = extractPassiveBridgeCandidates([
-      { role: "assistant", content: "It sounds like you prefer action items with clear owners." },
-      { role: "user", content: "yeah" },
+    expect(input.messages).toEqual([
+      { role: "user", content: "Earlier low-signal setup.", index: 0 },
+      { role: "assistant", content: "I can help.", index: 1 },
+      { role: "user", content: evidence, index: 2 },
+      { role: "assistant", content: "I will make that explicit.", index: 3 },
     ]);
+    expect(input.maxCandidates).toBe(3);
+    expect(input.prompt).toContain("Return JSON only");
+    expect(buildPassiveExtractorPrompt()).toContain("Do not create claims about named third parties");
+  });
 
-    expect(candidates).toEqual([]);
+  it("accepts one grounded low-risk model candidate", () => {
+    const evidence = "I want the handoff to make the owner and next step obvious.";
+    const input = buildPassiveExtractorInput(messages(evidence));
+    const result = validatePassiveExtractorCandidates(
+      validOutput("Prefers handoffs that make the owner and next step obvious.", evidence),
+      input,
+    );
+
+    expect(result.rejected).toEqual([]);
+    expect(result.accepted).toEqual([
+      expect.objectContaining({
+        content: "Prefers handoffs that make the owner and next step obvious.",
+        suggested_section: "practices",
+        evidence_quote: evidence,
+        source_message_indices: [0],
+        evidence_pointer: "message:0",
+        confidence: 0.86,
+        risk_tier: "low",
+      }),
+    ]);
+  });
+
+  it("rejects evidence not present in a user-authored message", () => {
+    const input = buildPassiveExtractorInput([
+      { role: "user", content: "I want the handoff to make the owner and next step obvious." },
+      { role: "assistant", content: "I will make ownership explicit." },
+    ]);
+    const result = validatePassiveExtractorCandidates(
+      validOutput("Prefers handoffs with explicit ownership.", "I will make ownership explicit."),
+      input,
+    );
+
+    expect(result.accepted).toEqual([]);
+    expect(result.rejected).toEqual([{ reason: "assistant_authored_evidence" }]);
+  });
+
+  it.each([
+    [{ confidence: 0.74 }, "low_confidence"],
+    [{ risk_tier: "medium" }, "non_low_risk"],
+    [{ risk_tier: "high" }, "non_low_risk"],
+    [{ suggested_section: "privateNotes" }, "invalid_section"],
+    [{ content: "User is depressed." }, "not_useful"],
+  ])("rejects invalid model candidate metadata %#", (override, reason) => {
+    const evidence = "I want the handoff to make the owner and next step obvious.";
+    const input = buildPassiveExtractorInput(messages(evidence));
+    const output = validOutput("Prefers handoffs that make the owner and next step obvious.", evidence);
+    Object.assign(output.candidates[0], override);
+
+    expect(validatePassiveExtractorCandidates(output, input).rejected).toContainEqual({ reason });
+  });
+
+  it("filters invalid candidates before applying the accepted candidate cap", () => {
+    const evidence = "I want the handoff to make the owner and next step obvious.";
+    const input = buildPassiveExtractorInput(messages(evidence));
+    const result = validatePassiveExtractorCandidates({
+      candidates: [
+        { ...validOutput("Too short.", evidence).candidates[0], content: "Too short." },
+        { ...validOutput("Prefers handoffs with explicit ownership.", evidence).candidates[0], risk_tier: "medium" },
+        { ...validOutput("Prefers handoffs with explicit next steps.", evidence).candidates[0], confidence: 0.2 },
+        validOutput("Prefers handoffs that make the owner and next step obvious.", evidence).candidates[0],
+      ],
+    }, input);
+
+    expect(result.accepted).toEqual([
+      expect.objectContaining({
+        content: "Prefers handoffs that make the owner and next step obvious.",
+      }),
+    ]);
+  });
+
+  it("parses JSON-only extractor output and rejects malformed output", () => {
+    expect(parsePassiveExtractorJson('{"candidates":[]}')).toEqual({ candidates: [] });
+    expect(parsePassiveExtractorJson('```json\n{"candidates":[]}\n```')).toEqual({ candidates: [] });
+    expect(() => parsePassiveExtractorJson("{nope")).toThrow(SyntaxError);
+    expect(() => parsePassiveExtractorJson('{"items":[]}')).toThrow(SyntaxError);
   });
 
   it("builds stable request ids from session, turn, and candidate fingerprints", () => {
-    const candidates = extractPassiveBridgeCandidates(messages("Hidden magic always burns us later."));
+    const evidence = "I want the handoff to make the owner and next step obvious.";
+    const candidates = validatePassiveExtractorCandidates(
+      validOutput("Prefers handoffs that make the owner and next step obvious.", evidence),
+      buildPassiveExtractorInput(messages(evidence)),
+    ).accepted;
 
     expect(buildPassiveBridgeRequestId({
       agentUserId: "agent-1",
