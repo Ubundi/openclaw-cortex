@@ -1211,15 +1211,22 @@ export function createBridgeHandler(
         if (!passiveGate.shouldExtract) {
           logger.debug?.(`Cortex bridge: passive skipped reason=${passiveGate.reason ?? "unknown"} sessionId=${sessionKey}`);
         }
-        const extractedCandidates = (passiveGate.shouldExtract ? extractPassiveBridgeCandidates(event.messages) : [])
+        const rawPassiveCandidates = passiveGate.shouldExtract ? extractPassiveBridgeCandidates(event.messages) : [];
+        const duplicatePassiveCandidates = rawPassiveCandidates.filter((candidate) => {
+          const fingerprint = buildPassiveCandidateFingerprint(candidate);
+          return sessionState.passiveFingerprints?.has(fingerprint) ?? false;
+        }).length;
+        const extractedCandidates = rawPassiveCandidates
           .filter((candidate) => {
             const fingerprint = buildPassiveCandidateFingerprint(candidate);
             if (sessionState.passiveFingerprints?.has(fingerprint)) return false;
             return true;
           })
           .slice(0, remainingSessionSlots);
-        if (passiveGate.shouldExtract && extractedCandidates.length === 0) {
+        if (passiveGate.shouldExtract && rawPassiveCandidates.length === 0) {
           logger.debug?.(`Cortex bridge: passive skipped reason=no_structured_candidates sessionId=${sessionKey}`);
+        } else if (passiveGate.shouldExtract && extractedCandidates.length === 0 && duplicatePassiveCandidates > 0) {
+          logger.debug?.(`Cortex bridge: passive skipped reason=same_session_duplicate sessionId=${sessionKey}`);
         }
 
         if (extractedCandidates.length > 0) {

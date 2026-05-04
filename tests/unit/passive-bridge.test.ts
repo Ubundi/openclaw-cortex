@@ -128,6 +128,24 @@ describe("passive bridge extraction", () => {
     expect(candidates[0].confidence).toBeGreaterThanOrEqual(0.75);
   });
 
+  it("extracts the live handoff owner and next-step preference", () => {
+    const evidence = "Usually it’s that the next person isn’t totally clear on what they own, so I end up still carrying it in my head. I want the handoff to make the owner and next step obvious.";
+    const candidates = extractPassiveBridgeCandidates(messages(evidence));
+
+    expect(candidates).toHaveLength(1);
+    expect(candidates[0]).toMatchObject({
+      content: "Prefers handoffs with a clearly named owner and explicit next step.",
+      suggested_section: "practices",
+      evidence_quote: evidence,
+      confidence: expect.any(Number),
+      risk_tier: "low",
+      source_type: "conversation",
+      source_message_indices: [0],
+    });
+    expect(candidates[0].confidence).toBeGreaterThanOrEqual(0.75);
+    expect(candidates[0].reason).toContain("durable handoff preference");
+  });
+
   it("builds stable request ids from session, turn, and candidate fingerprints", () => {
     const candidates = extractPassiveBridgeCandidates(messages("Hidden magic always burns us later."));
 

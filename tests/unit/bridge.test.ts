@@ -888,6 +888,40 @@ describe("TooToo bridge handler", () => {
     expect((client.submitBridgePassive as any)).toHaveBeenCalledTimes(1);
   });
 
+  it("suppresses duplicate handoff passive candidates in the same session", async () => {
+    const client = makeClient();
+    const handler = createBridgeHandler(client, {
+      logger,
+      getUserId: () => "agent-user-1",
+      userIdReady: Promise.resolve(),
+      pluginSessionId: "plugin-session-1",
+    });
+    const evidence = "Usually it’s that the next person isn’t totally clear on what they own, so I end up still carrying it in my head. I want the handoff to make the owner and next step obvious.";
+    const event = {
+      messages: [
+        { role: "user", content: evidence },
+        { role: "assistant", content: "I will make the owner and next step explicit." },
+      ],
+      aborted: false,
+      sessionKey: "sess-passive-handoff-dupe",
+    };
+
+    await expect(handler.handleAgentEnd(event)).resolves.toBe(true);
+    await expect(handler.handleAgentEnd({
+      ...event,
+      messages: [...event.messages, { role: "user", content: evidence }],
+    })).resolves.toBe(false);
+
+    expect((client.submitBridgePassive as any)).toHaveBeenCalledTimes(1);
+    const request = (client.submitBridgePassive as any).mock.calls[0][0];
+    expect(request.candidates).toHaveLength(1);
+    expect(request.candidates[0]).toMatchObject({
+      content: "Prefers handoffs with a clearly named owner and explicit next step.",
+      evidence_quote: evidence,
+      risk_tier: "low",
+    });
+  });
+
   it("caps passive sends to five candidates per session in memory", async () => {
     const client = makeClient();
     const handler = createBridgeHandler(client, {

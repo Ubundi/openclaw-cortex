@@ -214,6 +214,14 @@ function candidateRules(text: string): Array<{ content: string; reason: string; 
     });
   }
 
+  if (/\bhandoffs?\b/i.test(text) && /\b(?:owner|own|ownership)\b/i.test(text) && /\bnext step\b/i.test(text)) {
+    rules.push({
+      content: "Prefers handoffs with a clearly named owner and explicit next step.",
+      reason: "The user described a durable handoff preference and mental-load pattern.",
+      confidence: 0.88,
+    });
+  }
+
   return rules;
 }
 
