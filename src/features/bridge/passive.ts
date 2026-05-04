@@ -9,8 +9,8 @@ import { isLowSignal, sanitizeConversationText } from "../capture/filter.js";
 export const PASSIVE_BRIDGE_EXTRACTOR_VERSION = "openclaw-cortex-passive-v1";
 export const MAX_PASSIVE_CANDIDATES_PER_TURN = 3;
 export const MAX_PASSIVE_CANDIDATES_PER_SESSION = 5;
-export const PASSIVE_EXTRACTOR_TIMEOUT_MS = 8_000;
-export const PASSIVE_EXTRACTOR_MAX_OUTPUT_TOKENS = 900;
+export const PASSIVE_EXTRACTOR_TIMEOUT_MS = 3_000;
+export const PASSIVE_EXTRACTOR_MAX_OUTPUT_TOKENS = 450;
 
 type PassiveRole = "assistant" | "user";
 
@@ -38,6 +38,7 @@ export interface PassiveExtractorInput {
   maxCandidates: number;
   timeoutMs: number;
   maxOutputTokens: number;
+  activeModelRef?: string;
 }
 
 export interface PassiveExtractorOutput {

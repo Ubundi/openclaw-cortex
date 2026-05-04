@@ -36,6 +36,21 @@ type RunEmbeddedPiAgent = (params: Record<string, unknown>) => Promise<{
 
 let cachedRunEmbeddedPiAgent: Promise<RunEmbeddedPiAgent | undefined> | undefined;
 
+export class PassiveExtractorTimeoutError extends Error {
+  readonly timeoutMs: number;
+
+  constructor(timeoutMs: number) {
+    super(`passive extractor timed out after ${timeoutMs}ms`);
+    this.name = "PassiveExtractorTimeoutError";
+    this.timeoutMs = timeoutMs;
+  }
+}
+
+export function isPassiveExtractorTimeoutError(error: unknown): error is PassiveExtractorTimeoutError {
+  return error instanceof PassiveExtractorTimeoutError
+    || (typeof error === "object" && error !== null && (error as { name?: unknown }).name === "PassiveExtractorTimeoutError");
+}
+
 function collectText(payloads: Array<{ text?: string; isError?: boolean }> | undefined): string {
   return (payloads ?? [])
     .filter((payload) => !payload.isError && typeof payload.text === "string")
@@ -50,11 +65,39 @@ function recordValue(value: unknown): Record<string, unknown> | undefined {
     : undefined;
 }
 
-function configuredDefaultWorkspace(config: OpenClawConfigLike | undefined): string | undefined {
-  const agents = recordValue(config?.agents);
+function normalizeModelRef(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim().toLowerCase();
+  if (!trimmed || !trimmed.includes("/")) return undefined;
+  return trimmed;
+}
+
+function splitModelRef(modelRef: string | undefined): { provider: string; model: string } | undefined {
+  const normalized = normalizeModelRef(modelRef);
+  if (!normalized) return undefined;
+  const slash = normalized.indexOf("/");
+  const provider = normalized.slice(0, slash);
+  const model = normalized.slice(slash + 1);
+  if (!provider || !model) return undefined;
+  return { provider, model };
+}
+
+function forcePrimaryModel(config: OpenClawConfigLike, modelRef: string | undefined): OpenClawConfigLike {
+  const normalized = normalizeModelRef(modelRef);
+  if (!normalized) return config;
+
+  const agents = recordValue(config.agents);
   const defaults = recordValue(agents?.defaults);
-  const workspace = defaults?.workspace;
-  return typeof workspace === "string" && workspace.trim() ? workspace : undefined;
+  return {
+    ...config,
+    agents: {
+      ...(agents ?? {}),
+      defaults: {
+        ...(defaults ?? {}),
+        model: { primary: normalized, fallbacks: [] },
+      },
+    },
+  };
 }
 
 function stripToolPolicy(value: unknown): unknown {
@@ -79,15 +122,18 @@ function stripAgentToolPolicy(value: unknown): unknown {
   };
 }
 
-export function buildModelOnlyExtractorConfig(config: OpenClawConfigLike | undefined): OpenClawConfigLike | undefined {
+export function buildModelOnlyExtractorConfig(
+  config: OpenClawConfigLike | undefined,
+  activeModelRef?: string,
+): OpenClawConfigLike | undefined {
   if (!config) return undefined;
-  const next: OpenClawConfigLike = { ...config };
+  const next: OpenClawConfigLike = forcePrimaryModel({ ...config }, activeModelRef);
 
-  if (recordValue(config.tools)) {
-    next.tools = stripToolPolicy(config.tools);
+  if (recordValue(next.tools)) {
+    next.tools = stripToolPolicy(next.tools);
   }
 
-  const agents = recordValue(config.agents);
+  const agents = recordValue(next.agents);
   if (agents) {
     const nextAgents: Record<string, unknown> = { ...agents };
     if (recordValue(agents.defaults)) {
@@ -157,7 +203,7 @@ function withTimeout<T>(
   const timeoutPromise = new Promise<T>((_, reject) => {
     timeout = setTimeout(() => {
       controller.abort();
-      reject(new Error(`passive extractor timed out after ${timeoutMs}ms`));
+      reject(new PassiveExtractorTimeoutError(timeoutMs));
     }, timeoutMs);
   });
   return Promise.race([promise, timeoutPromise]).finally(() => {
@@ -177,20 +223,19 @@ export function createOpenClawPassiveModelExtractor(
     }
 
     const config = api.config;
-    const extractorConfig = buildModelOnlyExtractorConfig(config);
+    const extractorConfig = buildModelOnlyExtractorConfig(config, input.activeModelRef);
+    const activeModel = splitModelRef(input.activeModelRef);
     let tmpDir: string | undefined;
+    const startedAt = Date.now();
     try {
       const agentDir = api.runtime?.agent?.resolveAgentDir?.(config);
-      if (!agentDir) {
-        tmpDir = await mkdtemp(join(tmpdir(), "openclaw-cortex-passive-"));
-      }
-      const workspaceDir = api.runtime?.agent?.resolveAgentWorkspaceDir?.(config)
-        ?? configuredDefaultWorkspace(config)
-        ?? process.cwd();
+      tmpDir = await mkdtemp(join(tmpdir(), "openclaw-cortex-passive-"));
+      const workspaceDir = tmpDir;
       const timeoutMs = Math.min(
         input.timeoutMs,
         api.runtime?.agent?.resolveAgentTimeoutMs?.(config) ?? input.timeoutMs,
       );
+      logger.debug?.(`Cortex bridge: passive extractor_called runner=embedded_agent timeoutMs=${timeoutMs} maxOutputTokens=${input.maxOutputTokens} model=${input.activeModelRef ?? "default"}`);
       const prompt = [
         input.prompt,
         "",
@@ -202,20 +247,26 @@ export function createOpenClawPassiveModelExtractor(
       ].join("\n");
 
       const controller = new AbortController();
+      const runSuffix = Date.now();
       const result = await withTimeout(runEmbeddedPiAgent({
-        sessionId: `cortex-passive-extractor-${Date.now()}`,
+        sessionId: `cortex-passive-extractor-${runSuffix}`,
         sessionKey: PASSIVE_EXTRACTOR_SESSION_KEY,
         sessionFile: agentDir
-          ? join(agentDir, "sessions", `cortex-passive-extractor-${Date.now()}.jsonl`)
+          ? join(agentDir, "sessions", `cortex-passive-extractor-${runSuffix}.jsonl`)
           : join(tmpDir!, "session.json"),
         workspaceDir,
+        ...(agentDir ? { agentDir } : {}),
         config: extractorConfig,
         prompt,
         timeoutMs,
-        runId: `cortex-passive-extractor-${Date.now()}`,
+        runId: `cortex-passive-extractor-${runSuffix}`,
         abortSignal: controller.signal,
         authProfileIdSource: "auto",
         disableTools: true,
+        disableMessageTool: true,
+        requireExplicitMessageTarget: true,
+        skillsSnapshot: { prompt: "", skills: [], resolvedSkills: [], version: 0 },
+        ...(activeModel ? activeModel : {}),
         streamParams: {
           maxTokens: input.maxOutputTokens,
           temperature: 0,
@@ -223,8 +274,18 @@ export function createOpenClawPassiveModelExtractor(
       }), timeoutMs, controller);
 
       const text = collectText(result.payloads);
-      if (!text) return { candidates: [] };
-      return parsePassiveExtractorJson(text);
+      if (!text) {
+        logger.debug?.(`Cortex bridge: passive extractor_completed durationMs=${Date.now() - startedAt} candidateCount=0`);
+        return { candidates: [] };
+      }
+      const parsed = parsePassiveExtractorJson(text);
+      logger.debug?.(`Cortex bridge: passive extractor_completed durationMs=${Date.now() - startedAt} candidateCount=${parsed.candidates.length}`);
+      return parsed;
+    } catch (err) {
+      if (isPassiveExtractorTimeoutError(err)) {
+        logger.debug?.(`Cortex bridge: passive extractor_timeout durationMs=${Date.now() - startedAt} timeoutMs=${err.timeoutMs} model=${input.activeModelRef ?? "default"}`);
+      }
+      throw err;
     } finally {
       if (tmpDir) {
         await rm(tmpDir, { recursive: true, force: true }).catch(() => undefined);

@@ -16,7 +16,7 @@ import type { RetryQueue } from "../../internal/retry-queue.js";
 import type { ClawDeployBridgeTraceClient, ClawDeployBridgeTraceEvent } from "../../internal/clawdeploy-bridge-traces.js";
 import { redactBridgeTraceError } from "../../internal/clawdeploy-bridge-traces.js";
 import { isLowSignal, sanitizeConversationText } from "../capture/filter.js";
-import { PASSIVE_EXTRACTOR_SESSION_KEY } from "./openclaw-extractor.js";
+import { isPassiveExtractorTimeoutError, PASSIVE_EXTRACTOR_SESSION_KEY } from "./openclaw-extractor.js";
 import {
   buildPassiveExtractorInput,
   buildPassiveBridgeRequestId,
@@ -102,6 +102,7 @@ export interface CreateBridgeHandlerOptions {
   auditLogger?: AuditLogger;
   bridgeTraceClient?: ClawDeployBridgeTraceClient;
   passiveModelExtractor?: PassiveModelExtractor;
+  getActiveModelRef?: (sessionKey: string) => string | undefined;
 }
 
 const LINK_STATUS_TTL_MS = 60_000;
@@ -1222,8 +1223,13 @@ export function createBridgeHandler(
           logger.debug?.(`Cortex bridge: passive skipped reason=model_extractor_unavailable sessionId=${sessionKey}`);
         } else if (passiveGate.shouldExtract && passiveModelExtractor) {
           const extractorInput = buildPassiveExtractorInput(event.messages);
+          extractorInput.activeModelRef = options.getActiveModelRef?.(sessionKey);
+          const extractorStartedAt = Date.now();
+          logger.debug?.(`Cortex bridge: passive extractor_called sessionId=${sessionKey} model=${extractorInput.activeModelRef ?? "default"} timeoutMs=${extractorInput.timeoutMs}`);
           try {
             const modelOutput = await passiveModelExtractor(extractorInput);
+            const extractorDurationMs = Date.now() - extractorStartedAt;
+            logger.debug?.(`Cortex bridge: passive extractor_completed sessionId=${sessionKey} durationMs=${extractorDurationMs} candidateCount=${modelOutput.candidates.length}`);
             const validation = validatePassiveExtractorCandidates(modelOutput, extractorInput);
             rawPassiveCandidates = validation.accepted;
             if (modelOutput.candidates.length === 0) {
@@ -1233,8 +1239,13 @@ export function createBridgeHandler(
               logger.debug?.(`Cortex bridge: passive skipped reason=validator_rejected rejected=${validation.rejected.length} buckets=${buckets} sessionId=${sessionKey}`);
             }
           } catch (err) {
-            const reason = err instanceof SyntaxError ? "invalid_json" : "extractor_failed";
-            logger.debug?.(`Cortex bridge: passive skipped reason=${reason} sessionId=${sessionKey}`);
+            const durationMs = Date.now() - extractorStartedAt;
+            const reason = isPassiveExtractorTimeoutError(err)
+              ? "extractor_timeout"
+              : err instanceof SyntaxError
+                ? "invalid_json"
+                : "extractor_failed";
+            logger.debug?.(`Cortex bridge: passive skipped reason=${reason} sessionId=${sessionKey} durationMs=${durationMs}`);
             rawPassiveCandidates = [];
           }
         }

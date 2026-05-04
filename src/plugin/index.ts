@@ -56,6 +56,7 @@ const CONNECTIVITY_STATE_FILE = join(homedir(), ".openclaw", "cortex-connectivit
 const UPDATE_CHECK_FILE = join(homedir(), ".openclaw", "cortex-update-check.json");
 const UPDATE_CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
 const RECENT_HEALTHY_SUPPRESSION_WINDOW_MS = 5 * 60_000;
+const ACTIVE_MODEL_REF_TTL_MS = 10 * 60_000;
 
 interface SessionStats {
   saves: number;
@@ -69,6 +70,52 @@ interface SessionStats {
 
 interface ConnectivityState {
   lastHealthyAt: number;
+}
+
+interface ActiveModelSnapshot {
+  modelRef: string;
+  capturedAt: number;
+}
+
+function compactModelPart(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim().toLowerCase();
+  return trimmed ? trimmed : undefined;
+}
+
+function normalizeModelRefFromEvent(event: Record<string, unknown>): string | undefined {
+  for (const key of ["modelRef", "model_ref", "resolvedModel", "resolved_model"]) {
+    const direct = compactModelPart(event[key]);
+    if (direct?.includes("/")) return direct;
+  }
+
+  const provider = compactModelPart(event.provider)
+    ?? compactModelPart(event.providerId)
+    ?? compactModelPart(event.provider_id);
+  const model = compactModelPart(event.model)
+    ?? compactModelPart(event.modelId)
+    ?? compactModelPart(event.model_id);
+  if (!provider || !model) return undefined;
+  return model.includes("/") ? model : `${provider}/${model}`;
+}
+
+function rememberActiveModelRef(
+  cache: Map<string, ActiveModelSnapshot>,
+  sessionKey: string | undefined,
+  modelRef: string | undefined,
+): void {
+  if (!sessionKey || sessionKey === PASSIVE_EXTRACTOR_SESSION_KEY || !modelRef) return;
+  cache.set(sessionKey, { modelRef, capturedAt: Date.now() });
+}
+
+function readActiveModelRef(cache: Map<string, ActiveModelSnapshot>, sessionKey: string): string | undefined {
+  const snapshot = cache.get(sessionKey);
+  if (!snapshot) return undefined;
+  if (Date.now() - snapshot.capturedAt > ACTIVE_MODEL_REF_TTL_MS) {
+    cache.delete(sessionKey);
+    return undefined;
+  }
+  return snapshot.modelRef;
 }
 
 function persistStats(stats: SessionStats): void {
@@ -861,6 +908,7 @@ const plugin = {
       () => rolePreset?.recallContext,
       () => workspaceDirResolved,
     );
+    const activeModelRefs = new Map<string, ActiveModelSnapshot>();
     const bridgeHandler = createBridgeHandler(client, {
       logger: api.logger,
       retryQueue,
@@ -870,6 +918,7 @@ const plugin = {
       auditLogger: auditLoggerProxy,
       bridgeTraceClient,
       passiveModelExtractor: createOpenClawPassiveModelExtractor(api, api.logger),
+      getActiveModelRef: (activeSessionKey) => readActiveModelRef(activeModelRefs, activeSessionKey),
     });
 
     void userIdReady.then(() => bridgeHandler.refreshLinkStatus(true));
@@ -940,6 +989,21 @@ const plugin = {
       {
         name: "openclaw-cortex.recall",
         description: "Inject relevant Cortex memories before agent turn",
+      },
+    );
+
+    registerHookCompat(
+      api,
+      "model_call_started",
+      (event: Record<string, unknown>, ctx: { sessionKey?: string; sessionId?: string } = {}) => {
+        const activeSessionKey = resolveSessionKey({ ...event, ...ctx }, sessionId);
+        if (activeSessionKey === PASSIVE_EXTRACTOR_SESSION_KEY) return;
+        const modelRef = normalizeModelRefFromEvent(event);
+        rememberActiveModelRef(activeModelRefs, activeSessionKey, modelRef);
+      },
+      {
+        name: "openclaw-cortex.model-trace",
+        description: "Track resolved provider/model metadata for internal passive extraction",
       },
     );
 

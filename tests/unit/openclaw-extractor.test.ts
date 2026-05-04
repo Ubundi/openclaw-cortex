@@ -42,11 +42,14 @@ describe("OpenClaw passive model extractor adapter", () => {
     const call = runEmbeddedAgent.mock.calls[0][0];
     expect(call).toMatchObject({
       sessionKey: PASSIVE_EXTRACTOR_SESSION_KEY,
-      workspaceDir: "/workspace-from-runtime",
-      timeoutMs: 8_000,
+      timeoutMs: 3_000,
       disableTools: true,
+      disableMessageTool: true,
+      requireExplicitMessageTarget: true,
       authProfileIdSource: "auto",
+      skillsSnapshot: { prompt: "", skills: [], resolvedSkills: [], version: 0 },
     });
+    expect(call.workspaceDir).toContain("openclaw-cortex-passive-");
     expect(call.sessionFile).toContain("/agent-dir/sessions/cortex-passive-extractor-");
     expect(call.prompt).toContain("CONVERSATION_WINDOW_JSON");
     expect(call).not.toHaveProperty("provider");
@@ -128,6 +131,22 @@ describe("OpenClaw passive model extractor adapter", () => {
     expect(config.agents.defaults.tools.allow).toEqual(["browser"]);
   });
 
+  it("forces the active conversation model into model-only extraction", () => {
+    const modelOnly = buildModelOnlyExtractorConfig({
+      agents: {
+        defaults: {
+          model: { primary: "openai/gpt-5.5", fallbacks: ["openai/gpt-5.4"] },
+          tools: { allow: ["browser"] },
+        },
+      },
+    }, "bedrock/anthropic.claude-sonnet-4-6");
+
+    expect((modelOnly?.agents as any).defaults.model).toEqual({
+      primary: "bedrock/anthropic.claude-sonnet-4-6",
+      fallbacks: [],
+    });
+  });
+
   it("returns parsed JSON candidates from a successful model-only extractor run", async () => {
     const evidence = "I want the handoff to make the owner and next step obvious.";
     const runEmbeddedAgent = vi.fn().mockResolvedValue({
@@ -157,15 +176,25 @@ describe("OpenClaw passive model extractor adapter", () => {
       },
     }, { debug: vi.fn() });
 
-    await expect(extractor(buildPassiveExtractorInput([
+    const input = buildPassiveExtractorInput([
       { role: "user", content: evidence },
-    ]))).resolves.toEqual({
+    ]);
+    input.activeModelRef = "bedrock/anthropic.claude-sonnet-4-6";
+
+    await expect(extractor(input)).resolves.toEqual({
       candidates: [expect.objectContaining({
         content: "Prefers handoffs that make the owner and next step obvious.",
         evidence_quote: evidence,
       })],
     });
-    expect(runEmbeddedAgent.mock.calls[0][0].config.tools).toEqual({});
+    const call = runEmbeddedAgent.mock.calls[0][0];
+    expect(call.config.tools).toEqual({});
+    expect(call.provider).toBe("bedrock");
+    expect(call.model).toBe("anthropic.claude-sonnet-4-6");
+    expect(call.config.agents.defaults.model).toEqual({
+      primary: "bedrock/anthropic.claude-sonnet-4-6",
+      fallbacks: [],
+    });
   });
 
   it("can load the embedded agent from a shipped hashed OpenClaw dist bundle fallback", async () => {

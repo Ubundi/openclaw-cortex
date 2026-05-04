@@ -10,6 +10,7 @@ import {
   extractLastQuestion,
   inferTargetSection,
 } from "../../src/features/bridge/handler.js";
+import { PassiveExtractorTimeoutError } from "../../src/features/bridge/openclaw-extractor.js";
 import type { ClawDeployBridgeTraceClient } from "../../src/internal/clawdeploy-bridge-traces.js";
 
 const logger = {
@@ -271,6 +272,7 @@ describe("TooToo bridge handler", () => {
       userIdReady: Promise.resolve(),
       pluginSessionId: "plugin-session-1",
       passiveModelExtractor,
+      getActiveModelRef: () => "bedrock/anthropic.claude-sonnet-4-6",
     });
 
     await expect(handler.handleAgentEnd({
@@ -284,6 +286,7 @@ describe("TooToo bridge handler", () => {
 
     expect(passiveModelExtractor).toHaveBeenCalledTimes(1);
     const extractorInput = passiveModelExtractor.mock.calls[0][0];
+    expect(extractorInput.activeModelRef).toBe("bedrock/anthropic.claude-sonnet-4-6");
     expect(extractorInput.messages).toEqual(expect.arrayContaining([
       expect.objectContaining({ role: "user", content: evidence }),
     ]));
@@ -324,6 +327,38 @@ describe("TooToo bridge handler", () => {
     expect(passiveModelExtractor).toHaveBeenCalledTimes(1);
     expect((client.submitBridgePassive as any)).not.toHaveBeenCalled();
     expect(logger.debug).toHaveBeenCalledWith(expect.stringContaining("extractor_zero_candidates"));
+    expect(logger.debug).toHaveBeenCalledWith(expect.stringContaining("extractor_completed"));
+  });
+
+  it("logs timeout duration and sends no passive bridge request when extraction times out", async () => {
+    const client = makeClient();
+    const evidence = "My instinct is to wait when the change affects something customer-facing. I’m okay moving fast for internal cleanup, but if users might notice it, I’d rather have one more verification pass than rush it out.";
+    const passiveModelExtractor = vi.fn().mockRejectedValue(new PassiveExtractorTimeoutError(3_000));
+    const handler = createBridgeHandler(client, {
+      logger,
+      getUserId: () => "agent-user-1",
+      userIdReady: Promise.resolve(),
+      pluginSessionId: "plugin-session-1",
+      passiveModelExtractor,
+      getActiveModelRef: () => "bedrock/anthropic.claude-sonnet-4-6",
+    });
+
+    const startedAt = Date.now();
+    await expect(handler.handleAgentEnd({
+      messages: [
+        { role: "user", content: evidence },
+        { role: "assistant", content: "That split between user-facing and internal work is clear." },
+      ],
+      aborted: false,
+      sessionKey: "sess-passive-timeout",
+    })).resolves.toBe(false);
+
+    expect(Date.now() - startedAt).toBeLessThan(250);
+    expect(passiveModelExtractor).toHaveBeenCalledTimes(1);
+    expect(passiveModelExtractor.mock.calls[0][0].activeModelRef).toBe("bedrock/anthropic.claude-sonnet-4-6");
+    expect((client.submitBridgePassive as any)).not.toHaveBeenCalled();
+    expect(logger.debug).toHaveBeenCalledWith(expect.stringContaining("extractor_timeout"));
+    expect(logger.debug).toHaveBeenCalledWith(expect.stringContaining("durationMs="));
   });
 
   it("rejects passive model output when evidence is not an exact user-authored substring", async () => {
