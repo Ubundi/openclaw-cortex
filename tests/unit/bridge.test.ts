@@ -922,6 +922,46 @@ describe("TooToo bridge handler", () => {
     });
   });
 
+  it("sends action-item ownership preference even after an older handoff candidate in the same session", async () => {
+    const client = makeClient();
+    const handler = createBridgeHandler(client, {
+      logger,
+      getUserId: () => "agent-user-1",
+      userIdReady: Promise.resolve(),
+      pluginSessionId: "plugin-session-1",
+    });
+    const handoffEvidence = "Usually it’s that the next person isn’t totally clear on what they own, so I end up still carrying it in my head. I want the handoff to make the owner and next step obvious.";
+    const actionItemEvidence = "The part that usually breaks down is ownership. If every action item has a clear person attached to it and one concrete next step, I can actually let it go instead of tracking it in my head.";
+
+    await expect(handler.handleAgentEnd({
+      messages: [
+        { role: "user", content: handoffEvidence },
+        { role: "assistant", content: "I will make handoffs explicit." },
+      ],
+      aborted: false,
+      sessionKey: "sess-passive-action-item-after-handoff",
+    })).resolves.toBe(true);
+    await expect(handler.handleAgentEnd({
+      messages: [
+        { role: "user", content: handoffEvidence },
+        { role: "assistant", content: "I will make handoffs explicit." },
+        { role: "user", content: actionItemEvidence },
+        { role: "assistant", content: "I will attach every action item to an owner and next step." },
+      ],
+      aborted: false,
+      sessionKey: "sess-passive-action-item-after-handoff",
+    })).resolves.toBe(true);
+
+    expect((client.submitBridgePassive as any)).toHaveBeenCalledTimes(2);
+    const secondRequest = (client.submitBridgePassive as any).mock.calls[1][0];
+    expect(secondRequest.candidates).toHaveLength(1);
+    expect(secondRequest.candidates[0]).toMatchObject({
+      content: "Prefers action items to have a clear owner and one concrete next step.",
+      evidence_quote: actionItemEvidence,
+      risk_tier: "low",
+    });
+  });
+
   it("caps passive sends to five candidates per session in memory", async () => {
     const client = makeClient();
     const handler = createBridgeHandler(client, {

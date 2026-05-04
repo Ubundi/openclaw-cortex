@@ -70,7 +70,7 @@ function countWords(text: string): number {
 }
 
 const ACK_RE = /^(?:ok|okay|yes|yeah|yep|no|nope|sure|sounds good|thanks|thank you|got it|cool|great)[.!?]*$/i;
-const TASK_ONLY_RE = /^(?:please\s+)?(?:fix|debug|solve|implement|write|update|edit|change|refactor|add|remove|delete|check|review|look at|show me|tell me|give me|explain|run|test|build|deploy)\b(?![\s\S]*\b(?:i|my|me|for me|to me|prefer|work best|like working|hate being|hidden magic|owner|written down)\b)/i;
+const TASK_ONLY_RE = /^(?:(?:please|can you|could you|would you)\s+)?(?:fix|debug|solve|implement|write|update|edit|change|refactor|add|remove|delete|check|review|look at|show me|tell me|give me|explain|run|test|build|deploy|make|create)\b(?![\s\S]*\b(?:i|my|me|for me|to me|prefer|work best|like working|hate being|hidden magic|owner|ownership|written down|tracking it|let it go)\b)/i;
 const CODE_FENCE_RE = /```[\s\S]*```/;
 const CODEISH_RE = /(?:^|\s)(?:const|let|var|function|class|interface|type|import|export|def|SELECT|CREATE|ERROR|WARN|INFO|Traceback|at\s+\S+\(|npm ERR!)\b|=>|[{};]{2,}/m;
 const PASTED_QUOTE_RE = /(?:^|\n)\s*(?:>|#{1,6}\s|[-*]\s)|\bREADME\b.*\bsays\b/i;
@@ -78,7 +78,7 @@ const OWNERSHIP_RE = /\b(?:i|i'm|i am|i've|i have|my|me|for me|to me|honestly th
 // v1 intentionally over-blocks turns touching diagnosis, crisis, or protected-trait terms.
 // Missing a benign candidate is safer than extracting sensitive identity or health claims.
 const TRANSIENT_OR_RISK_RE = /\b(?:flat all week|can't keep doing this|cannot keep doing this|kill myself|suicide|self[- ]harm|diagnosed|depressed|bipolar|adhd|autistic|trauma|panic attack)\b/i;
-const DURABLE_SIGNAL_RE = /\b(?:prefer|work best|like working|value|boundary|non-negotiable|written down|explicit checks?|hidden magic|fallback owner|clear owner|decision rights|short written plans?|low-drama|fast checkpoints?|follow through|ownership|owner|avoid them|shut down)\b/i;
+const DURABLE_SIGNAL_RE = /\b(?:prefer|work best|like working|value|boundary|non-negotiable|written down|explicit checks?|hidden magic|fallback owner|clear owner|decision rights|short written plans?|low-drama|fast checkpoints?|follow through|ownership|owner|person responsible|clear person|concrete next step|immediate next move|tracking it|let it go|carrying it|avoid them|shut down)\b/i;
 
 function latestUserMessage(messages: PassiveConversationMessage[]): PassiveConversationMessage | undefined {
   for (let i = messages.length - 1; i >= 0; i--) {
@@ -218,6 +218,21 @@ function candidateRules(text: string): Array<{ content: string; reason: string; 
     rules.push({
       content: "Prefers handoffs with a clearly named owner and explicit next step.",
       reason: "The user described a durable handoff preference and mental-load pattern.",
+      confidence: 0.88,
+    });
+  }
+
+  if (
+    /\b(?:action items?|follow-ups?|meeting recaps?|meeting follow-ups?|delegat(?:e|ion))\b/i.test(text) &&
+    /\b(?:clear person|person attached|person responsible|owner|owners|ownership|own)\b/i.test(text) &&
+    /\b(?:concrete next step|immediate next move|next steps?|next move)\b/i.test(text) &&
+    /\b(?:tracking it|let it go|carrying it)\b/i.test(text)
+  ) {
+    rules.push({
+      content: /\b(?:meeting recaps?|follow-ups?|meeting follow-ups?)\b/i.test(text)
+        ? "Prefers meeting follow-ups where each action item has a clear owner and next step."
+        : "Prefers action items to have a clear owner and one concrete next step.",
+      reason: "The user described a durable follow-up preference that reduces mental tracking load.",
       confidence: 0.88,
     });
   }

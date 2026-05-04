@@ -146,6 +146,55 @@ describe("passive bridge extraction", () => {
     expect(candidates[0].reason).toContain("durable handoff preference");
   });
 
+  it("extracts the live action-item ownership and next-step preference", () => {
+    const evidence = "The part that usually breaks down is ownership. If every action item has a clear person attached to it and one concrete next step, I can actually let it go instead of tracking it in my head.";
+    const candidates = extractPassiveBridgeCandidates(messages(evidence));
+
+    expect(candidates).toHaveLength(1);
+    expect(candidates[0]).toMatchObject({
+      content: "Prefers action items to have a clear owner and one concrete next step.",
+      suggested_section: "practices",
+      evidence_quote: evidence,
+      confidence: expect.any(Number),
+      risk_tier: "low",
+      source_type: "conversation",
+      source_message_indices: [0],
+    });
+    expect(candidates[0].confidence).toBeGreaterThanOrEqual(0.75);
+    expect(candidates[0].reason).toContain("durable follow-up preference");
+  });
+
+  it("extracts ownership preferences for meeting follow-ups without requiring handoff wording", () => {
+    const evidence = "For meeting recaps, I want every follow-up to name the person responsible and the immediate next move, otherwise I keep tracking it myself.";
+    const candidates = extractPassiveBridgeCandidates(messages(evidence));
+
+    expect(candidates).toHaveLength(1);
+    expect(candidates[0]).toMatchObject({
+      content: "Prefers meeting follow-ups where each action item has a clear owner and next step.",
+      suggested_section: "practices",
+      evidence_quote: evidence,
+      confidence: expect.any(Number),
+      risk_tier: "low",
+    });
+    expect(candidates[0].confidence).toBeGreaterThanOrEqual(0.75);
+  });
+
+  it("does not extract from a pure meeting recap template request", () => {
+    const content = "Can you make a meeting recap template with action items?";
+
+    expect(shouldAttemptPassiveBridgeExtraction(messages(content)).shouldExtract).toBe(false);
+    expect(extractPassiveBridgeCandidates(messages(content))).toEqual([]);
+  });
+
+  it("does not extract action-item preferences from assistant-authored summaries with weak assent", () => {
+    const candidates = extractPassiveBridgeCandidates([
+      { role: "assistant", content: "It sounds like you prefer action items with clear owners." },
+      { role: "user", content: "yeah" },
+    ]);
+
+    expect(candidates).toEqual([]);
+  });
+
   it("builds stable request ids from session, turn, and candidate fingerprints", () => {
     const candidates = extractPassiveBridgeCandidates(messages("Hidden magic always burns us later."));
 
