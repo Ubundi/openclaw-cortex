@@ -38,6 +38,7 @@
   },
   "files": [
     "dist",
+    "scripts/ensure-openclaw-cortex-config.mjs",
     "openclaw.plugin.json",
     "LICENSE"
   ],
