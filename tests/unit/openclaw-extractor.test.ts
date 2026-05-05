@@ -143,10 +143,10 @@ describe("OpenClaw passive model extractor adapter", () => {
           tools: { allow: ["browser"] },
         },
       },
-    }, "bedrock/anthropic.claude-sonnet-4-6");
+    }, "amazon-bedrock/global.anthropic.claude-sonnet-4-6");
 
     expect((modelOnly?.agents as any).defaults.model).toEqual({
-      primary: "bedrock/anthropic.claude-sonnet-4-6",
+      primary: "amazon-bedrock/global.anthropic.claude-sonnet-4-6",
       fallbacks: [],
     });
   });
@@ -184,7 +184,7 @@ describe("OpenClaw passive model extractor adapter", () => {
     const input = buildPassiveExtractorInput([
       { role: "user", content: evidence },
     ]);
-    input.activeModelRef = "bedrock/anthropic.claude-sonnet-4-6";
+    input.activeModelRef = "amazon-bedrock/global.anthropic.claude-sonnet-4-6";
 
     await expect(extractor(input)).resolves.toEqual({
       candidates: [expect.objectContaining({
@@ -194,10 +194,10 @@ describe("OpenClaw passive model extractor adapter", () => {
     });
     const call = runEmbeddedAgent.mock.calls[0][0];
     expect(call.config.tools).toEqual({});
-    expect(call.provider).toBe("bedrock");
-    expect(call.model).toBe("anthropic.claude-sonnet-4-6");
+    expect(call.provider).toBe("amazon-bedrock");
+    expect(call.model).toBe("global.anthropic.claude-sonnet-4-6");
     expect(call.config.agents.defaults.model).toEqual({
-      primary: "bedrock/anthropic.claude-sonnet-4-6",
+      primary: "amazon-bedrock/global.anthropic.claude-sonnet-4-6",
       fallbacks: [],
     });
   });

@@ -247,6 +247,10 @@ export function createOpenClawPassiveModelExtractor(
       return { candidates: [] };
     }
 
+    // OpenClaw's documented in-process plugin surface currently exposes the
+    // embedded agent helper here; JSON-only llm-task is an optional tool/CLI
+    // surface, not a direct plugin model API. Keep this adapter isolated and
+    // model-only until a lighter runtime invocation hook is available.
     const config = api.config;
     const extractorConfig = buildModelOnlyExtractorConfig(config, input.activeModelRef);
     const activeModel = splitModelRef(input.activeModelRef);

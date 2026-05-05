@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CortexClient } from "../../src/cortex/client.js";
 import {
   buildTooTooBridgePrompt,
@@ -22,6 +22,10 @@ const logger = {
 
 beforeEach(() => {
   vi.clearAllMocks();
+});
+
+afterEach(() => {
+  vi.useRealTimers();
 });
 
 function makeClient(overrides: Partial<{
@@ -319,6 +323,54 @@ describe("TooToo bridge handler", () => {
     expect(JSON.stringify(request)).not.toContain("I will make that explicit");
   });
 
+  it("passes the active Bedrock model ref into passive extraction and logs provider/model", async () => {
+    const client = makeClient();
+    const evidence = "I am most helpful when there is a real tradeoff to decide and someone needs a clear call; if the group is still just sharing opinions, I usually make it messier by adding one more view.";
+    const passiveModelExtractor = vi.fn().mockResolvedValue({
+      candidates: [
+        {
+          content: "User is most helpful in prioritization discussions when there is a real tradeoff and clear decision to make, rather than broad opinion-sharing.",
+          suggested_section: "practices",
+          evidence_quote: evidence,
+          confidence: 0.86,
+          risk_tier: "low",
+          reason: "The user stated a durable collaboration pattern.",
+        },
+      ],
+    });
+    const handler = createBridgeHandler(client, {
+      logger,
+      getUserId: () => "agent-user-1",
+      userIdReady: Promise.resolve(),
+      pluginSessionId: "plugin-session-1",
+      passiveModelExtractor,
+      getActiveModelRef: () => "amazon-bedrock/global.anthropic.claude-sonnet-4-6",
+    });
+
+    await expect(handler.handleAgentEnd({
+      messages: [
+        {
+          role: "user",
+          content: "I am trying to decide whether to join a product prioritization call. " +
+            evidence +
+            " Can you help me decide what to ask before I accept?",
+        },
+        { role: "assistant", content: "Ask what decision needs to be made." },
+      ],
+      aborted: false,
+      sessionKey: "sess-passive-bedrock-model",
+    })).resolves.toBe(true);
+
+    await handler.drainPassiveJobs();
+    expect(passiveModelExtractor).toHaveBeenCalledTimes(1);
+    expect(passiveModelExtractor.mock.calls[0][0].activeModelRef).toBe("amazon-bedrock/global.anthropic.claude-sonnet-4-6");
+    expect(logger.info).toHaveBeenCalledWith(expect.stringContaining("passive_extractor_started"));
+    expect(logger.info).toHaveBeenCalledWith(expect.stringContaining("provider=amazon-bedrock"));
+    expect(logger.info).toHaveBeenCalledWith(expect.stringContaining("model=global.anthropic.claude-sonnet-4-6"));
+    expect(logger.info).not.toHaveBeenCalledWith(expect.stringContaining("model=default"));
+    expect((client.submitBridgePassive as any)).toHaveBeenCalledTimes(1);
+  });
+
   it("logs extractor_zero_candidates when the broadened gate calls the model and it returns none", async () => {
     const client = makeClient();
     const evidence = "My instinct is to wait when the change affects something customer-facing. I’m okay moving fast for internal cleanup, but if users might notice it, I’d rather have one more verification pass than rush it out.";
@@ -375,6 +427,106 @@ describe("TooToo bridge handler", () => {
     expect(passiveModelExtractor.mock.calls[0][0].activeModelRef).toBe("bedrock/anthropic.claude-sonnet-4-6");
     expect((client.submitBridgePassive as any)).not.toHaveBeenCalled();
     expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining("passive_extractor_timeout"));
+  });
+
+  it("times out a stuck passive extractor near the configured deadline and keeps the queue moving", async () => {
+    vi.useFakeTimers();
+    const client = makeClient();
+    const firstEvidence = "My instinct is to wait when the change affects something customer-facing. I’m okay moving fast for internal cleanup, but if users might notice it, I’d rather have one more verification pass than rush it out.";
+    const secondEvidence = "I am most helpful when there is a real tradeoff to decide and someone needs a clear call; if the group is still just sharing opinions, I usually make it messier by adding one more view.";
+    const passiveModelExtractor = vi.fn()
+      .mockImplementationOnce(() => new Promise(() => undefined))
+      .mockResolvedValueOnce({
+        candidates: [
+          {
+            content: "User is most helpful in prioritization discussions when there is a real tradeoff and clear decision to make, rather than broad opinion-sharing.",
+            suggested_section: "practices",
+            evidence_quote: secondEvidence,
+            confidence: 0.86,
+            risk_tier: "low",
+            reason: "The user stated a durable collaboration pattern.",
+          },
+        ],
+      });
+    const handler = createBridgeHandler(client, {
+      logger,
+      getUserId: () => "agent-user-1",
+      userIdReady: Promise.resolve(),
+      pluginSessionId: "plugin-session-1",
+      passiveModelExtractor,
+      getActiveModelRef: () => "amazon-bedrock/global.anthropic.claude-sonnet-4-6",
+    });
+
+    await expect(handler.handleAgentEnd({
+      messages: [
+        { role: "user", content: firstEvidence },
+        { role: "assistant", content: "That split is clear." },
+      ],
+      aborted: false,
+      sessionKey: "sess-passive-stuck-first",
+    })).resolves.toBe(true);
+
+    const firstDrain = handler.drainPassiveJobs();
+    await vi.advanceTimersByTimeAsync(3_150);
+    await firstDrain;
+
+    expect((client.submitBridgePassive as any)).not.toHaveBeenCalled();
+    expect(logger.warn).toHaveBeenCalledWith(expect.stringMatching(/passive_extractor_timeout .*timeoutMs=3000/));
+    const timeoutLog = logger.warn.mock.calls
+      .flat()
+      .map(String)
+      .find((entry) => entry.includes("passive_extractor_timeout"));
+    const durationMs = Number(/durationMs=(\d+)/.exec(timeoutLog ?? "")?.[1]);
+    expect(durationMs).toBeGreaterThanOrEqual(3_100);
+    expect(durationMs).toBeLessThan(3_350);
+
+    await expect(handler.handleAgentEnd({
+      messages: [
+        { role: "user", content: secondEvidence },
+        { role: "assistant", content: "Ask whether there is a real decision to make." },
+      ],
+      aborted: false,
+      sessionKey: "sess-passive-stuck-second",
+    })).resolves.toBe(true);
+
+    await handler.drainPassiveJobs();
+    expect(passiveModelExtractor).toHaveBeenCalledTimes(2);
+    expect((client.submitBridgePassive as any)).toHaveBeenCalledTimes(1);
+  });
+
+  it("swallows late extractor rejection after the worker deadline releases the queue", async () => {
+    vi.useFakeTimers();
+    const client = makeClient();
+    const evidence = "My instinct is to wait when the change affects something customer-facing. I’m okay moving fast for internal cleanup, but if users might notice it, I’d rather have one more verification pass than rush it out.";
+    const passiveModelExtractor = vi.fn(() => new Promise((_resolve, reject) => {
+      setTimeout(() => reject(new Error("late provider failure")), 3_300);
+    }));
+    const handler = createBridgeHandler(client, {
+      logger,
+      getUserId: () => "agent-user-1",
+      userIdReady: Promise.resolve(),
+      pluginSessionId: "plugin-session-1",
+      passiveModelExtractor,
+      getActiveModelRef: () => "amazon-bedrock/global.anthropic.claude-sonnet-4-6",
+    });
+
+    await expect(handler.handleAgentEnd({
+      messages: [
+        { role: "user", content: evidence },
+        { role: "assistant", content: "That split is clear." },
+      ],
+      aborted: false,
+      sessionKey: "sess-passive-late-reject",
+    })).resolves.toBe(true);
+
+    const drain = handler.drainPassiveJobs();
+    await vi.advanceTimersByTimeAsync(3_150);
+    await drain;
+    expect(logger.warn).toHaveBeenCalledWith(expect.stringMatching(/passive_extractor_timeout .*timeoutMs=3000/));
+
+    await vi.advanceTimersByTimeAsync(250);
+    await Promise.resolve();
+    expect((client.submitBridgePassive as any)).not.toHaveBeenCalled();
   });
 
   it("logs and skips ENOENT passive extractor session path failures", async () => {

@@ -1,5 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import plugin from "../../src/plugin/index.js";
+import plugin, {
+  normalizeModelRefFromEvent,
+  readConfiguredPrimaryModelRef,
+  readRuntimeDefaultModelRef,
+} from "../../src/plugin/index.js";
 import packageJson from "../../package.json" with { type: "json" };
 import { CortexClient } from "../../src/cortex/client.js";
 import { RetryQueue } from "../../src/internal/retry-queue.js";
@@ -216,6 +220,46 @@ describe("plugin lifecycle contract", () => {
 
     expect(api.registerService).toHaveBeenCalledTimes(1);
     expect(services[0]?.id).toBe("cortex-services");
+  });
+
+  it("normalizes active model refs from OpenClaw event and config shapes", () => {
+    expect(normalizeModelRefFromEvent({
+      provider: "amazon-bedrock",
+      model: "global.anthropic.claude-sonnet-4-6",
+    })).toBe("amazon-bedrock/global.anthropic.claude-sonnet-4-6");
+    expect(normalizeModelRefFromEvent({
+      request: {
+        providerName: "amazon-bedrock",
+        modelName: "global.anthropic.claude-sonnet-4-6",
+      },
+    })).toBe("amazon-bedrock/global.anthropic.claude-sonnet-4-6");
+    expect(normalizeModelRefFromEvent({
+      agents: {
+        defaults: {
+          model: {
+            primary: "amazon-bedrock/global.anthropic.claude-sonnet-4-6",
+          },
+        },
+      },
+    })).toBeUndefined();
+    expect(readConfiguredPrimaryModelRef({
+      agents: {
+        defaults: {
+          model: {
+            primary: "amazon-bedrock/global.anthropic.claude-sonnet-4-6",
+            fallbacks: ["openai/gpt-5.5"],
+          },
+        },
+      },
+    })).toBe("amazon-bedrock/global.anthropic.claude-sonnet-4-6");
+    expect(readRuntimeDefaultModelRef({
+      agent: {
+        defaults: {
+          provider: "amazon-bedrock",
+          model: "global.anthropic.claude-sonnet-4-6",
+        },
+      },
+    })).toBe("amazon-bedrock/global.anthropic.claude-sonnet-4-6");
   });
 
   it("falls back to registerHook when api.on is not available", async () => {

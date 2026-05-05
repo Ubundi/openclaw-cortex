@@ -17,6 +17,7 @@ import type { ClawDeployBridgeTraceClient, ClawDeployBridgeTraceEvent } from "..
 import { redactBridgeTraceError } from "../../internal/clawdeploy-bridge-traces.js";
 import { isLowSignal, sanitizeConversationText } from "../capture/filter.js";
 import {
+  PassiveExtractorTimeoutError,
   isPassiveExtractorSessionPathError,
   isPassiveExtractorTimeoutError,
   PASSIVE_EXTRACTOR_SESSION_KEY,
@@ -31,6 +32,7 @@ import {
   PASSIVE_JOB_TTL_MS,
   MAX_PASSIVE_CANDIDATES_PER_SESSION,
   type PassiveExtractorInput,
+  type PassiveExtractorOutput,
   type PassiveModelExtractor,
   PASSIVE_BRIDGE_EXTRACTOR_VERSION,
   shouldAttemptPassiveBridgeExtraction,
@@ -116,6 +118,7 @@ export interface CreateBridgeHandlerOptions {
 }
 
 const LINK_STATUS_TTL_MS = 60_000;
+const PASSIVE_EXTRACTOR_OUTER_DEADLINE_GRACE_MS = 100;
 const HANDLED_REQUEST_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const HANDLED_REQUEST_MAX = 1000;
 const MIN_ANSWER_CHARS = 5;
@@ -859,6 +862,40 @@ function isRetryableBridgeError(err: unknown): boolean {
   return status === 429 || (status !== undefined && status >= 500);
 }
 
+function splitPassiveModelRefForLog(modelRef: string | undefined): { provider: string; model: string } {
+  const trimmed = typeof modelRef === "string" ? modelRef.trim().toLowerCase() : "";
+  const slash = trimmed.indexOf("/");
+  if (slash > 0 && slash < trimmed.length - 1) {
+    return {
+      provider: trimmed.slice(0, slash),
+      model: trimmed.slice(slash + 1),
+    };
+  }
+  return { provider: "default", model: trimmed || "default" };
+}
+
+async function runPassiveExtractorWithDeadline(
+  extractor: PassiveModelExtractor,
+  input: PassiveExtractorInput,
+): Promise<PassiveExtractorOutput> {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  const extractorPromise = extractor(input);
+  // The embedded OpenClaw runner may not always honor abort immediately. The
+  // bridge worker stops waiting at this deadline so one stuck run cannot block
+  // later passive jobs; the adapter still receives its own abort signal.
+  extractorPromise.catch(() => undefined);
+  const timeoutPromise = new Promise<PassiveExtractorOutput>((_, reject) => {
+    timeout = setTimeout(() => {
+      reject(new PassiveExtractorTimeoutError(input.timeoutMs));
+    }, input.timeoutMs + PASSIVE_EXTRACTOR_OUTER_DEADLINE_GRACE_MS);
+  });
+  try {
+    return await Promise.race([extractorPromise, timeoutPromise]);
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
+}
+
 export function createBridgeHandler(
   client: CortexClient,
   options: CreateBridgeHandlerOptions,
@@ -1063,10 +1100,11 @@ export function createBridgeHandler(
     };
 
     const extractorStartedAt = Date.now();
-    logger.info(`Cortex bridge: passive_extractor_started sessionId=${job.sessionKey} timeoutMs=${extractorInput.timeoutMs} model=${extractorInput.activeModelRef ?? "default"}`);
+    const modelLog = splitPassiveModelRefForLog(extractorInput.activeModelRef);
+    logger.info(`Cortex bridge: passive_extractor_started sessionId=${job.sessionKey} timeoutMs=${extractorInput.timeoutMs} provider=${modelLog.provider} model=${modelLog.model}`);
     let rawPassiveCandidates: PassiveBridgeRequest["candidates"] = [];
     try {
-      const modelOutput = await passiveModelExtractor(extractorInput);
+      const modelOutput = await runPassiveExtractorWithDeadline(passiveModelExtractor, extractorInput);
       const extractorDurationMs = Date.now() - extractorStartedAt;
       logger.info(`Cortex bridge: passive_extractor_completed sessionId=${job.sessionKey} durationMs=${extractorDurationMs} rawCandidateCount=${modelOutput.candidates.length}`);
       const validation = validatePassiveExtractorCandidates(modelOutput, extractorInput);

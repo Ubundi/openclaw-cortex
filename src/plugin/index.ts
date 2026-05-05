@@ -83,20 +83,68 @@ function compactModelPart(value: unknown): string | undefined {
   return trimmed ? trimmed : undefined;
 }
 
-function normalizeModelRefFromEvent(event: Record<string, unknown>): string | undefined {
+function recordValue(value: unknown): Record<string, unknown> | undefined {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : undefined;
+}
+
+function joinProviderModel(provider: unknown, model: unknown): string | undefined {
+  const compactProvider = compactModelPart(provider);
+  const compactModel = compactModelPart(model);
+  if (!compactProvider || !compactModel) return undefined;
+  return compactModel.includes("/") ? compactModel : `${compactProvider}/${compactModel}`;
+}
+
+function directModelRefFromRecord(record: Record<string, unknown> | undefined): string | undefined {
+  if (!record) return undefined;
   for (const key of ["modelRef", "model_ref", "resolvedModel", "resolved_model"]) {
-    const direct = compactModelPart(event[key]);
+    const direct = compactModelPart(record[key]);
     if (direct?.includes("/")) return direct;
   }
 
-  const provider = compactModelPart(event.provider)
-    ?? compactModelPart(event.providerId)
-    ?? compactModelPart(event.provider_id);
-  const model = compactModelPart(event.model)
-    ?? compactModelPart(event.modelId)
-    ?? compactModelPart(event.model_id);
-  if (!provider || !model) return undefined;
-  return model.includes("/") ? model : `${provider}/${model}`;
+  return joinProviderModel(
+    record.provider
+      ?? record.providerId
+      ?? record.provider_id
+      ?? record.providerName
+      ?? record.provider_name,
+    record.model
+      ?? record.modelId
+      ?? record.model_id
+      ?? record.modelName
+      ?? record.model_name,
+  );
+}
+
+export function normalizeModelRefFromEvent(event: Record<string, unknown>): string | undefined {
+  const direct = directModelRefFromRecord(event);
+  if (direct) return direct;
+
+  for (const key of ["model", "resolvedModel", "request", "params", "metadata"]) {
+    const nested = directModelRefFromRecord(recordValue(event[key]));
+    if (nested) return nested;
+  }
+
+  return undefined;
+}
+
+export function readConfiguredPrimaryModelRef(config: Record<string, unknown> | undefined): string | undefined {
+  const direct = directModelRefFromRecord(config);
+  if (direct) return direct;
+
+  const agents = recordValue(config?.agents);
+  const defaults = recordValue(agents?.defaults);
+  const modelConfig = recordValue(defaults?.model);
+  const primary = compactModelPart(modelConfig?.primary);
+  if (primary?.includes("/")) return primary;
+  return joinProviderModel(modelConfig?.provider, primary);
+}
+
+export function readRuntimeDefaultModelRef(runtime: Record<string, unknown> | undefined): string | undefined {
+  const agentRuntime = recordValue(runtime?.agent);
+  const defaults = recordValue(agentRuntime?.defaults);
+  return directModelRefFromRecord(defaults);
 }
 
 function rememberActiveModelRef(
@@ -918,7 +966,9 @@ const plugin = {
       auditLogger: auditLoggerProxy,
       bridgeTraceClient,
       passiveModelExtractor: createOpenClawPassiveModelExtractor(api, api.logger),
-      getActiveModelRef: (activeSessionKey) => readActiveModelRef(activeModelRefs, activeSessionKey),
+      getActiveModelRef: (activeSessionKey) => readActiveModelRef(activeModelRefs, activeSessionKey)
+        ?? readConfiguredPrimaryModelRef(api.config)
+        ?? readRuntimeDefaultModelRef(api.runtime),
     });
 
     void userIdReady.then(() => bridgeHandler.refreshLinkStatus(true));
