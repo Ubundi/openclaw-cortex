@@ -323,6 +323,57 @@ describe("TooToo bridge handler", () => {
     expect(JSON.stringify(request)).not.toContain("I will make that explicit");
   });
 
+  it("validates and sends the partner strategy call regression candidate with exact user evidence only", async () => {
+    const client = makeClient();
+    const userMessage = "I am deciding whether to join a partner strategy call this afternoon. I am useful when there is a concrete tradeoff and someone wants a clear decision, but if the call is just people comparing opinions I tend to add noise instead of clarity. Can you help me decide what to ask before I join?";
+    const evidence = "I am useful when there is a concrete tradeoff and someone wants a clear decision, but if the call is just people comparing opinions I tend to add noise instead of clarity.";
+    const content = "User is useful in strategy calls when there is a concrete tradeoff and clear decision to make, rather than broad opinion-sharing.";
+    const passiveModelExtractor = vi.fn().mockResolvedValue({
+      candidates: [
+        {
+          content,
+          suggested_section: "practices",
+          evidence_quote: evidence,
+          confidence: 0.88,
+          risk_tier: "low",
+          reason: "The user stated a durable collaboration pattern.",
+        },
+      ],
+    });
+    const handler = createBridgeHandler(client, {
+      logger,
+      getUserId: () => "agent-user-1",
+      userIdReady: Promise.resolve(),
+      pluginSessionId: "plugin-session-1",
+      passiveModelExtractor,
+      getActiveModelRef: () => "bedrock/global.anthropic.claude-sonnet-4-6",
+    });
+
+    await expect(handler.handleAgentEnd({
+      messages: [
+        { role: "user", content: userMessage },
+        { role: "assistant", content: "Ask whether the call has a concrete tradeoff and decision owner." },
+      ],
+      aborted: false,
+      sessionKey: "sess-passive-partner-strategy-regression",
+    })).resolves.toBe(true);
+
+    await handler.drainPassiveJobs();
+
+    expect((client.submitBridgePassive as any)).toHaveBeenCalledTimes(1);
+    const request = (client.submitBridgePassive as any).mock.calls[0][0];
+    expect(request.candidates).toEqual([
+      expect.objectContaining({
+        content,
+        evidence_quote: evidence,
+        confidence: 0.88,
+        risk_tier: "low",
+      }),
+    ]);
+    expect(JSON.stringify(request)).not.toContain("Ask whether the call");
+    expect(JSON.stringify(request)).not.toContain(userMessage);
+  });
+
   it("passes the active Bedrock model ref into passive extraction and logs provider/model", async () => {
     const client = makeClient();
     const evidence = "I am most helpful when there is a real tradeoff to decide and someone needs a clear call; if the group is still just sharing opinions, I usually make it messier by adding one more view.";

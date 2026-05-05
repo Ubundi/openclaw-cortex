@@ -1,19 +1,27 @@
-import { mkdir, mkdtemp, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
+import { EventEmitter } from "node:events";
 import { dirname, join } from "node:path";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   buildModelOnlyExtractorConfig,
+  buildEmbeddedExtractorWorkerData,
   createOpenClawPassiveModelExtractor,
+  createWorkerIsolatedEmbeddedExtractor,
   loadRunEmbeddedPiAgentFromOpenClawRoot,
   PASSIVE_EXTRACTOR_SESSION_KEY,
+  PassiveExtractorTimeoutError,
 } from "../../src/features/bridge/openclaw-extractor.js";
 import { buildPassiveExtractorInput } from "../../src/features/bridge/passive.js";
 
+afterEach(() => {
+  vi.useRealTimers();
+});
+
 describe("OpenClaw passive model extractor adapter", () => {
-  it("prefers the documented api.runtime.agent.runEmbeddedAgent helper", async () => {
+  it("prefers the documented api.runtime.agent.runEmbeddedPiAgent helper", async () => {
     const agentDir = await mkdtemp(join(tmpdir(), "openclaw-cortex-agent-"));
-    const runEmbeddedAgent = vi.fn().mockResolvedValue({
+    const runEmbeddedPiAgent = vi.fn().mockResolvedValue({
       payloads: [{ text: '{"candidates":[]}' }],
     });
     const extractor = createOpenClawPassiveModelExtractor({
@@ -27,20 +35,20 @@ describe("OpenClaw passive model extractor adapter", () => {
       },
       runtime: {
         agent: {
-          runEmbeddedAgent,
+          runEmbeddedPiAgent,
           resolveAgentDir: vi.fn(() => agentDir),
           resolveAgentWorkspaceDir: vi.fn(() => "/workspace-from-runtime"),
           resolveAgentTimeoutMs: vi.fn(() => 30_000),
         },
       },
-    }, { debug: vi.fn() });
+    }, { debug: vi.fn() }, { unsafeAllowInProcessEmbeddedRunnerForTests: true });
 
     await extractor(buildPassiveExtractorInput([
       { role: "user", content: "I want the handoff to make the owner and next step obvious." },
     ]));
 
-    expect(runEmbeddedAgent).toHaveBeenCalledTimes(1);
-    const call = runEmbeddedAgent.mock.calls[0][0];
+    expect(runEmbeddedPiAgent).toHaveBeenCalledTimes(1);
+    const call = runEmbeddedPiAgent.mock.calls[0][0];
     expect(call).toMatchObject({
       sessionKey: PASSIVE_EXTRACTOR_SESSION_KEY,
       timeoutMs: 3_000,
@@ -57,6 +65,25 @@ describe("OpenClaw passive model extractor adapter", () => {
     expect(call).not.toHaveProperty("agentDir");
     expect(call).not.toHaveProperty("provider");
     expect(call).not.toHaveProperty("model");
+  });
+
+  it("keeps compatibility with legacy api.runtime.agent.runEmbeddedAgent helper", async () => {
+    const runEmbeddedAgent = vi.fn().mockResolvedValue({
+      payloads: [{ text: '{"candidates":[]}' }],
+    });
+    const extractor = createOpenClawPassiveModelExtractor({
+      runtime: {
+        agent: {
+          runEmbeddedAgent,
+        },
+      },
+    }, { debug: vi.fn() }, { unsafeAllowInProcessEmbeddedRunnerForTests: true });
+
+    await extractor(buildPassiveExtractorInput([
+      { role: "user", content: "I want the handoff to make the owner and next step obvious." },
+    ]));
+
+    expect(runEmbeddedAgent).toHaveBeenCalledTimes(1);
   });
 
   it("strips explicit tool policy from model-only embedded extraction config", async () => {
@@ -101,7 +128,7 @@ describe("OpenClaw passive model extractor adapter", () => {
           resolveAgentDir: vi.fn(() => agentDir),
         },
       },
-    }, { debug: vi.fn() });
+    }, { debug: vi.fn() }, { unsafeAllowInProcessEmbeddedRunnerForTests: true });
 
     await extractor(buildPassiveExtractorInput([
       { role: "user", content: "I want the handoff to make the owner and next step obvious." },
@@ -179,7 +206,7 @@ describe("OpenClaw passive model extractor adapter", () => {
           resolveAgentDir: vi.fn(() => agentDir),
         },
       },
-    }, { debug: vi.fn() });
+    }, { debug: vi.fn() }, { unsafeAllowInProcessEmbeddedRunnerForTests: true });
 
     const input = buildPassiveExtractorInput([
       { role: "user", content: evidence },
@@ -219,7 +246,7 @@ describe("OpenClaw passive model extractor adapter", () => {
           resolveAgentDir: vi.fn(() => undefined as unknown as string),
         },
       },
-    }, { debug: vi.fn() });
+    }, { debug: vi.fn() }, { unsafeAllowInProcessEmbeddedRunnerForTests: true });
 
     await extractor(buildPassiveExtractorInput([
       { role: "user", content: "I want the handoff to make the owner and next step obvious." },
@@ -244,7 +271,7 @@ describe("OpenClaw passive model extractor adapter", () => {
       });
       const extractor = createOpenClawPassiveModelExtractor({
         runtime: { agent: { runEmbeddedAgent } },
-      }, { debug: vi.fn() });
+      }, { debug: vi.fn() }, { unsafeAllowInProcessEmbeddedRunnerForTests: true });
       extractionPromise = extractor(buildPassiveExtractorInput([
         { role: "user", content: "I want the handoff to make the owner and next step obvious." },
       ]));
@@ -270,7 +297,7 @@ describe("OpenClaw passive model extractor adapter", () => {
           runEmbeddedAgent: vi.fn().mockRejectedValue(error),
         },
       },
-    }, logger);
+    }, logger, { unsafeAllowInProcessEmbeddedRunnerForTests: true });
 
     await expect(extractor(buildPassiveExtractorInput([
       { role: "user", content: "I want the handoff to make the owner and next step obvious." },
@@ -307,7 +334,7 @@ describe("OpenClaw passive model extractor adapter", () => {
           resolveAgentTimeoutMs: vi.fn(() => 5),
         },
       },
-    }, { debug: vi.fn() });
+    }, { debug: vi.fn() }, { unsafeAllowInProcessEmbeddedRunnerForTests: true });
 
     const promise = extractor(buildPassiveExtractorInput([
       { role: "user", content: "I want the handoff to make the owner and next step obvious." },
@@ -315,5 +342,226 @@ describe("OpenClaw passive model extractor adapter", () => {
 
     await expect(promise).rejects.toThrow("passive extractor timed out");
     expect(runEmbeddedAgent.mock.calls[0][0].abortSignal.aborted).toBe(true);
+  });
+
+  it("production adapter uses isolated embedded extraction instead of the in-process runtime helper", async () => {
+    const runEmbeddedAgent = vi.fn(() => {
+      throw new Error("in-process runner must not be called");
+    });
+    const runIsolatedEmbeddedExtractor = vi.fn().mockResolvedValue({
+      candidates: [],
+    });
+    const extractor = createOpenClawPassiveModelExtractor({
+      config: {
+        agents: {
+          defaults: {
+            model: { primary: "openai/gpt-5.5" },
+          },
+        },
+      },
+      runtime: {
+        agent: {
+          runEmbeddedAgent,
+          resolveAgentTimeoutMs: vi.fn(() => 30_000),
+        },
+      },
+    }, { debug: vi.fn() }, { runIsolatedEmbeddedExtractor });
+
+    await expect(extractor(buildPassiveExtractorInput([
+      { role: "user", content: "I want the handoff to make the owner and next step obvious." },
+    ]))).resolves.toEqual({ candidates: [] });
+
+    expect(runEmbeddedAgent).not.toHaveBeenCalled();
+    expect(runIsolatedEmbeddedExtractor).toHaveBeenCalledTimes(1);
+    expect(runIsolatedEmbeddedExtractor.mock.calls[0][0].config.agents.defaults.model).toEqual({
+      primary: "openai/gpt-5.5",
+    });
+  });
+
+  it("sanitizes extractor worker data so runtime config helpers cannot trip structured clone", () => {
+    const config: Record<string, unknown> = {
+      agents: {
+        defaults: {
+          model: { primary: "openai/gpt-5.5" },
+          helper: () => "nope",
+        },
+      },
+      matcher: /openclaw-cortex/g,
+      tokenExpiresAt: new Date("2026-05-05T10:00:00.000Z"),
+    };
+    config.self = config;
+
+    const workerData = buildEmbeddedExtractorWorkerData({
+      input: buildPassiveExtractorInput([
+        { role: "user", content: "I want the handoff to make the owner and next step obvious." },
+      ]),
+      config,
+      timeoutMs: 3_000,
+      paths: {
+        rootDir: "/tmp/openclaw-cortex-passive-test",
+        workspaceDir: "/tmp/openclaw-cortex-passive-test/workspace",
+        sessionFile: "/tmp/openclaw-cortex-passive-test/sessions/session.jsonl",
+      },
+    });
+
+    expect(() => structuredClone(workerData)).not.toThrow();
+    expect((workerData.config?.agents as any).defaults.helper).toBeUndefined();
+    expect(workerData.config?.matcher).toBe("openclaw-cortex");
+    expect(workerData.config?.tokenExpiresAt).toBe("2026-05-05T10:00:00.000Z");
+    expect(workerData.config?.self).toBeUndefined();
+  });
+
+  it("terminates an isolated extractor worker at the configured timeout and ignores late output", async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), "openclaw-cortex-worker-test-"));
+    const workspaceDir = join(rootDir, "workspace");
+    const sessionDir = join(rootDir, "sessions");
+    await mkdir(workspaceDir, { recursive: true });
+    await mkdir(sessionDir, { recursive: true });
+    vi.useFakeTimers();
+    const worker = new EventEmitter() as EventEmitter & {
+      terminate: ReturnType<typeof vi.fn>;
+    };
+    worker.terminate = vi.fn().mockResolvedValue(1);
+    const extractor = createWorkerIsolatedEmbeddedExtractor((params) => {
+      expect(params.paths?.rootDir).toBe(rootDir);
+      return worker;
+    });
+    const input = buildPassiveExtractorInput([
+      { role: "user", content: "I want the handoff to make the owner and next step obvious." },
+    ]);
+    input.timeoutMs = 25;
+
+    const promise = extractor({
+      input,
+      timeoutMs: 25,
+      config: {},
+      paths: {
+        rootDir,
+        workspaceDir,
+        sessionFile: join(sessionDir, "session.jsonl"),
+      },
+    });
+    const rejection = expect(promise).rejects.toBeInstanceOf(PassiveExtractorTimeoutError);
+
+    await vi.advanceTimersByTimeAsync(25);
+    await rejection;
+    expect(worker.terminate).toHaveBeenCalledTimes(1);
+    await expect(stat(rootDir)).resolves.toBeTruthy();
+
+    worker.emit("message", {
+      ok: true,
+      output: {
+        candidates: [{
+          content: "Late output should be ignored.",
+          evidence_quote: "I want the handoff to make the owner and next step obvious.",
+          confidence: 0.9,
+          risk_tier: "low",
+        }],
+      },
+    });
+    await Promise.resolve();
+    expect(worker.terminate).toHaveBeenCalledTimes(1);
+    await rm(rootDir, { recursive: true, force: true });
+  });
+
+  it("terminates an isolated extractor worker after successful output", async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), "openclaw-cortex-worker-test-"));
+    const workspaceDir = join(rootDir, "workspace");
+    const sessionDir = join(rootDir, "sessions");
+    await mkdir(workspaceDir, { recursive: true });
+    await mkdir(sessionDir, { recursive: true });
+    const worker = new EventEmitter() as EventEmitter & {
+      terminate: ReturnType<typeof vi.fn>;
+    };
+    worker.terminate = vi.fn().mockResolvedValue(0);
+    const extractor = createWorkerIsolatedEmbeddedExtractor((params) => {
+      expect(params.paths?.rootDir).toBe(rootDir);
+      return worker;
+    });
+    const input = buildPassiveExtractorInput([
+      { role: "user", content: "I want the handoff to make the owner and next step obvious." },
+    ]);
+
+    const promise = extractor({
+      input,
+      timeoutMs: 3_000,
+      config: {},
+      paths: {
+        rootDir,
+        workspaceDir,
+        sessionFile: join(sessionDir, "session.jsonl"),
+      },
+    });
+
+    worker.emit("message", { ok: true, output: { candidates: [] } });
+
+    await expect(promise).resolves.toEqual({ candidates: [] });
+    expect(worker.terminate).toHaveBeenCalledTimes(1);
+    await expect(stat(rootDir)).resolves.toBeTruthy();
+    await rm(rootDir, { recursive: true, force: true });
+  });
+
+  it("removes parent-owned temporary paths after successful worker output", async () => {
+    const worker = new EventEmitter() as EventEmitter & {
+      terminate: ReturnType<typeof vi.fn>;
+    };
+    worker.terminate = vi.fn().mockResolvedValue(0);
+    let rootDir = "";
+    let resolveWorkerCreated!: () => void;
+    const workerCreated = new Promise<void>((resolve) => {
+      resolveWorkerCreated = resolve;
+    });
+    const extractor = createWorkerIsolatedEmbeddedExtractor((params) => {
+      rootDir = params.paths?.rootDir ?? "";
+      resolveWorkerCreated();
+      return worker;
+    });
+    const input = buildPassiveExtractorInput([
+      { role: "user", content: "I want the handoff to make the owner and next step obvious." },
+    ]);
+
+    const promise = extractor({
+      input,
+      timeoutMs: 3_000,
+      config: {},
+    });
+
+    await workerCreated;
+    await expect(stat(rootDir)).resolves.toBeTruthy();
+    worker.emit("message", { ok: true, output: { candidates: [] } });
+
+    await expect(promise).resolves.toEqual({ candidates: [] });
+    await expect(stat(rootDir)).rejects.toThrow();
+  });
+
+  it("removes parent-owned temporary paths after worker timeout", async () => {
+    const worker = new EventEmitter() as EventEmitter & {
+      terminate: ReturnType<typeof vi.fn>;
+    };
+    worker.terminate = vi.fn().mockResolvedValue(1);
+    let rootDir = "";
+    let resolveWorkerCreated!: () => void;
+    const workerCreated = new Promise<void>((resolve) => {
+      resolveWorkerCreated = resolve;
+    });
+    const extractor = createWorkerIsolatedEmbeddedExtractor((params) => {
+      rootDir = params.paths?.rootDir ?? "";
+      resolveWorkerCreated();
+      return worker;
+    });
+    const input = buildPassiveExtractorInput([
+      { role: "user", content: "I want the handoff to make the owner and next step obvious." },
+    ]);
+
+    const promise = extractor({
+      input,
+      timeoutMs: 5,
+      config: {},
+    });
+
+    await workerCreated;
+    await expect(promise).rejects.toBeInstanceOf(PassiveExtractorTimeoutError);
+    expect(worker.terminate).toHaveBeenCalledTimes(1);
+    await expect(stat(rootDir)).rejects.toThrow();
   });
 });
