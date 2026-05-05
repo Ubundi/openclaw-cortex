@@ -41,9 +41,17 @@ describe("OpenClaw passive model extractor adapter", () => {
     const directModelCall = vi.fn().mockResolvedValue('{"candidates":[]}');
     const extractor = createOpenClawPassiveModelExtractor({
       config: {
+        tools: { allow: ["browser"] },
         agents: {
           defaults: {
             model: { primary: "openai/test-model" },
+            workspace: "/should-not-reach-direct-extractor",
+            tools: { allow: ["exec"] },
+          },
+        },
+        models: {
+          providers: {
+            openai: { apiKey: "test-key" },
           },
         },
       },
@@ -63,7 +71,14 @@ describe("OpenClaw passive model extractor adapter", () => {
     expect(directModelCall).toHaveBeenCalledTimes(1);
     expect(directModelCall.mock.calls[0][0]).toMatchObject({
       modelRef: "openai/test-model",
-      timeoutMs: 3_000,
+      timeoutMs: 15_000,
+    });
+    expect(directModelCall.mock.calls[0][0].config).toEqual({
+      models: {
+        providers: {
+          openai: { apiKey: "test-key" },
+        },
+      },
     });
     expect(directModelCall.mock.calls[0][0].input.messages).toHaveLength(1);
   });
@@ -104,8 +119,10 @@ describe("OpenClaw passive model extractor adapter", () => {
     expect(completeSimple).toHaveBeenCalledTimes(1);
     expect(completeSimple.mock.calls[0][1]).toMatchObject({
       systemPrompt: input.prompt,
+      tools: [],
       messages: [expect.objectContaining({ role: "user" })],
     });
+    expect(JSON.stringify(completeSimple.mock.calls[0][1])).not.toContain("prependContext");
     expect(completeSimple.mock.calls[0][1].messages[0].content).toContain("CONVERSATION_WINDOW_JSON");
     expect(completeSimple.mock.calls[0][2]).toMatchObject({
       apiKey: "test-key",
@@ -217,7 +234,7 @@ describe("OpenClaw passive model extractor adapter", () => {
     const call = runEmbeddedPiAgent.mock.calls[0][0];
     expect(call).toMatchObject({
       sessionKey: PASSIVE_EXTRACTOR_SESSION_KEY,
-      timeoutMs: 3_000,
+      timeoutMs: 15_000,
       disableTools: true,
       disableMessageTool: true,
       requireExplicitMessageTarget: true,

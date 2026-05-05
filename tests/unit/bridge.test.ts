@@ -387,6 +387,7 @@ describe("TooToo bridge handler", () => {
       }),
     ]);
     expect(JSON.stringify(request)).not.toContain("I will make that explicit");
+    expect(logger.info).not.toHaveBeenCalledWith(expect.stringContaining("injecting full prompt into prependContext"));
   });
 
   it("validates and sends the partner strategy call regression candidate with exact user evidence only", async () => {
@@ -518,7 +519,7 @@ describe("TooToo bridge handler", () => {
   it("logs timeout duration and sends no passive bridge request when extraction times out", async () => {
     const client = makeClient();
     const evidence = "My instinct is to wait when the change affects something customer-facing. I’m okay moving fast for internal cleanup, but if users might notice it, I’d rather have one more verification pass than rush it out.";
-    const passiveModelExtractor = vi.fn().mockRejectedValue(new PassiveExtractorTimeoutError(3_000));
+    const passiveModelExtractor = vi.fn().mockRejectedValue(new PassiveExtractorTimeoutError(15_000));
     const handler = createBridgeHandler(client, {
       logger,
       getUserId: () => "agent-user-1",
@@ -584,18 +585,18 @@ describe("TooToo bridge handler", () => {
     })).resolves.toBe(true);
 
     const firstDrain = handler.drainPassiveJobs();
-    await vi.advanceTimersByTimeAsync(3_150);
+    await vi.advanceTimersByTimeAsync(15_150);
     await firstDrain;
 
     expect((client.submitBridgePassive as any)).not.toHaveBeenCalled();
-    expect(logger.warn).toHaveBeenCalledWith(expect.stringMatching(/passive_extractor_timeout .*timeoutMs=3000/));
+    expect(logger.warn).toHaveBeenCalledWith(expect.stringMatching(/passive_extractor_timeout .*timeoutMs=15000/));
     const timeoutLog = logger.warn.mock.calls
       .flat()
       .map(String)
       .find((entry) => entry.includes("passive_extractor_timeout"));
     const durationMs = Number(/durationMs=(\d+)/.exec(timeoutLog ?? "")?.[1]);
-    expect(durationMs).toBeGreaterThanOrEqual(3_100);
-    expect(durationMs).toBeLessThan(3_350);
+    expect(durationMs).toBeGreaterThanOrEqual(15_100);
+    expect(durationMs).toBeLessThan(15_350);
 
     await expect(handler.handleAgentEnd({
       messages: [
@@ -616,7 +617,7 @@ describe("TooToo bridge handler", () => {
     const client = makeClient();
     const evidence = "My instinct is to wait when the change affects something customer-facing. I’m okay moving fast for internal cleanup, but if users might notice it, I’d rather have one more verification pass than rush it out.";
     const passiveModelExtractor = vi.fn((): Promise<PassiveExtractorOutput> => new Promise((_resolve, reject) => {
-      setTimeout(() => reject(new Error("late provider failure")), 3_300);
+      setTimeout(() => reject(new Error("late provider failure")), 15_300);
     }));
     const handler = createBridgeHandler(client, {
       logger,
@@ -637,9 +638,9 @@ describe("TooToo bridge handler", () => {
     })).resolves.toBe(true);
 
     const drain = handler.drainPassiveJobs();
-    await vi.advanceTimersByTimeAsync(3_150);
+    await vi.advanceTimersByTimeAsync(15_150);
     await drain;
-    expect(logger.warn).toHaveBeenCalledWith(expect.stringMatching(/passive_extractor_timeout .*timeoutMs=3000/));
+    expect(logger.warn).toHaveBeenCalledWith(expect.stringMatching(/passive_extractor_timeout .*timeoutMs=15000/));
 
     await vi.advanceTimersByTimeAsync(250);
     await Promise.resolve();

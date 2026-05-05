@@ -4,6 +4,8 @@ import {
   buildPassiveExtractorInput,
   buildPassiveExtractorPrompt,
   parsePassiveExtractorJson,
+  PASSIVE_EXTRACTOR_MAX_OUTPUT_TOKENS,
+  resolvePassiveExtractorTimeoutMs,
   shouldAttemptPassiveBridgeExtraction,
   validatePassiveExtractorCandidates,
 } from "../../src/features/bridge/passive.js";
@@ -26,6 +28,32 @@ function validOutput(content: string, evidence: string) {
 }
 
 describe("passive bridge extraction gate and validation", () => {
+  it("uses a practical default extractor timeout and supports a bounded env override", () => {
+    const previousOpenClaw = process.env.OPENCLAW_CORTEX_PASSIVE_EXTRACTOR_TIMEOUT_MS;
+    const previousLegacy = process.env.CORTEX_PASSIVE_EXTRACTOR_TIMEOUT_MS;
+    try {
+      delete process.env.OPENCLAW_CORTEX_PASSIVE_EXTRACTOR_TIMEOUT_MS;
+      delete process.env.CORTEX_PASSIVE_EXTRACTOR_TIMEOUT_MS;
+      expect(resolvePassiveExtractorTimeoutMs()).toBe(15_000);
+
+      process.env.OPENCLAW_CORTEX_PASSIVE_EXTRACTOR_TIMEOUT_MS = "45000";
+      expect(resolvePassiveExtractorTimeoutMs()).toBe(45_000);
+
+      process.env.OPENCLAW_CORTEX_PASSIVE_EXTRACTOR_TIMEOUT_MS = "999999";
+      expect(resolvePassiveExtractorTimeoutMs()).toBe(120_000);
+    } finally {
+      if (previousOpenClaw === undefined) delete process.env.OPENCLAW_CORTEX_PASSIVE_EXTRACTOR_TIMEOUT_MS;
+      else process.env.OPENCLAW_CORTEX_PASSIVE_EXTRACTOR_TIMEOUT_MS = previousOpenClaw;
+      if (previousLegacy === undefined) delete process.env.CORTEX_PASSIVE_EXTRACTOR_TIMEOUT_MS;
+      else process.env.CORTEX_PASSIVE_EXTRACTOR_TIMEOUT_MS = previousLegacy;
+    }
+  });
+
+  it("leaves output room for candidates and exact evidence quotes", () => {
+    expect(PASSIVE_EXTRACTOR_MAX_OUTPUT_TOKENS).toBeGreaterThanOrEqual(1_000);
+    expect(buildPassiveExtractorPrompt()).toContain("shortest exact substring");
+  });
+
   it.each([
     ["ok", "low_signal"],
     ["thanks", "low_signal"],
@@ -78,10 +106,34 @@ describe("passive bridge extraction gate and validation", () => {
     expect(buildPassiveExtractorPrompt()).toContain("Do not create claims about named third parties");
   });
 
+  it("bounds extractor input to three user-authored messages, 4000 chars each, and 6000 chars total", () => {
+    const older = `older ${"a".repeat(3_995)}`;
+    const middle = `middle ${"b".repeat(3_995)}`;
+    const latest = `latest ${"c".repeat(3_995)}`;
+    const input = buildPassiveExtractorInput([
+      { role: "system", content: `system ${"s".repeat(200)}` },
+      { role: "user", content: "too old to include" },
+      { role: "assistant", content: `assistant ${"x".repeat(200)}` },
+      { role: "tool", content: `tool ${"t".repeat(200)}` },
+      { role: "user", content: older },
+      { role: "user", content: middle },
+      { role: "user", content: latest },
+    ]);
+
+    expect(input.messages).toHaveLength(1);
+    expect(input.messages[0].role).toBe("user");
+    expect(input.messages[0].content).toHaveLength(4_000);
+    expect(input.messages[0].content.startsWith("latest")).toBe(true);
+    expect(input.messages.reduce((total, message) => total + message.content.length, 0)).toBeLessThanOrEqual(6_000);
+    expect(JSON.stringify(input.messages)).not.toContain("assistant");
+    expect(JSON.stringify(input.messages)).not.toContain("system");
+    expect(JSON.stringify(input.messages)).not.toContain("tool");
+  });
+
   it("keeps the latest user message when the passive window exceeds the total character budget", () => {
-    const older = `older preference ${"a".repeat(890)}`;
-    const middle = `middle preference ${"b".repeat(890)}`;
-    const latest = `latest preference ${"c".repeat(890)}`;
+    const older = `older preference ${"a".repeat(3_500)}`;
+    const middle = `middle preference ${"b".repeat(3_500)}`;
+    const latest = `latest preference ${"c".repeat(3_500)}`;
     const input = buildPassiveExtractorInput([
       { role: "user", content: older },
       { role: "assistant", content: "Not used as evidence." },
@@ -92,7 +144,7 @@ describe("passive bridge extraction gate and validation", () => {
 
     expect(input.messages.some((message) => message.content.startsWith("latest preference"))).toBe(true);
     expect(input.messages.some((message) => message.content.startsWith("older preference"))).toBe(false);
-    expect(input.messages.reduce((total, message) => total + message.content.length, 0)).toBeLessThanOrEqual(2400);
+    expect(input.messages.reduce((total, message) => total + message.content.length, 0)).toBeLessThanOrEqual(6_000);
   });
 
   it("accepts one grounded low-risk model candidate", () => {
@@ -117,6 +169,23 @@ describe("passive bridge extraction gate and validation", () => {
     ]);
   });
 
+  it("accepts a durable review-versus-delegate preference with exact user evidence", () => {
+    const evidence = "I tend to review things myself when the decision is irreversible or customer-facing. If it is internal cleanup or easy to undo, I would rather delegate it and only ask for a short note on what changed.";
+    const input = buildPassiveExtractorInput(messages(evidence));
+    const result = validatePassiveExtractorCandidates(
+      validOutput("Prefers personally reviewing irreversible or customer-facing decisions, while delegating easy-to-undo internal cleanup with a short change note.", evidence),
+      input,
+    );
+
+    expect(result.rejected).toEqual([]);
+    expect(result.accepted).toEqual([
+      expect.objectContaining({
+        evidence_quote: evidence,
+        suggested_section: "practices",
+      }),
+    ]);
+  });
+
   it("rejects evidence not present in a user-authored message", () => {
     const input = buildPassiveExtractorInput([
       { role: "user", content: "I want the handoff to make the owner and next step obvious." },
@@ -124,6 +193,18 @@ describe("passive bridge extraction gate and validation", () => {
     ]);
     const result = validatePassiveExtractorCandidates(
       validOutput("Prefers handoffs with explicit ownership.", "I will make ownership explicit."),
+      input,
+    );
+
+    expect(result.accepted).toEqual([]);
+    expect(result.rejected).toEqual([{ reason: "evidence_not_exact" }]);
+  });
+
+  it("rejects paraphrased evidence even when the content is otherwise plausible", () => {
+    const evidence = "I want the handoff to make the owner and next step obvious.";
+    const input = buildPassiveExtractorInput(messages(evidence));
+    const result = validatePassiveExtractorCandidates(
+      validOutput("Prefers handoffs with clear ownership and next steps.", "I prefer handoffs with clear owners and next steps."),
       input,
     );
 

@@ -9,11 +9,30 @@ import { isLowSignal, sanitizeConversationText } from "../capture/filter.js";
 export const PASSIVE_BRIDGE_EXTRACTOR_VERSION = "openclaw-cortex-passive-v1";
 export const MAX_PASSIVE_CANDIDATES_PER_TURN = 3;
 export const MAX_PASSIVE_CANDIDATES_PER_SESSION = 5;
-export const PASSIVE_EXTRACTOR_TIMEOUT_MS = 3_000;
-export const PASSIVE_EXTRACTOR_MAX_OUTPUT_TOKENS = 450;
-export const PASSIVE_JOB_TTL_MS = 30_000;
-export const PASSIVE_MESSAGE_MAX_CHARS = 900;
-export const PASSIVE_WINDOW_MAX_CHARS = 2_400;
+const PASSIVE_EXTRACTOR_DEFAULT_TIMEOUT_MS = 15_000;
+const PASSIVE_EXTRACTOR_MIN_TIMEOUT_MS = 1_000;
+const PASSIVE_EXTRACTOR_MAX_TIMEOUT_MS = 120_000;
+const PASSIVE_JOB_DEFAULT_TTL_MS = 30_000;
+const PASSIVE_JOB_TIMEOUT_GRACE_MS = 5_000;
+export function resolvePassiveExtractorTimeoutMs(): number {
+  const raw = process.env.OPENCLAW_CORTEX_PASSIVE_EXTRACTOR_TIMEOUT_MS
+    ?? process.env.CORTEX_PASSIVE_EXTRACTOR_TIMEOUT_MS;
+  if (!raw) return PASSIVE_EXTRACTOR_DEFAULT_TIMEOUT_MS;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed)) return PASSIVE_EXTRACTOR_DEFAULT_TIMEOUT_MS;
+  return Math.min(
+    PASSIVE_EXTRACTOR_MAX_TIMEOUT_MS,
+    Math.max(PASSIVE_EXTRACTOR_MIN_TIMEOUT_MS, Math.trunc(parsed)),
+  );
+}
+export const PASSIVE_EXTRACTOR_TIMEOUT_MS = resolvePassiveExtractorTimeoutMs();
+export const PASSIVE_EXTRACTOR_MAX_OUTPUT_TOKENS = 1_000;
+export const PASSIVE_JOB_TTL_MS = Math.max(
+  PASSIVE_JOB_DEFAULT_TTL_MS,
+  PASSIVE_EXTRACTOR_TIMEOUT_MS + PASSIVE_JOB_TIMEOUT_GRACE_MS,
+);
+export const PASSIVE_MESSAGE_MAX_CHARS = 4_000;
+export const PASSIVE_WINDOW_MAX_CHARS = 6_000;
 
 type PassiveRole = "assistant" | "user";
 
@@ -175,6 +194,7 @@ export function buildPassiveExtractorPrompt(): string {
     "Do not create claims about named third parties.",
     "Candidate wording should be concise, durable, operational, and not include unsupported details.",
     "Evidence quotes must be exact user-authored substrings from the provided messages.",
+    "Keep evidence_quote to the shortest exact substring that proves the candidate; do not quote whole long messages.",
     "If uncertain, return no candidates.",
     "Return JSON only with this shape:",
     "{\"candidates\":[{\"content\":\"string\",\"suggested_section\":\"practices\",\"evidence_quote\":\"exact user-authored quote\",\"supporting_evidence_quotes\":[\"optional exact user-authored quotes\"],\"confidence\":0.0,\"risk_tier\":\"low\",\"reason\":\"brief internal review note\"}]}",

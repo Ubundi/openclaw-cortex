@@ -21,6 +21,7 @@ export const PASSIVE_EXTRACTOR_PROVENANCE_SOURCE = "cortex_passive_extractor";
 
 type Logger = {
   debug?(...args: unknown[]): void;
+  info?(...args: unknown[]): void;
 };
 
 type OpenClawConfigLike = Record<string, unknown>;
@@ -173,6 +174,17 @@ function readConfiguredPrimaryModelRef(config: OpenClawConfigLike | undefined): 
 
 function resolveExtractorModelRef(input: PassiveExtractorInput, config: OpenClawConfigLike | undefined): string | undefined {
   return normalizeModelRef(input.activeModelRef) ?? readConfiguredPrimaryModelRef(config);
+}
+
+function buildDirectExtractorProviderConfig(config: OpenClawConfigLike | undefined): OpenClawConfigLike | undefined {
+  const models = recordValue(config?.models);
+  const providers = recordValue(models?.providers);
+  if (!providers) return undefined;
+  return {
+    models: {
+      providers,
+    },
+  };
 }
 
 function forcePrimaryModel(config: OpenClawConfigLike, modelRef: string | undefined): OpenClawConfigLike {
@@ -548,6 +560,7 @@ export function createPiAiDirectModelCall(
         model,
         {
           systemPrompt: input.prompt,
+          tools: [],
           messages: [{
             role: "user",
             content: buildDirectExtractorUserPrompt(input),
@@ -769,7 +782,8 @@ export function createOpenClawPassiveModelExtractor(
   return async (input: PassiveExtractorInput): Promise<PassiveExtractorOutput> => {
     const config = api.config;
     const modelRef = resolveExtractorModelRef(input, config);
-    const extractorConfig = buildModelOnlyExtractorConfig(config, modelRef);
+    const embeddedExtractorConfig = buildModelOnlyExtractorConfig(config, modelRef);
+    const directExtractorConfig = buildDirectExtractorProviderConfig(config);
     const activeModel = splitModelRef(input.activeModelRef);
     const timeoutMs = Math.min(
       input.timeoutMs,
@@ -785,7 +799,7 @@ export function createOpenClawPassiveModelExtractor(
       logger.debug?.(`Cortex bridge: passive extractor_called runner=embedded_agent_in_process timeoutMs=${timeoutMs} maxOutputTokens=${input.maxOutputTokens} model=${input.activeModelRef ?? "default"}`);
       return runEmbeddedPassiveExtractorInProcess({
         input,
-        config: extractorConfig,
+        config: embeddedExtractorConfig,
         timeoutMs,
         activeModel,
       }, runEmbeddedPiAgent, logger);
@@ -796,10 +810,10 @@ export function createOpenClawPassiveModelExtractor(
       return { candidates: [] };
     }
 
-    logger.debug?.(`Cortex bridge: passive extractor_called runner=direct_model timeoutMs=${timeoutMs} maxOutputTokens=${input.maxOutputTokens} model=${modelRef}`);
+    logger.info?.(`Cortex bridge: passive_extractor_model_call_started runner=direct_model timeoutMs=${timeoutMs} maxOutputTokens=${input.maxOutputTokens} model=${modelRef}`);
     const text = await (options.directModelCall ?? createPiAiDirectModelCall())({
       input,
-      config: extractorConfig,
+      config: directExtractorConfig,
       modelRef,
       timeoutMs,
     });
