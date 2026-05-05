@@ -122,46 +122,7 @@ backup_path="${config_path}.bak.$(date +%Y%m%d%H%M%S)"
 cp "$config_path" "$backup_path"
 log "Backed up existing config to ${backup_path}"
 
-CONFIG_PATH="$config_path" node <<'EOF'
-const fs = require('fs');
-
-const configPath = process.env.CONFIG_PATH;
-const pluginKey = '@ubundi/openclaw-cortex';
-
-const raw = fs.readFileSync(configPath, 'utf8').trim();
-const config = raw ? JSON.parse(raw) : {};
-
-if (config === null || Array.isArray(config) || typeof config !== 'object') {
-  throw new Error('openclaw.json must contain a JSON object');
-}
-
-if (!config.plugins || Array.isArray(config.plugins) || typeof config.plugins !== 'object') {
-  config.plugins = {};
-}
-
-if (!config.plugins.entries || Array.isArray(config.plugins.entries) || typeof config.plugins.entries !== 'object') {
-  config.plugins.entries = {};
-}
-
-const existingEntry = config.plugins.entries[pluginKey];
-const existingConfig =
-  existingEntry && typeof existingEntry === 'object' && !Array.isArray(existingEntry) && existingEntry.config && typeof existingEntry.config === 'object' && !Array.isArray(existingEntry.config)
-    ? existingEntry.config
-    : {};
-
-config.plugins.entries[pluginKey] = {
-  enabled: true,
-  config: existingConfig,
-};
-
-if (!config.plugins.slots || Array.isArray(config.plugins.slots) || typeof config.plugins.slots !== 'object') {
-  config.plugins.slots = {};
-}
-
-config.plugins.slots.memory = pluginKey;
-
-fs.writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`);
-EOF
+node "${SCRIPT_DIR}/ensure-openclaw-cortex-config.mjs" "$config_path"
 
 log "OpenClaw workspace is ready at ${workspace_dir}"
 log "Cortex plugin is enabled in ${config_path}"

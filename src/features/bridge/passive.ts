@@ -313,6 +313,119 @@ function reject(reason: string): { reason: string } {
   return { reason };
 }
 
+const PASSIVE_PRUNE_STOPWORDS = new Set([
+  "a",
+  "an",
+  "and",
+  "are",
+  "as",
+  "be",
+  "for",
+  "from",
+  "if",
+  "in",
+  "is",
+  "it",
+  "of",
+  "or",
+  "that",
+  "the",
+  "their",
+  "them",
+  "to",
+  "user",
+  "when",
+  "with",
+]);
+const META_TASK_INTENT_RE = /\b(?:wants to|trying to|help me|make .{0,80}\bless\b|less reactive|proactive\/systematic approach preferred|approach preferred)\b/i;
+const OPERATIONAL_CONDITION_RE = /\b(?:if|when|whether|based on|depending on|unless|rather than)\b/i;
+const OPERATIONAL_ACTION_RE = /\b(?:prioritizes?|escalates?|delegates?|reviews?|keeps?|stays?|interrupts?|asks?|prefers?|would rather|blocks?|workarounds?|normal queue|customer-facing|owner|next step|written down)\b/i;
+const EXACT_EVIDENCE_CONTENT_SIMILARITY = 0.04;
+const EVIDENCE_OVERLAP_SIMILARITY = 0.5;
+const CONTENT_OVERLAP_SIMILARITY = 0.45;
+
+function passivePruneTokens(text: string): Set<string> {
+  return new Set(text
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .split(/\s+/)
+    .map((token) => token.replace(/(?:ing|ed|s)$/i, ""))
+    .filter((token) => token.length > 2 && !PASSIVE_PRUNE_STOPWORDS.has(token)));
+}
+
+function passiveTokenSimilarity(left: string, right: string): number {
+  const leftTokens = passivePruneTokens(left);
+  const rightTokens = passivePruneTokens(right);
+  if (leftTokens.size === 0 || rightTokens.size === 0) return 0;
+  let overlap = 0;
+  for (const token of leftTokens) {
+    if (rightTokens.has(token)) overlap++;
+  }
+  const union = new Set([...leftTokens, ...rightTokens]).size;
+  return union === 0 ? 0 : overlap / union;
+}
+
+function passiveCandidateScore(candidate: PassiveBridgeCandidate): number {
+  const content = candidate.content;
+  let score = candidate.confidence * 100;
+  const wordCount = countWords(content);
+  score += Math.min(wordCount, 24) * 0.4;
+  // These features only rank already-valid siblings; they do not reject candidates by themselves.
+  if (OPERATIONAL_CONDITION_RE.test(content)) score += 12;
+  if (OPERATIONAL_ACTION_RE.test(content)) score += 12;
+  if (OPERATIONAL_CONDITION_RE.test(content) && OPERATIONAL_ACTION_RE.test(content)) score += 10;
+  if (META_TASK_INTENT_RE.test(content)) score -= 30;
+  if (!OPERATIONAL_ACTION_RE.test(content)) score -= 8;
+  return score;
+}
+
+function arePassiveSiblingCandidates(left: PassiveBridgeCandidate, right: PassiveBridgeCandidate): boolean {
+  const leftIndices = new Set(left.source_message_indices ?? []);
+  const sharesSource = (right.source_message_indices ?? []).some((index) => leftIndices.has(index));
+  if (!sharesSource) return false;
+  const contentSimilarity = passiveTokenSimilarity(left.content, right.content);
+  const evidenceSimilarity = passiveTokenSimilarity(left.evidence_quote, right.evidence_quote);
+  // Thresholds are calibrated so paraphrases of one memory group, while distinct facts from a broad quote do not.
+  if (left.evidence_quote.toLowerCase() === right.evidence_quote.toLowerCase()) {
+    return contentSimilarity >= EXACT_EVIDENCE_CONTENT_SIMILARITY;
+  }
+  return (evidenceSimilarity >= EVIDENCE_OVERLAP_SIMILARITY && contentSimilarity >= EXACT_EVIDENCE_CONTENT_SIMILARITY)
+    || contentSimilarity >= CONTENT_OVERLAP_SIMILARITY;
+}
+
+function prunePassiveSiblingCandidates(candidates: PassiveBridgeCandidate[]): {
+  accepted: PassiveBridgeCandidate[];
+  prunedCount: number;
+} {
+  const groups: PassiveBridgeCandidate[][] = [];
+  for (const candidate of candidates) {
+    const group = groups.find((existing) => existing.some((item) => arePassiveSiblingCandidates(item, candidate)));
+    if (group) group.push(candidate);
+    else groups.push([candidate]);
+  }
+
+  const accepted: PassiveBridgeCandidate[] = [];
+  let prunedCount = 0;
+  for (const group of groups) {
+    if (group.length === 1) {
+      accepted.push(group[0]);
+      continue;
+    }
+    let best = group[0];
+    let bestScore = passiveCandidateScore(best);
+    for (const candidate of group.slice(1)) {
+      const score = passiveCandidateScore(candidate);
+      if (score > bestScore) {
+        best = candidate;
+        bestScore = score;
+      }
+    }
+    accepted.push(best);
+    prunedCount += group.length - 1;
+  }
+  return { accepted, prunedCount };
+}
+
 export function validatePassiveExtractorCandidates(
   output: PassiveExtractorOutput,
   input: PassiveExtractorInput,
@@ -322,7 +435,6 @@ export function validatePassiveExtractorCandidates(
   const seen = new Set<string>();
 
   for (const rawCandidate of output.candidates) {
-    if (accepted.length >= MAX_PASSIVE_CANDIDATES_PER_TURN) break;
     if (typeof rawCandidate !== "object" || rawCandidate === null || Array.isArray(rawCandidate)) {
       rejected.push(reject("invalid_shape"));
       continue;
@@ -413,7 +525,12 @@ export function validatePassiveExtractorCandidates(
     accepted.push(candidate);
   }
 
-  return { accepted, rejected };
+  const pruned = prunePassiveSiblingCandidates(accepted);
+  for (let index = 0; index < pruned.prunedCount; index++) {
+    rejected.push(reject("weaker_sibling_pruned"));
+  }
+
+  return { accepted: pruned.accepted.slice(0, MAX_PASSIVE_CANDIDATES_PER_TURN), rejected };
 }
 
 function candidateFingerprint(candidate: Pick<PassiveBridgeCandidate, "content" | "evidence_quote">): string {

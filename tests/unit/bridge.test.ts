@@ -635,7 +635,7 @@ describe("TooToo bridge handler", () => {
 
     expect(submitBridgePassive).toHaveBeenCalledTimes(1);
     expect(submitBridgePassive.mock.calls[0][0].candidates).toHaveLength(1);
-    expect(logger.info).toHaveBeenCalledWith(expect.stringContaining("passive_candidate_suppressed reason=duplicate_recent_session_fuzzy"));
+    expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining("buckets=weaker_sibling_pruned"));
   });
 
   it("logs extractor_zero_candidates when the broadened gate calls the model and it returns none", async () => {

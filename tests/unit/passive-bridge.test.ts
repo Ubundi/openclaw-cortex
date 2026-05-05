@@ -27,6 +27,17 @@ function validOutput(content: string, evidence: string) {
   };
 }
 
+function validCandidate(content: string, evidence: string, confidence = 0.86) {
+  return {
+    content,
+    suggested_section: "practices",
+    evidence_quote: evidence,
+    confidence,
+    risk_tier: "low",
+    reason: "The user stated durable low-risk context.",
+  };
+}
+
 describe("passive bridge extraction gate and validation", () => {
   it("uses a practical default extractor timeout and supports a bounded env override", () => {
     const previousOpenClaw = process.env.OPENCLAW_CORTEX_PASSIVE_EXTRACTOR_TIMEOUT_MS;
@@ -215,6 +226,102 @@ describe("passive bridge extraction gate and validation", () => {
         suggested_section: "practices",
       }),
     ]);
+  });
+
+  it("prunes a weak meta sibling when a stronger operational candidate captures the same evidence", () => {
+    const evidence = "What I care about is whether the bug blocks a customer from finishing their work. If it is annoying but there is a workaround, I would rather keep it in the normal queue than interrupt everyone.";
+    const input = buildPassiveExtractorInput(messages(evidence));
+    const result = validatePassiveExtractorCandidates({
+      candidates: [
+        validCandidate(
+          "Prioritizes bug escalation based on whether the bug blocks a customer from completing their work; bugs with workarounds stay in the normal queue rather than triggering interruptions.",
+          evidence,
+          0.88,
+        ),
+        validCandidate(
+          "Wants to make customer bug triage less reactive (proactive/systematic approach preferred).",
+          evidence,
+          0.75,
+        ),
+      ],
+    }, input);
+
+    expect(result.accepted).toEqual([
+      expect.objectContaining({
+        content: expect.stringContaining("blocks a customer"),
+        evidence_quote: evidence,
+      }),
+    ]);
+    expect(result.rejected).toContainEqual({ reason: "weaker_sibling_pruned" });
+  });
+
+  it("keeps two genuinely distinct durable preferences from one extractor response", () => {
+    const escalationEvidence = "If a bug blocks a customer from finishing their work, I want it escalated; if there is a workaround, keep it in the normal queue.";
+    const updateEvidence = "For status updates, I prefer async notes with the owner and next step written down.";
+    const input = buildPassiveExtractorInput([
+      { role: "user", content: escalationEvidence },
+      { role: "user", content: updateEvidence },
+    ]);
+    const result = validatePassiveExtractorCandidates({
+      candidates: [
+        validCandidate("Escalates customer-blocking bugs while keeping workaround bugs in the normal queue.", escalationEvidence),
+        validCandidate("Prefers async status updates that name the owner and next written step.", updateEvidence),
+      ],
+    }, input);
+
+    expect(result.rejected).toEqual([]);
+    expect(result.accepted).toHaveLength(2);
+  });
+
+  it("keeps distinct durable facts even when the extractor reuses one broad evidence quote", () => {
+    const evidence = "If a bug blocks a customer from finishing their work, I want it escalated immediately. For status updates, I prefer async notes with the owner and next step written down.";
+    const input = buildPassiveExtractorInput(messages(evidence));
+    const result = validatePassiveExtractorCandidates({
+      candidates: [
+        validCandidate("Escalates customer-blocking bugs immediately.", evidence),
+        validCandidate("Prefers async status updates that name the owner and next written step.", evidence),
+      ],
+    }, input);
+
+    expect(result.rejected).toEqual([]);
+    expect(result.accepted).toHaveLength(2);
+  });
+
+  it("prunes same-evidence near duplicates inside one extractor response", () => {
+    const evidence = "I want escalations to include the decision the person would make if I was unavailable, even if it is rough.";
+    const input = buildPassiveExtractorInput(messages(evidence));
+    const result = validatePassiveExtractorCandidates({
+      candidates: [
+        validCandidate("Prefers escalations to include a rough proposed decision rather than only the problem.", evidence),
+        validCandidate("When escalating, prefers people bring their recommended decision even if rough.", evidence),
+      ],
+    }, input);
+
+    expect(result.accepted).toHaveLength(1);
+    expect(result.rejected).toContainEqual({ reason: "weaker_sibling_pruned" });
+  });
+
+  it("applies the per-turn cap after pruning weaker siblings", () => {
+    const escalationEvidence = "I want escalations to include the decision the person would make if I was unavailable, even if it is rough.";
+    const updateEvidence = "For status updates, I prefer async notes with the owner and next step written down.";
+    const input = buildPassiveExtractorInput([
+      { role: "user", content: escalationEvidence },
+      { role: "user", content: updateEvidence },
+    ]);
+    const result = validatePassiveExtractorCandidates({
+      candidates: [
+        validCandidate("Prefers escalations to include a rough proposed decision rather than only the problem.", escalationEvidence),
+        validCandidate("When escalating, prefers people bring their recommended decision even if rough.", escalationEvidence),
+        validCandidate("Prefers people to bring a proposed decision when escalating.", escalationEvidence),
+        validCandidate("Prefers async status updates that name the owner and next written step.", updateEvidence),
+      ],
+    }, input);
+
+    expect(result.accepted).toEqual([
+      expect.objectContaining({ evidence_quote: escalationEvidence }),
+      expect.objectContaining({ evidence_quote: updateEvidence }),
+    ]);
+    expect(result.rejected.filter((item) => item.reason === "weaker_sibling_pruned")).toHaveLength(2);
   });
 
   it("rejects evidence not present in a user-authored message", () => {

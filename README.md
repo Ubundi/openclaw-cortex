@@ -32,6 +32,7 @@
 ```bash
 openclaw plugins install @ubundi/openclaw-cortex
 openclaw config set plugins.entries.openclaw-cortex.config.apiKey "your-cortex-api-key"
+openclaw config set plugins.entries.openclaw-cortex.hooks.allowConversationAccess true
 openclaw gateway restart
 ```
 
@@ -62,6 +63,7 @@ openclaw plugins install -l ./path/to/openclaw-cortex
 
    ```bash
    openclaw config set plugins.entries.openclaw-cortex.config.apiKey "your-cortex-api-key"
+   openclaw config set plugins.entries.openclaw-cortex.hooks.allowConversationAccess true
    openclaw gateway restart
    ```
 
@@ -87,6 +89,9 @@ Add to your `openclaw.json`:
     entries: {
       "openclaw-cortex": {
         enabled: true,
+        hooks: {
+          allowConversationAccess: true, // required for typed agent_end capture hooks
+        },
         config: {
           apiKey: "your-cortex-api-key",  // required — or set CORTEX_API_KEY env var
           autoRecall: false,
