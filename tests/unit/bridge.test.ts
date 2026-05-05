@@ -80,6 +80,17 @@ function makeTraceClient(): ClawDeployBridgeTraceClient {
   };
 }
 
+function validPassiveCandidate(content: string, evidence: string) {
+  return {
+    content,
+    suggested_section: "practices",
+    evidence_quote: evidence,
+    confidence: 0.86,
+    risk_tier: "low",
+    reason: "The user stated a durable collaboration preference.",
+  };
+}
+
 function passiveExtractorFor(contentByEvidence: Record<string, string> = {}) {
   return vi.fn(async (input: any) => {
     const latestUser = [...input.messages].reverse().find((message: any) => message.role === "user");
@@ -487,6 +498,144 @@ describe("TooToo bridge handler", () => {
     expect(logger.info).toHaveBeenCalledWith(expect.stringContaining("model=global.anthropic.claude-sonnet-4-6"));
     expect(logger.info).not.toHaveBeenCalledWith(expect.stringContaining("model=default"));
     expect((client.submitBridgePassive as any)).toHaveBeenCalledTimes(1);
+  });
+
+  it("sends at most one passive bridge request for the escalation preference across a follow-up turn", async () => {
+    const client = makeClient();
+    const opening = "I am trying to make escalations less messy. Can you help me think through when people should bring something to me versus handle it themselves?";
+    const evidence = "The thing that helps me most is when someone brings me the decision they would make if I was not available, even if it is rough. If they only bring me the problem, I end up solving from zero and it slows everything down.";
+    const passiveModelExtractor = vi.fn(async (input: any): Promise<PassiveExtractorOutput> => {
+      const joined = input.messages.map((message: any) => message.content).join("\n");
+      if (!joined.includes(evidence)) return { candidates: [] };
+      return {
+        candidates: [{
+          content: "Prefers that people escalating bring a proposed decision or recommendation, not just the problem, because arriving only with the problem forces them to solve from zero.",
+          suggested_section: "practices",
+          evidence_quote: evidence,
+          confidence: 0.89,
+          risk_tier: "low",
+          reason: "The user stated a durable escalation preference.",
+        }],
+      };
+    });
+    const handler = createBridgeHandler(client, {
+      logger,
+      getUserId: () => "agent-user-1",
+      userIdReady: Promise.resolve(),
+      pluginSessionId: "plugin-session-1",
+      passiveModelExtractor,
+      getActiveModelRef: () => "amazon-bedrock/global.anthropic.claude-sonnet-4-6",
+    });
+
+    await handler.handleAgentEnd({
+      messages: [
+        { role: "user", content: opening },
+        { role: "assistant", content: "We can turn that into an escalation rule." },
+      ],
+      sessionKey: "sess-passive-escalation-dedupe",
+    });
+    await handler.drainPassiveJobs();
+
+    await handler.handleAgentEnd({
+      messages: [
+        { role: "user", content: opening },
+        { role: "assistant", content: "We can turn that into an escalation rule." },
+        { role: "user", content: evidence },
+        { role: "assistant", content: "That means people should bring a rough recommendation." },
+      ],
+      sessionKey: "sess-passive-escalation-dedupe",
+    });
+    await handler.drainPassiveJobs();
+
+    await handler.handleAgentEnd({
+      messages: [
+        { role: "user", content: opening },
+        { role: "assistant", content: "We can turn that into an escalation rule." },
+        { role: "user", content: evidence },
+        { role: "assistant", content: "That means people should bring a rough recommendation." },
+        { role: "user", content: "Help me turn that into a simple expectation I can share with the team." },
+        { role: "assistant", content: "Bring me the decision you would make if I were unavailable." },
+      ],
+      sessionKey: "sess-passive-escalation-dedupe",
+    });
+    await handler.drainPassiveJobs();
+
+    expect((client.submitBridgePassive as any)).toHaveBeenCalledTimes(1);
+    expect(logger.info).toHaveBeenCalledWith(expect.stringContaining("reason=low_new_signal_followup"));
+  });
+
+  it("suppresses near-duplicate passive candidates in the same session while allowing a different later preference", async () => {
+    const client = makeClient();
+    const evidence = "The thing that helps me most is when someone brings me the decision they would make if I was not available, even if it is rough. If they only bring me the problem, I end up solving from zero and it slows everything down.";
+    const duplicateEvidence = "When something is escalated, I want the person to bring the decision they recommend, even if it is rough, because only bringing the problem makes me solve from zero.";
+    const differentEvidence = "For project updates, I want the owner and next step written down so I can stop tracking it in my head.";
+    const passiveModelExtractor = vi.fn(async (input: any): Promise<PassiveExtractorOutput> => {
+      const latest = [...input.messages].reverse().find((message: any) => message.role === "user")?.content ?? "";
+      if (latest === evidence) {
+        return { candidates: [validPassiveCandidate("Prefers escalations to include a rough proposed decision rather than only the problem.", evidence)] };
+      }
+      if (latest === duplicateEvidence) {
+        return { candidates: [validPassiveCandidate("When escalating, prefers people bring their recommended decision instead of only the problem.", duplicateEvidence)] };
+      }
+      if (latest === differentEvidence) {
+        return { candidates: [validPassiveCandidate("Prefers project updates to include the owner and next step in writing.", differentEvidence)] };
+      }
+      return { candidates: [] };
+    });
+    const handler = createBridgeHandler(client, {
+      logger,
+      getUserId: () => "agent-user-1",
+      userIdReady: Promise.resolve(),
+      pluginSessionId: "plugin-session-1",
+      passiveModelExtractor,
+    });
+
+    await handler.handleAgentEnd({ messages: [{ role: "user", content: evidence }, { role: "assistant", content: "Got it." }], sessionKey: "sess-passive-near-dupe" });
+    await handler.drainPassiveJobs();
+    await handler.handleAgentEnd({ messages: [{ role: "user", content: evidence }, { role: "assistant", content: "Got it." }, { role: "user", content: duplicateEvidence }, { role: "assistant", content: "That is similar." }], sessionKey: "sess-passive-near-dupe" });
+    await handler.drainPassiveJobs();
+    await handler.handleAgentEnd({ messages: [{ role: "user", content: evidence }, { role: "assistant", content: "Got it." }, { role: "user", content: duplicateEvidence }, { role: "assistant", content: "That is similar." }, { role: "user", content: differentEvidence }, { role: "assistant", content: "Clear." }], sessionKey: "sess-passive-near-dupe" });
+    await handler.drainPassiveJobs();
+
+    expect((client.submitBridgePassive as any)).toHaveBeenCalledTimes(2);
+    expect(logger.info).toHaveBeenCalledWith(expect.stringContaining("passive_candidate_suppressed reason=duplicate_recent_session_fuzzy"));
+  });
+
+  it("suppresses near-duplicate passive candidates returned in the same extractor response", async () => {
+    const submitBridgePassive = vi.fn().mockResolvedValue({
+      accepted: true,
+      forwarded: true,
+      queued_for_retry: false,
+      candidates_sent: 1,
+      tootoo_user_id: "tt-user-1",
+      bridge_event_id: "bridge-event-passive-1",
+      suggestions_created: 1,
+    });
+    const client = makeClient({ submitBridgePassive });
+    const evidence = "The thing that helps me most is when someone brings me the decision they would make if I was not available, even if it is rough. If they only bring me the problem, I end up solving from zero and it slows everything down.";
+    const passiveModelExtractor = vi.fn(async (): Promise<PassiveExtractorOutput> => ({
+      candidates: [
+        validPassiveCandidate("Prefers escalations to include a rough proposed decision rather than only the problem.", evidence),
+        validPassiveCandidate("When escalating, prefers people bring their recommended decision instead of only the problem.", evidence),
+      ],
+    }));
+    const handler = createBridgeHandler(client, {
+      logger,
+      getUserId: () => "agent-user-1",
+      userIdReady: Promise.resolve(),
+      pluginSessionId: "plugin-session-1",
+      passiveModelExtractor,
+    });
+
+    await handler.handleAgentEnd({
+      messages: [{ role: "user", content: evidence }, { role: "assistant", content: "Got it." }],
+      sessionKey: "sess-passive-same-batch-dupe",
+    });
+    await handler.drainPassiveJobs();
+
+    expect(submitBridgePassive).toHaveBeenCalledTimes(1);
+    expect(submitBridgePassive.mock.calls[0][0].candidates).toHaveLength(1);
+    expect(logger.info).toHaveBeenCalledWith(expect.stringContaining("passive_candidate_suppressed reason=duplicate_recent_session_fuzzy"));
   });
 
   it("logs extractor_zero_candidates when the broadened gate calls the model and it returns none", async () => {

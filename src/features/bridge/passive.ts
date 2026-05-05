@@ -45,6 +45,7 @@ interface PassiveConversationMessage {
 export interface PassiveGateResult {
   shouldExtract: boolean;
   reason?: string;
+  strippedInjectedContext?: boolean;
 }
 
 export interface PassiveExtractorMessage {
@@ -102,6 +103,16 @@ function extractContent(content: unknown): string {
   return "";
 }
 
+const INJECTED_CONTEXT_BLOCK_RE = /<(cortex_recovery|tootoo_bridge)\b[^>]*>[\s\S]*?<\/\1>/gi;
+
+export function stripPassiveInjectedContextBlocks(text: string): { text: string; stripped: boolean } {
+  const stripped = text.replace(INJECTED_CONTEXT_BLOCK_RE, " ");
+  return {
+    text: stripped,
+    stripped: stripped !== text,
+  };
+}
+
 export function normalizePassiveConversationMessages(messages: unknown[]): PassiveConversationMessage[] {
   const candidates = filterConversationMessagesForMemory(
     messages.flatMap((message, index) => {
@@ -119,12 +130,25 @@ export function normalizePassiveConversationMessages(messages: unknown[]): Passi
   );
 
   return candidates
-    .map((message) => ({
-      role: message.role as PassiveRole,
-      content: sanitizeConversationText(extractContent(message.content)).replace(/\s+/g, " ").trim(),
-      originalIndex: message.originalIndex,
-    }))
+    .map((message) => {
+      const stripped = stripPassiveInjectedContextBlocks(extractContent(message.content));
+      return {
+        role: message.role as PassiveRole,
+        content: sanitizeConversationText(stripped.text).replace(/\s+/g, " ").trim(),
+        originalIndex: message.originalIndex,
+      };
+    })
     .filter((message) => message.content.length > 0);
+}
+
+function hasInjectedPassiveContext(rawMessages: unknown[]): boolean {
+  return rawMessages.some((message) => {
+    if (typeof message !== "object" || message === null) return false;
+    const typed = message as Record<string, unknown>;
+    if (typed.role !== "user" && typed.role !== "assistant") return false;
+    if (!("content" in typed)) return false;
+    return stripPassiveInjectedContextBlocks(extractContent(typed.content)).stripped;
+  });
 }
 
 function countWords(text: string): number {
@@ -140,9 +164,11 @@ const CODE_FENCE_RE = /```[\s\S]*```/;
 const CODEISH_RE = /(?:^|\s)(?:const|let|var|function|class|interface|type|import|export|def|SELECT|CREATE|ERROR|WARN|INFO|Traceback|at\s+\S+\(|npm ERR!)\b|=>|[{};]{2,}/m;
 const PASTED_QUOTE_RE = /(?:^|\n)\s*(?:>|#{1,6}\s|[-*]\s)|\bREADME\b.*\bsays\b/i;
 const OWNERSHIP_RE = /\b(?:i|i'm|i am|i've|i have|my|me|for me|to me|honestly that's how i|that's how i|i like working|i prefer|i work best)\b/i;
+const FRESH_FOLLOWUP_EVIDENCE_RE = /\b(?:i\s+(?:prefer|work best|need|want|tend|usually|like|hate|avoid|choose|review|delegate|communicate|use|expect|rely|decide)|i\s+can\s+reuse|i\s+have\s+to\s+push\s+back|my\s+(?:preference|default|rule|style|expectation|habit|approach)|for me|to me)\b/i;
 // v1 intentionally over-blocks turns touching diagnosis, crisis, or protected-trait terms.
 // Missing a benign candidate is safer than extracting sensitive identity or health claims.
 const TRANSIENT_OR_RISK_RE = /\b(?:flat all week|can't keep doing this|cannot keep doing this|kill myself|suicide|self[- ]harm|diagnosed|depressed|bipolar|adhd|autistic|trauma|panic attack)\b/i;
+const LOW_NEW_SIGNAL_FOLLOWUP_RE = /^(?:(?:please|can you|could you|would you)\s+)?(?:help me\s+)?(?:turn|make|put|save|convert|write|draft|summarize|shorten|clean up|format)\s+(?:that|this|it|the above)\b|^(?:make that shorter|put this into a slack message|save that as a template)[.!?]*$/i;
 function latestUserMessage(messages: PassiveConversationMessage[]): PassiveConversationMessage | undefined {
   for (let i = messages.length - 1; i >= 0; i--) {
     if (messages[i].role === "user") return messages[i];
@@ -160,25 +186,31 @@ function isCodeOrLogOnly(text: string): boolean {
   return !OWNERSHIP_RE.test(text);
 }
 
+function isLowNewSignalFollowup(text: string): boolean {
+  return LOW_NEW_SIGNAL_FOLLOWUP_RE.test(text) && !FRESH_FOLLOWUP_EVIDENCE_RE.test(text);
+}
+
 export function shouldAttemptPassiveBridgeExtraction(rawMessages: unknown[]): PassiveGateResult {
+  const strippedInjectedContext = hasInjectedPassiveContext(rawMessages);
   const messages = normalizePassiveConversationMessages(rawMessages).slice(-6);
   const latestUser = latestUserMessage(messages);
-  if (!latestUser) return { shouldExtract: false, reason: "no_user_evidence" };
+  if (!latestUser) return { shouldExtract: false, reason: "no_user_evidence", strippedInjectedContext };
 
   const text = latestUser.content;
-  if (isHeartbeatTurn(text)) return { shouldExtract: false, reason: "heartbeat" };
-  if (ACK_RE.test(text) || isLowSignal(text)) return { shouldExtract: false, reason: "low_signal" };
-  if (ANTI_MEMORY_RE.test(text)) return { shouldExtract: false, reason: "anti_memory_instruction" };
-  if (SECRET_RE.test(text)) return { shouldExtract: false, reason: "secret_or_credential" };
+  if (isHeartbeatTurn(text)) return { shouldExtract: false, reason: "heartbeat", strippedInjectedContext };
+  if (isLowNewSignalFollowup(text)) return { shouldExtract: false, reason: "low_new_signal_followup", strippedInjectedContext };
+  if (ACK_RE.test(text) || isLowSignal(text)) return { shouldExtract: false, reason: "low_signal", strippedInjectedContext };
+  if (ANTI_MEMORY_RE.test(text)) return { shouldExtract: false, reason: "anti_memory_instruction", strippedInjectedContext };
+  if (SECRET_RE.test(text)) return { shouldExtract: false, reason: "secret_or_credential", strippedInjectedContext };
   if ((text.length < 12 || countWords(text) < 3) && !SHORT_PREFERENCE_RE.test(text)) {
-    return { shouldExtract: false, reason: "low_signal" };
+    return { shouldExtract: false, reason: "low_signal", strippedInjectedContext };
   }
-  if (TRANSIENT_OR_RISK_RE.test(text)) return { shouldExtract: false, reason: "unsafe_or_transient" };
-  if (isCodeOrLogOnly(text)) return { shouldExtract: false, reason: "code_or_log" };
-  if (isPastedWithoutOwnership(text)) return { shouldExtract: false, reason: "pasted_without_ownership" };
-  if (TASK_ONLY_RE.test(text)) return { shouldExtract: false, reason: "task_only" };
+  if (TRANSIENT_OR_RISK_RE.test(text)) return { shouldExtract: false, reason: "unsafe_or_transient", strippedInjectedContext };
+  if (isCodeOrLogOnly(text)) return { shouldExtract: false, reason: "code_or_log", strippedInjectedContext };
+  if (isPastedWithoutOwnership(text)) return { shouldExtract: false, reason: "pasted_without_ownership", strippedInjectedContext };
+  if (TASK_ONLY_RE.test(text)) return { shouldExtract: false, reason: "task_only", strippedInjectedContext };
 
-  return { shouldExtract: true };
+  return { shouldExtract: true, strippedInjectedContext };
 }
 
 export function buildPassiveExtractorPrompt(): string {

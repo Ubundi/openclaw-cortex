@@ -64,8 +64,12 @@ describe("passive bridge extraction gate and validation", () => {
     ["I can't keep doing this.", "unsafe_or_transient"],
     ["```\nEngineers should prefer explicit checks.\n```", "code_or_log"],
     ["This README says:\n> Engineers should prefer explicit checks.", "pasted_without_ownership"],
+    ["Help me turn that into a simple expectation I can share with the team.", "low_new_signal_followup"],
+    ["Make that shorter.", "low_new_signal_followup"],
+    ["Put this into a Slack message.", "low_new_signal_followup"],
+    ["Save that as a template.", "low_new_signal_followup"],
   ])("skips obvious non-candidates before model extraction: %s", (content, reason) => {
-    expect(shouldAttemptPassiveBridgeExtraction(messages(content))).toEqual({
+    expect(shouldAttemptPassiveBridgeExtraction(messages(content))).toMatchObject({
       shouldExtract: false,
       reason,
     });
@@ -82,6 +86,10 @@ describe("passive bridge extraction gate and validation", () => {
     "Use metric units.",
     "Fix the deploy script. I prefer boring explicit checks because hidden magic burns us later.",
     "This README says to prefer explicit checks, and honestly that's how I like working too.",
+    "Write this down: I prefer async updates for status changes.",
+    "Make this fit how I usually communicate with my team — short and direct, no fluff.",
+    "Help me put that into the format I use with my partner: blunt, ownership-up-front.",
+    "Save that as a template I can reuse when I have to push back on scope creep.",
   ])("opens the cheap gate for durable user-owned signal: %s", (content) => {
     expect(shouldAttemptPassiveBridgeExtraction(messages(content)).shouldExtract).toBe(true);
   });
@@ -128,6 +136,29 @@ describe("passive bridge extraction gate and validation", () => {
     expect(JSON.stringify(input.messages)).not.toContain("assistant");
     expect(JSON.stringify(input.messages)).not.toContain("system");
     expect(JSON.stringify(input.messages)).not.toContain("tool");
+  });
+
+  it("strips injected recovery and bridge context while retaining the actual user message", () => {
+    const actual = "The thing that helps me most is when someone brings me the decision they would make if I was not available, even if it is rough.";
+    const input = buildPassiveExtractorInput([
+      {
+        role: "user",
+        content: [
+          "<cortex_recovery>Reviews things personally when a decision is irreversible or customer-facing.</cortex_recovery>",
+          "<tootoo_bridge>Use this bridge prompt for shadow Codex.</tootoo_bridge>",
+          actual,
+        ].join("\n"),
+      },
+    ]);
+
+    expect(input.messages).toEqual([
+      { role: "user", content: actual, index: 0 },
+    ]);
+    expect(JSON.stringify(input.messages)).not.toContain("irreversible or customer-facing");
+    expect(JSON.stringify(input.messages)).not.toContain("shadow Codex");
+    expect(shouldAttemptPassiveBridgeExtraction([
+      { role: "user", content: `<cortex_recovery>older preference</cortex_recovery>\n${actual}` },
+    ])).toMatchObject({ shouldExtract: true, strippedInjectedContext: true });
   });
 
   it("keeps the latest user message when the passive window exceeds the total character budget", () => {

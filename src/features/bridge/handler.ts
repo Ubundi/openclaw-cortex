@@ -107,7 +107,15 @@ interface BridgeSessionState {
   awaitingBridgeQuestion?: boolean;
   passiveCandidatesSent?: number;
   passiveFingerprints?: Set<string>;
+  passiveRecentCandidates?: PassiveRecentCandidate[];
   passiveClarifierPrompted?: boolean;
+}
+
+interface PassiveRecentCandidate {
+  contentKey: string;
+  evidenceKey: string;
+  evidenceHash: string;
+  sentAt: number;
 }
 
 export interface CreateBridgeHandlerOptions {
@@ -134,6 +142,42 @@ const MIN_REFLECTIVE_MESSAGE_WORDS = 5;
 const BRIDGE_QUESTION_COOLDOWN_TURNS = 4;
 const BRIDGE_ANSWER_COOLDOWN_TURNS = 8;
 const BRIDGE_QUESTION_COOLDOWN_MS = 10 * 60 * 1000;
+const PASSIVE_RECENT_CANDIDATE_TTL_MS = 60 * 60 * 1000;
+const PASSIVE_CONTENT_DUPLICATE_SIMILARITY = 0.58;
+const PASSIVE_EVIDENCE_DUPLICATE_SIMILARITY = 0.5;
+const PASSIVE_CANONICAL_STOPWORDS = new Set([
+  "a",
+  "an",
+  "and",
+  "are",
+  "as",
+  "be",
+  "bring",
+  "brings",
+  "but",
+  "by",
+  "for",
+  "from",
+  "if",
+  "in",
+  "is",
+  "it",
+  "me",
+  "my",
+  "not",
+  "of",
+  "or",
+  "rather",
+  "that",
+  "the",
+  "their",
+  "them",
+  "they",
+  "to",
+  "user",
+  "when",
+  "with",
+]);
 const CANONICAL_BRIDGE_QUESTIONS = new Set([
   "what do you value most in your work",
   "what do you believe to be true",
@@ -436,6 +480,79 @@ function passiveTextLengthBucket(messages: PassiveExtractorInput["messages"]): s
   if (length <= 280) return "81-280";
   if (length <= 900) return "281-900";
   return "901+";
+}
+
+function passiveCanonicalTokens(text: string): string[] {
+  return text
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .split(/\s+/)
+    .map((token) => token.replace(/(?:ing|ed|s)$/i, ""))
+    .filter((token) => token.length > 2 && !PASSIVE_CANONICAL_STOPWORDS.has(token));
+}
+
+function passiveCanonicalKey(text: string): string {
+  return [...new Set(passiveCanonicalTokens(text))].sort().join(" ");
+}
+
+function passiveSimilarity(left: string, right: string): number {
+  const leftTokens = new Set(left.split(/\s+/).filter(Boolean));
+  const rightTokens = new Set(right.split(/\s+/).filter(Boolean));
+  if (leftTokens.size === 0 || rightTokens.size === 0) return 0;
+  let overlap = 0;
+  for (const token of leftTokens) {
+    if (rightTokens.has(token)) overlap++;
+  }
+  return overlap / Math.min(leftTokens.size, rightTokens.size);
+}
+
+function passiveEvidenceHash(evidenceQuote: string): string {
+  return createHash("sha256")
+    .update(evidenceQuote.toLowerCase().replace(/\s+/g, " ").trim())
+    .digest("hex")
+    .slice(0, 16);
+}
+
+function trimPassiveRecentCandidates(sessionState: BridgeSessionState, now = Date.now()): PassiveRecentCandidate[] {
+  const recent = (sessionState.passiveRecentCandidates ?? [])
+    .filter((candidate) => now - candidate.sentAt <= PASSIVE_RECENT_CANDIDATE_TTL_MS);
+  sessionState.passiveRecentCandidates = recent;
+  return recent;
+}
+
+function isDuplicateRecentPassiveCandidate(
+  sessionState: BridgeSessionState,
+  candidate: Pick<PassiveBridgeRequest["candidates"][number], "content" | "evidence_quote">,
+  recentCandidates: PassiveRecentCandidate[] = trimPassiveRecentCandidates(sessionState),
+): boolean {
+  const contentKey = passiveCanonicalKey(candidate.content);
+  const evidenceKey = passiveCanonicalKey(candidate.evidence_quote);
+  const evidenceHash = passiveEvidenceHash(candidate.evidence_quote);
+  return recentCandidates.some((recent) => (
+    recent.evidenceHash === evidenceHash
+    || passiveSimilarity(contentKey, recent.contentKey) >= PASSIVE_CONTENT_DUPLICATE_SIMILARITY
+    || passiveSimilarity(evidenceKey, recent.evidenceKey) >= PASSIVE_EVIDENCE_DUPLICATE_SIMILARITY
+  ));
+}
+
+function passiveRecentCandidateFor(
+  candidate: Pick<PassiveBridgeRequest["candidates"][number], "content" | "evidence_quote">,
+): PassiveRecentCandidate {
+  return {
+    contentKey: passiveCanonicalKey(candidate.content),
+    evidenceKey: passiveCanonicalKey(candidate.evidence_quote),
+    evidenceHash: passiveEvidenceHash(candidate.evidence_quote),
+    sentAt: Date.now(),
+  };
+}
+
+function rememberRecentPassiveCandidate(
+  sessionState: BridgeSessionState,
+  candidate: Pick<PassiveBridgeRequest["candidates"][number], "content" | "evidence_quote">,
+): void {
+  const recent = trimPassiveRecentCandidates(sessionState);
+  recent.push(passiveRecentCandidateFor(candidate));
+  sessionState.passiveRecentCandidates = recent.slice(-20);
 }
 
 function countKeywordMatches(text: string, keywords: readonly string[]): number {
@@ -938,11 +1055,13 @@ export function createBridgeHandler(
         userTurns: 0,
         passiveCandidatesSent: 0,
         passiveFingerprints: new Set<string>(),
+        passiveRecentCandidates: [],
         passiveClarifierPrompted: false,
       };
       sessionStates.set(sessionKey, state);
     }
     state.passiveFingerprints ??= new Set<string>();
+    state.passiveRecentCandidates ??= [];
     state.passiveCandidatesSent ??= 0;
     state.passiveClarifierPrompted ??= false;
     return state;
@@ -1108,12 +1227,14 @@ export function createBridgeHandler(
     const modelLog = splitPassiveModelRefForLog(extractorInput.activeModelRef);
     logger.info(`Cortex bridge: passive_extractor_started sessionId=${job.sessionKey} timeoutMs=${extractorInput.timeoutMs} provider=${modelLog.provider} model=${modelLog.model}`);
     let rawPassiveCandidates: PassiveBridgeRequest["candidates"] = [];
+    let rejectedPassiveCandidateCount = 0;
     try {
       const modelOutput = await runPassiveExtractorWithDeadline(passiveModelExtractor, extractorInput);
       const extractorDurationMs = Date.now() - extractorStartedAt;
       logger.info(`Cortex bridge: passive_extractor_completed sessionId=${job.sessionKey} durationMs=${extractorDurationMs} rawCandidateCount=${modelOutput.candidates.length}`);
       const validation = validatePassiveExtractorCandidates(modelOutput, extractorInput);
       rawPassiveCandidates = validation.accepted;
+      rejectedPassiveCandidateCount = validation.rejected.length;
       if (validation.rejected.length > 0) {
         const buckets = [...new Set(validation.rejected.map((item) => item.reason))].join(",");
         logger.warn(`Cortex bridge: passive_validator_rejected sessionId=${job.sessionKey} count=${validation.rejected.length} buckets=${buckets}`);
@@ -1134,24 +1255,34 @@ export function createBridgeHandler(
       return;
     }
 
-    if (rawPassiveCandidates.length === 0) return;
+    if (rawPassiveCandidates.length === 0) {
+      logger.info(`Cortex bridge: passive_validation_completed sessionId=${job.sessionKey} accepted_count=0 rejected_count=${rejectedPassiveCandidateCount} suppression_count=0`);
+      return;
+    }
 
-    const duplicatePassiveCandidates = rawPassiveCandidates.filter((candidate) => {
+    let suppressionCount = 0;
+    const extractedCandidates: PassiveBridgeRequest["candidates"] = [];
+    const recentCandidates = trimPassiveRecentCandidates(sessionState).slice();
+    for (const candidate of rawPassiveCandidates) {
       const fingerprint = buildPassiveCandidateFingerprint(candidate);
-      return sessionState.passiveFingerprints?.has(fingerprint) ?? false;
-    }).length;
-    const extractedCandidates = rawPassiveCandidates
-      .filter((candidate) => {
-        const fingerprint = buildPassiveCandidateFingerprint(candidate);
-        if (sessionState.passiveFingerprints?.has(fingerprint)) {
-          logger.info(`Cortex bridge: passive_idempotency_duplicate sessionId=${job.sessionKey} hashPrefix=${fingerprint.slice(0, 8)}`);
-          return false;
-        }
-        return true;
-      })
-      .slice(0, remainingSessionSlots);
+      if (sessionState.passiveFingerprints?.has(fingerprint)) {
+        suppressionCount++;
+        logger.info(`Cortex bridge: passive_candidate_suppressed reason=duplicate_fingerprint sessionId=${job.sessionKey}`);
+        continue;
+      }
+      if (isDuplicateRecentPassiveCandidate(sessionState, candidate, recentCandidates)) {
+        suppressionCount++;
+        logger.info(`Cortex bridge: passive_candidate_suppressed reason=duplicate_recent_session_fuzzy sessionId=${job.sessionKey}`);
+        continue;
+      }
+      extractedCandidates.push(candidate);
+      recentCandidates.push(passiveRecentCandidateFor(candidate));
+      if (extractedCandidates.length >= remainingSessionSlots) break;
+    }
 
-    if (extractedCandidates.length === 0 && duplicatePassiveCandidates > 0) return;
+    logger.info(`Cortex bridge: passive_validation_completed sessionId=${job.sessionKey} accepted_count=${extractedCandidates.length} rejected_count=${rejectedPassiveCandidateCount} suppression_count=${suppressionCount}`);
+
+    if (extractedCandidates.length === 0) return;
 
     const request: PassiveBridgeRequest = {
       user_id: job.agentUserId,
@@ -1185,6 +1316,7 @@ export function createBridgeHandler(
       }
       for (const candidate of extractedCandidates) {
         sessionState.passiveFingerprints?.add(buildPassiveCandidateFingerprint(candidate));
+        rememberRecentPassiveCandidate(sessionState, candidate);
       }
       sessionState.passiveCandidatesSent = (sessionState.passiveCandidatesSent ?? 0) + extractedCandidates.length;
       logger.info(`Cortex bridge: passive_bridge_sent requestId=${request.request_id} forwarded=${response.forwarded} queuedForRetry=${response.queued_for_retry} candidates=${response.candidates_sent}`);
@@ -1425,6 +1557,9 @@ export function createBridgeHandler(
           `reason=${passiveGate.reason ?? "candidate_possible"} textLengthBucket=${passiveTextLengthBucket(extractorInput?.messages ?? [])} ` +
           `durationMs=${Date.now() - gateStartedAt}`,
         );
+        if (passiveGate.strippedInjectedContext) {
+          logger.info(`Cortex bridge: passive_input_recovery_stripped sessionId=${sessionKey}`);
+        }
         if (!passiveGate.shouldExtract) {
           logger.debug?.(`Cortex bridge: passive skipped reason=${passiveGate.reason ?? "unknown"} sessionId=${sessionKey}`);
         }
