@@ -10,6 +10,7 @@ import { createCaptureHandler } from "../features/capture/handler.js";
 import { createBridgeHandler, buildBridgeFollowUpPrompt } from "../features/bridge/handler.js";
 import {
   createOpenClawPassiveModelExtractor,
+  isPassiveExtractorEvent,
   PASSIVE_EXTRACTOR_SESSION_KEY,
 } from "../features/bridge/openclaw-extractor.js";
 import { RetryQueue } from "../internal/retry-queue.js";
@@ -979,11 +980,11 @@ const plugin = {
       api,
       "before_agent_start",
       async (
-        event: { prompt: string; finalPromptText?: string; messages?: unknown[] },
+        event: { prompt: string; finalPromptText?: string; messages?: unknown[]; runId?: string; inputProvenance?: unknown },
         ctx: { sessionKey?: string; sessionId?: string },
       ) => {
         const activeSessionKey = resolveSessionKey(ctx, sessionId);
-        if (activeSessionKey === PASSIVE_EXTRACTOR_SESSION_KEY) return undefined;
+        if (isPassiveExtractorEvent({ ...event, ...ctx, sessionKey: activeSessionKey })) return undefined;
         // Clear session goal when switching to a new session (e.g. /new)
         // so the previous chat's goal doesn't bias the new session's recall/capture.
         if (previousSessionKey && previousSessionKey !== activeSessionKey) {
@@ -1047,7 +1048,7 @@ const plugin = {
       "model_call_started",
       (event: Record<string, unknown>, ctx: { sessionKey?: string; sessionId?: string } = {}) => {
         const activeSessionKey = resolveSessionKey({ ...event, ...ctx }, sessionId);
-        if (activeSessionKey === PASSIVE_EXTRACTOR_SESSION_KEY) return;
+        if (isPassiveExtractorEvent({ ...event, ...ctx, sessionKey: activeSessionKey })) return;
         const modelRef = normalizeModelRefFromEvent(event);
         rememberActiveModelRef(activeModelRefs, activeSessionKey, modelRef);
       },
@@ -1096,7 +1097,7 @@ const plugin = {
       "agent_end",
       async (event: { messages?: unknown[]; inputProvenance?: Record<string, unknown>; [key: string]: unknown }) => {
         const activeSessionKey = resolveSessionKey(event, sessionId);
-        if (activeSessionKey === PASSIVE_EXTRACTOR_SESSION_KEY) return;
+        if (isPassiveExtractorEvent({ ...event, sessionKey: activeSessionKey })) return;
         if (event.messages?.length) {
           lastMessages = event.messages;
           currentSessionKey = activeSessionKey;

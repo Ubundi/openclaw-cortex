@@ -18,9 +18,10 @@ import { redactBridgeTraceError } from "../../internal/clawdeploy-bridge-traces.
 import { isLowSignal, sanitizeConversationText } from "../capture/filter.js";
 import {
   PassiveExtractorTimeoutError,
+  isPassiveExtractorEvent,
+  isPassiveExtractorProviderUnavailableError,
   isPassiveExtractorSessionPathError,
   isPassiveExtractorTimeoutError,
-  PASSIVE_EXTRACTOR_SESSION_KEY,
 } from "./openclaw-extractor.js";
 import {
   buildPassiveExtractorInput,
@@ -83,6 +84,8 @@ interface AgentEndEvent {
   aborted?: boolean;
   sessionKey?: string;
   sessionId?: string;
+  runId?: string;
+  inputProvenance?: unknown;
 }
 
 interface BridgePromptEvent {
@@ -91,6 +94,8 @@ interface BridgePromptEvent {
   messages?: unknown[];
   sessionKey?: string;
   sessionId?: string;
+  runId?: string;
+  inputProvenance?: unknown;
 }
 
 interface BridgeSessionState {
@@ -1121,6 +1126,8 @@ export function createBridgeHandler(
         logger.warn(`Cortex bridge: passive_job_dropped reason=session_path_error sessionId=${job.sessionKey} durationMs=${durationMs}`);
       } else if (err instanceof SyntaxError) {
         logger.warn(`Cortex bridge: passive_extractor_invalid_json sessionId=${job.sessionKey} durationMs=${durationMs} reason=json_parse_failed`);
+      } else if (isPassiveExtractorProviderUnavailableError(err)) {
+        logger.warn(`Cortex bridge: passive_job_dropped reason=${err.reason} provider=${err.provider} sessionId=${job.sessionKey} durationMs=${durationMs}`);
       } else {
         logger.warn(`Cortex bridge: passive_job_dropped reason=provider_unavailable sessionId=${job.sessionKey} durationMs=${durationMs}`);
       }
@@ -1207,6 +1214,7 @@ export function createBridgeHandler(
   }
 
   async function shouldInjectPrompt(event: BridgePromptEvent): Promise<BridgePromptMode> {
+    if (isPassiveExtractorEvent(event)) return false;
     const sessionKey = resolveBridgeSessionKey(event);
     const promptText = promptCandidateFromEvent(event);
     if (isHeartbeatTurn(promptText)) {
@@ -1380,7 +1388,7 @@ export function createBridgeHandler(
   async function handleAgentEnd(event: AgentEndEvent): Promise<boolean> {
     if (event.aborted) return false;
     if (!Array.isArray(event.messages) || event.messages.length === 0) return false;
-    if (event.sessionKey === PASSIVE_EXTRACTOR_SESSION_KEY || event.sessionId === PASSIVE_EXTRACTOR_SESSION_KEY) return false;
+    if (isPassiveExtractorEvent(event)) return false;
     if (userIdReady) await userIdReady;
 
     const agentUserId = getUserId();

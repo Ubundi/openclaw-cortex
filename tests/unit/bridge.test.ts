@@ -10,7 +10,15 @@ import {
   extractLastQuestion,
   inferTargetSection,
 } from "../../src/features/bridge/handler.js";
-import { PassiveExtractorTimeoutError } from "../../src/features/bridge/openclaw-extractor.js";
+import {
+  PASSIVE_EXTRACTOR_PROVENANCE_SOURCE,
+  PASSIVE_EXTRACTOR_RUN_ID_PREFIX,
+  PASSIVE_EXTRACTOR_SESSION_ID_PREFIX,
+  PASSIVE_EXTRACTOR_SESSION_KEY,
+  PassiveExtractorProviderUnavailableError,
+  PassiveExtractorTimeoutError,
+} from "../../src/features/bridge/openclaw-extractor.js";
+import type { PassiveExtractorOutput } from "../../src/features/bridge/passive.js";
 import type { ClawDeployBridgeTraceClient } from "../../src/internal/clawdeploy-bridge-traces.js";
 
 const logger = {
@@ -148,6 +156,64 @@ function slackMetadataOnlyEnvelope(): string {
 }
 
 describe("TooToo bridge handler", () => {
+  it.each([
+    ["sentinel session key", { sessionKey: PASSIVE_EXTRACTOR_SESSION_KEY }],
+    ["sentinel session id", { sessionId: PASSIVE_EXTRACTOR_SESSION_KEY }],
+    ["extractor run id prefix", { runId: `${PASSIVE_EXTRACTOR_RUN_ID_PREFIX}123` }],
+    ["extractor session id prefix", { sessionId: `${PASSIVE_EXTRACTOR_SESSION_ID_PREFIX}123` }],
+    ["extractor provenance marker", { inputProvenance: { source: PASSIVE_EXTRACTOR_PROVENANCE_SOURCE } }],
+  ])("skips passive bridge handling for extractor-marked agent_end events: %s", async (_label, marker) => {
+    const client = makeClient();
+    const passiveModelExtractor = vi.fn().mockResolvedValue({ candidates: [] });
+    const handler = createBridgeHandler(client, {
+      logger,
+      getUserId: () => "agent-user-1",
+      userIdReady: Promise.resolve(),
+      pluginSessionId: "plugin-session-1",
+      passiveModelExtractor,
+    });
+
+    await expect(handler.handleAgentEnd({
+      messages: [
+        { role: "user", content: "I prefer boring explicit checks because hidden magic burns us later." },
+        { role: "assistant", content: "I will keep the checks explicit." },
+      ],
+      aborted: false,
+      ...marker,
+    })).resolves.toBe(false);
+
+    expect(passiveModelExtractor).not.toHaveBeenCalled();
+    expect((client.submitBridgePassive as any)).not.toHaveBeenCalled();
+    expect(logger.info).not.toHaveBeenCalledWith(expect.stringContaining("passive_job_enqueued"));
+  });
+
+  it("does not recursively enqueue another passive job from extractor-marked output", async () => {
+    const client = makeClient();
+    const passiveModelExtractor = vi.fn().mockResolvedValue({ candidates: [] });
+    const handler = createBridgeHandler(client, {
+      logger,
+      getUserId: () => "agent-user-1",
+      userIdReady: Promise.resolve(),
+      pluginSessionId: "plugin-session-1",
+      passiveModelExtractor,
+    });
+
+    await handler.handleAgentEnd({
+      messages: [
+        { role: "user", content: "I prefer boring explicit checks because hidden magic burns us later." },
+        { role: "assistant", content: '{"candidates":[]}' },
+      ],
+      aborted: false,
+      sessionId: `${PASSIVE_EXTRACTOR_SESSION_ID_PREFIX}nested`,
+      runId: `${PASSIVE_EXTRACTOR_RUN_ID_PREFIX}nested`,
+      inputProvenance: { source: PASSIVE_EXTRACTOR_PROVENANCE_SOURCE },
+    });
+    await handler.drainPassiveJobs();
+
+    expect(passiveModelExtractor).not.toHaveBeenCalled();
+    expect((client.submitBridgePassive as any)).not.toHaveBeenCalled();
+  });
+
   it("does not call the passive model extractor for acknowledgements or pure task requests", async () => {
     const client = makeClient();
     const passiveModelExtractor = vi.fn().mockResolvedValue({ candidates: [] });
@@ -549,7 +615,7 @@ describe("TooToo bridge handler", () => {
     vi.useFakeTimers();
     const client = makeClient();
     const evidence = "My instinct is to wait when the change affects something customer-facing. I’m okay moving fast for internal cleanup, but if users might notice it, I’d rather have one more verification pass than rush it out.";
-    const passiveModelExtractor = vi.fn(() => new Promise((_resolve, reject) => {
+    const passiveModelExtractor = vi.fn((): Promise<PassiveExtractorOutput> => new Promise((_resolve, reject) => {
       setTimeout(() => reject(new Error("late provider failure")), 3_300);
     }));
     const handler = createBridgeHandler(client, {
@@ -733,6 +799,34 @@ describe("TooToo bridge handler", () => {
     expect(passiveModelExtractor).toHaveBeenCalledTimes(1);
     expect((client.submitBridgePassive as any)).not.toHaveBeenCalled();
     expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining("provider_unavailable"));
+  });
+
+  it("logs specific passive extractor provider-unavailable reasons", async () => {
+    const client = makeClient();
+    const evidence = "I want the handoff to make the owner and next step obvious.";
+    const passiveModelExtractor = vi.fn().mockRejectedValue(
+      new PassiveExtractorProviderUnavailableError("custom-provider", "unsupported_provider"),
+    );
+    const handler = createBridgeHandler(client, {
+      logger,
+      getUserId: () => "agent-user-1",
+      userIdReady: Promise.resolve(),
+      pluginSessionId: "plugin-session-1",
+      passiveModelExtractor,
+    });
+
+    await expect(handler.handleAgentEnd({
+      messages: [
+        { role: "user", content: evidence },
+        { role: "assistant", content: "I will make ownership explicit." },
+      ],
+      aborted: false,
+      sessionKey: "sess-passive-provider-unavailable",
+    })).resolves.toBe(true);
+
+    await handler.drainPassiveJobs();
+    expect((client.submitBridgePassive as any)).not.toHaveBeenCalled();
+    expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining("reason=unsupported_provider provider=custom-provider"));
   });
 
   it("builds linked-user guidance for before_agent_start", async () => {

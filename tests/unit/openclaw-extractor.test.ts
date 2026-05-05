@@ -7,10 +7,13 @@ import {
   buildModelOnlyExtractorConfig,
   buildEmbeddedExtractorWorkerData,
   createOpenClawPassiveModelExtractor,
+  createPiAiDirectModelCall,
   createWorkerIsolatedEmbeddedExtractor,
   loadRunEmbeddedPiAgentFromOpenClawRoot,
+  PASSIVE_EXTRACTOR_PROVENANCE_SOURCE,
   PASSIVE_EXTRACTOR_SESSION_KEY,
   PassiveExtractorTimeoutError,
+  type PassiveExtractorWorkerLike,
 } from "../../src/features/bridge/openclaw-extractor.js";
 import { buildPassiveExtractorInput } from "../../src/features/bridge/passive.js";
 
@@ -18,7 +21,170 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
+type EmbeddedRunnerResult = {
+  payloads?: Array<{ text?: string; isError?: boolean }>;
+};
+
+type TestWorker = EventEmitter & {
+  terminate: ReturnType<typeof vi.fn>;
+};
+
+function asPassiveExtractorWorker(worker: TestWorker): PassiveExtractorWorkerLike {
+  return worker as unknown as PassiveExtractorWorkerLike;
+}
+
 describe("OpenClaw passive model extractor adapter", () => {
+  it("production adapter uses a direct model call and never invokes embedded OpenClaw runners", async () => {
+    const runEmbeddedAgent = vi.fn(() => {
+      throw new Error("embedded runner must not be called");
+    });
+    const directModelCall = vi.fn().mockResolvedValue('{"candidates":[]}');
+    const extractor = createOpenClawPassiveModelExtractor({
+      config: {
+        agents: {
+          defaults: {
+            model: { primary: "openai/test-model" },
+          },
+        },
+      },
+      runtime: {
+        agent: {
+          runEmbeddedAgent,
+          resolveAgentTimeoutMs: vi.fn(() => 30_000),
+        },
+      },
+    }, { debug: vi.fn() }, { directModelCall });
+
+    await expect(extractor(buildPassiveExtractorInput([
+      { role: "user", content: "I want the handoff to make the owner and next step obvious." },
+    ]))).resolves.toEqual({ candidates: [] });
+
+    expect(runEmbeddedAgent).not.toHaveBeenCalled();
+    expect(directModelCall).toHaveBeenCalledTimes(1);
+    expect(directModelCall.mock.calls[0][0]).toMatchObject({
+      modelRef: "openai/test-model",
+      timeoutMs: 3_000,
+    });
+    expect(directModelCall.mock.calls[0][0].input.messages).toHaveLength(1);
+  });
+
+  it("direct pi-ai adapter returns JSON from a tiny model-only prompt", async () => {
+    const completeSimple = vi.fn().mockResolvedValue({
+      stopReason: "stop",
+      content: [{ type: "text", text: '{"candidates":[]}' }],
+    });
+    const directModelCall = createPiAiDirectModelCall(async () => ({
+      completeSimple,
+      getModel: vi.fn(() => ({
+        id: "test-model",
+        name: "Test Model",
+        api: "openai-responses",
+        provider: "openai",
+        baseUrl: "https://api.openai.com/v1",
+        reasoning: false,
+        input: ["text"],
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+        contextWindow: 128_000,
+        maxTokens: 4_096,
+      })),
+    }));
+    const input = buildPassiveExtractorInput([
+      { role: "user", content: "I want the handoff to make the owner and next step obvious." },
+    ]);
+
+    const raw = await directModelCall({
+      input,
+      config: { models: { providers: { openai: { apiKey: "test-key" } } } },
+      modelRef: "openai/test-model",
+      timeoutMs: 100,
+      signal: new AbortController().signal,
+    });
+
+    expect(raw).toBe('{"candidates":[]}');
+    expect(completeSimple).toHaveBeenCalledTimes(1);
+    expect(completeSimple.mock.calls[0][1]).toMatchObject({
+      systemPrompt: input.prompt,
+      messages: [expect.objectContaining({ role: "user" })],
+    });
+    expect(completeSimple.mock.calls[0][1].messages[0].content).toContain("CONVERSATION_WINDOW_JSON");
+    expect(completeSimple.mock.calls[0][2]).toMatchObject({
+      apiKey: "test-key",
+      maxTokens: input.maxOutputTokens,
+      temperature: 0,
+    });
+  });
+
+  it("direct pi-ai adapter fabricates OpenAI Codex metadata with Codex API settings", async () => {
+    let resolvedModel: Record<string, unknown> | undefined;
+    const completeSimple = vi.fn((model) => {
+      resolvedModel = model as Record<string, unknown>;
+      return Promise.resolve({
+        stopReason: "stop",
+        content: [{ type: "text", text: '{"candidates":[]}' }],
+      });
+    });
+    const directModelCall = createPiAiDirectModelCall(async () => ({
+      completeSimple,
+      getModel: vi.fn(() => {
+        throw new Error("not in static registry");
+      }),
+    }));
+    const input = buildPassiveExtractorInput([
+      { role: "user", content: "I want the handoff to make the owner and next step obvious." },
+    ]);
+
+    await expect(directModelCall({
+      input,
+      config: { models: { providers: { "openai-codex": { apiKey: "codex-oauth-token" } } } },
+      modelRef: "openai-codex/gpt-5.4",
+      timeoutMs: 100,
+    })).resolves.toBe('{"candidates":[]}');
+
+    expect(resolvedModel).toMatchObject({
+      id: "gpt-5.4",
+      provider: "openai-codex",
+      api: "openai-codex-responses",
+      baseUrl: "https://chatgpt.com/backend-api",
+    });
+  });
+
+  it("direct pi-ai adapter aborts only the provider call at the configured timeout", async () => {
+    let providerSignal: AbortSignal | undefined;
+    const completeSimple = vi.fn((_model, _context, options: any) => {
+      providerSignal = options.signal;
+      return new Promise(() => undefined);
+    });
+    const directModelCall = createPiAiDirectModelCall(async () => ({
+      completeSimple,
+      getModel: vi.fn(() => ({
+        id: "test-model",
+        name: "Test Model",
+        api: "openai-responses",
+        provider: "openai",
+        baseUrl: "https://api.openai.com/v1",
+        reasoning: false,
+        input: ["text"],
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+        contextWindow: 128_000,
+        maxTokens: 4_096,
+      })),
+    }));
+    const input = buildPassiveExtractorInput([
+      { role: "user", content: "I want the handoff to make the owner and next step obvious." },
+    ]);
+
+    await expect(directModelCall({
+      input,
+      config: { models: { providers: { openai: { apiKey: "test-key" } } } },
+      modelRef: "openai/test-model",
+      timeoutMs: 5,
+      signal: new AbortController().signal,
+    })).rejects.toBeInstanceOf(PassiveExtractorTimeoutError);
+
+    expect(completeSimple).toHaveBeenCalledTimes(1);
+    expect(providerSignal?.aborted).toBe(true);
+  });
+
   it("prefers the documented api.runtime.agent.runEmbeddedPiAgent helper", async () => {
     const agentDir = await mkdtemp(join(tmpdir(), "openclaw-cortex-agent-"));
     const runEmbeddedPiAgent = vi.fn().mockResolvedValue({
@@ -29,7 +195,7 @@ describe("OpenClaw passive model extractor adapter", () => {
         agents: {
           defaults: {
             workspace: "/workspace-from-config",
-            model: { primary: "openai/gpt-5.5" },
+            model: { primary: "openai/test-model" },
           },
         },
       },
@@ -56,6 +222,7 @@ describe("OpenClaw passive model extractor adapter", () => {
       disableMessageTool: true,
       requireExplicitMessageTarget: true,
       authProfileIdSource: "auto",
+      inputProvenance: { source: PASSIVE_EXTRACTOR_PROVENANCE_SOURCE },
       skillsSnapshot: { prompt: "", skills: [], resolvedSkills: [], version: 0 },
     });
     expect(call.workspaceDir).toContain("openclaw-cortex-passive-");
@@ -104,7 +271,7 @@ describe("OpenClaw passive model extractor adapter", () => {
         agents: {
           defaults: {
             workspace: "/workspace-from-config",
-            model: { primary: "openai/gpt-5.5" },
+            model: { primary: "openai/test-model" },
             tools: {
               allow: ["browser"],
               profile: "coding",
@@ -138,7 +305,7 @@ describe("OpenClaw passive model extractor adapter", () => {
     expect(call.disableTools).toBe(true);
     expect(call.config.tools).toEqual({ exec: { timeoutSec: 30 } });
     expect(call.config.agents.defaults.tools).toEqual({ exec: { timeoutSec: 20 } });
-    expect(call.config.agents.defaults.model).toEqual({ primary: "openai/gpt-5.5" });
+    expect(call.config.agents.defaults.model).toEqual({ primary: "openai/test-model", fallbacks: [] });
     expect(call.config.agents.list[0].tools).toEqual({});
     expect(call.config).not.toBe(call.config.tools);
   });
@@ -162,11 +329,31 @@ describe("OpenClaw passive model extractor adapter", () => {
     expect(config.agents.defaults.tools.allow).toEqual(["browser"]);
   });
 
+  it("uses the configured primary provider/model when no active turn model is available", async () => {
+    const directModelCall = vi.fn().mockResolvedValue('{"candidates":[]}');
+    const extractor = createOpenClawPassiveModelExtractor({
+      config: {
+        agents: {
+          defaults: {
+            model: { provider: "amazon-bedrock", primary: "global.anthropic.claude-sonnet-4-6" },
+          },
+        },
+      },
+    }, { debug: vi.fn() }, { directModelCall });
+
+    await expect(extractor(buildPassiveExtractorInput([
+      { role: "user", content: "I want the handoff to make the owner and next step obvious." },
+    ]))).resolves.toEqual({ candidates: [] });
+
+    expect(directModelCall).toHaveBeenCalledTimes(1);
+    expect(directModelCall.mock.calls[0][0].modelRef).toBe("amazon-bedrock/global.anthropic.claude-sonnet-4-6");
+  });
+
   it("forces the active conversation model into model-only extraction", () => {
     const modelOnly = buildModelOnlyExtractorConfig({
       agents: {
         defaults: {
-          model: { primary: "openai/gpt-5.5", fallbacks: ["openai/gpt-5.4"] },
+          model: { primary: "openai/test-model", fallbacks: ["openai/test-fallback"] },
           tools: { allow: ["browser"] },
         },
       },
@@ -198,7 +385,7 @@ describe("OpenClaw passive model extractor adapter", () => {
     const extractor = createOpenClawPassiveModelExtractor({
       config: {
         tools: { allow: ["*", "browser"] },
-        agents: { defaults: { model: { primary: "openai/gpt-5.5" } } },
+        agents: { defaults: { model: { primary: "openai/test-model" } } },
       },
       runtime: {
         agent: {
@@ -325,7 +512,7 @@ describe("OpenClaw passive model extractor adapter", () => {
 
   it("enforces a hard JavaScript timeout around embedded runs", async () => {
     const agentDir = await mkdtemp(join(tmpdir(), "openclaw-cortex-agent-"));
-    const runEmbeddedAgent = vi.fn((_params: any) => new Promise(() => undefined));
+    const runEmbeddedAgent = vi.fn((_params: any): Promise<EmbeddedRunnerResult> => new Promise(() => undefined));
     const extractor = createOpenClawPassiveModelExtractor({
       runtime: {
         agent: {
@@ -344,7 +531,7 @@ describe("OpenClaw passive model extractor adapter", () => {
     expect(runEmbeddedAgent.mock.calls[0][0].abortSignal.aborted).toBe(true);
   });
 
-  it("production adapter uses isolated embedded extraction instead of the in-process runtime helper", async () => {
+  it("production adapter fails closed instead of falling back to embedded extraction when direct model calls are unavailable", async () => {
     const runEmbeddedAgent = vi.fn(() => {
       throw new Error("in-process runner must not be called");
     });
@@ -352,13 +539,7 @@ describe("OpenClaw passive model extractor adapter", () => {
       candidates: [],
     });
     const extractor = createOpenClawPassiveModelExtractor({
-      config: {
-        agents: {
-          defaults: {
-            model: { primary: "openai/gpt-5.5" },
-          },
-        },
-      },
+      config: {},
       runtime: {
         agent: {
           runEmbeddedAgent,
@@ -372,17 +553,14 @@ describe("OpenClaw passive model extractor adapter", () => {
     ]))).resolves.toEqual({ candidates: [] });
 
     expect(runEmbeddedAgent).not.toHaveBeenCalled();
-    expect(runIsolatedEmbeddedExtractor).toHaveBeenCalledTimes(1);
-    expect(runIsolatedEmbeddedExtractor.mock.calls[0][0].config.agents.defaults.model).toEqual({
-      primary: "openai/gpt-5.5",
-    });
+    expect(runIsolatedEmbeddedExtractor).not.toHaveBeenCalled();
   });
 
   it("sanitizes extractor worker data so runtime config helpers cannot trip structured clone", () => {
     const config: Record<string, unknown> = {
       agents: {
         defaults: {
-          model: { primary: "openai/gpt-5.5" },
+          model: { primary: "openai/test-model" },
           helper: () => "nope",
         },
       },
@@ -424,7 +602,7 @@ describe("OpenClaw passive model extractor adapter", () => {
     worker.terminate = vi.fn().mockResolvedValue(1);
     const extractor = createWorkerIsolatedEmbeddedExtractor((params) => {
       expect(params.paths?.rootDir).toBe(rootDir);
-      return worker;
+      return asPassiveExtractorWorker(worker);
     });
     const input = buildPassiveExtractorInput([
       { role: "user", content: "I want the handoff to make the owner and next step obvious." },
@@ -476,7 +654,7 @@ describe("OpenClaw passive model extractor adapter", () => {
     worker.terminate = vi.fn().mockResolvedValue(0);
     const extractor = createWorkerIsolatedEmbeddedExtractor((params) => {
       expect(params.paths?.rootDir).toBe(rootDir);
-      return worker;
+      return asPassiveExtractorWorker(worker);
     });
     const input = buildPassiveExtractorInput([
       { role: "user", content: "I want the handoff to make the owner and next step obvious." },
@@ -514,7 +692,7 @@ describe("OpenClaw passive model extractor adapter", () => {
     const extractor = createWorkerIsolatedEmbeddedExtractor((params) => {
       rootDir = params.paths?.rootDir ?? "";
       resolveWorkerCreated();
-      return worker;
+      return asPassiveExtractorWorker(worker);
     });
     const input = buildPassiveExtractorInput([
       { role: "user", content: "I want the handoff to make the owner and next step obvious." },
@@ -547,7 +725,7 @@ describe("OpenClaw passive model extractor adapter", () => {
     const extractor = createWorkerIsolatedEmbeddedExtractor((params) => {
       rootDir = params.paths?.rootDir ?? "";
       resolveWorkerCreated();
-      return worker;
+      return asPassiveExtractorWorker(worker);
     });
     const input = buildPassiveExtractorInput([
       { role: "user", content: "I want the handoff to make the owner and next step obvious." },
