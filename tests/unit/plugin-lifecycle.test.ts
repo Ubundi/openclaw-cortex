@@ -482,22 +482,17 @@ describe("plugin lifecycle contract", () => {
     expect(SessionStateStore.prototype.readDirtyFromPriorLifecycle).toHaveBeenCalledTimes(1);
   });
 
-  it("adds linked TooToo guidance before turns and submits bridge Q&A after a qualifying exchange", async () => {
+  it("does not add hidden TooToo bridge guidance before linked reflective turns", async () => {
     vi.spyOn(CortexClient.prototype, "getLinkStatus").mockResolvedValue({
       linked: true,
       link: {
+        owner_type: "claimed_user",
+        owner_id: "owner-1",
         tootoo_user_id: "tt-user-1",
+        claimed_user_id: "tt-user-1",
+        shadow_subject_id: null,
         linked_at: "2026-03-01T10:00:00Z",
       },
-    });
-    const submitBridgeQA = vi.spyOn(CortexClient.prototype, "submitBridgeQA").mockResolvedValue({
-      accepted: true,
-      forwarded: true,
-      queued_for_retry: false,
-      entries_sent: 1,
-      tootoo_user_id: "tt-user-1",
-      bridge_event_id: "bridge-event-1",
-      suggestions_created: 2,
     });
 
     const { api, hooks } = makeApi({
@@ -521,39 +516,20 @@ describe("plugin lifecycle contract", () => {
       { sessionKey: "sess-bridge" },
     );
 
-    expect(beforeTurn?.prependContext).toContain("<tootoo_bridge>");
-
-    await hooks.agent_end[0]({
-      messages: [
-        { role: "user", content: "I want my work to feel more aligned this year." },
-        { role: "assistant", content: "That sounds important. What do you value most in your work?" },
-        { role: "user", content: "Autonomy and creative freedom." },
-        { role: "assistant", content: "That gives us a strong anchor for future decisions." },
-      ],
-      aborted: false,
-      sessionKey: "sess-bridge",
-    });
-
-    await vi.waitFor(() => expect(submitBridgeQA).toHaveBeenCalledTimes(1));
-    expect(submitBridgeQA).toHaveBeenCalledWith({
-      user_id: "agent-user-1",
-      request_id: expect.stringMatching(/^openclaw-bridge-/),
-      entries: [
-        {
-          question: "What do you value most in your work?",
-          answer: "Autonomy and creative freedom.",
-          target_section: "coreValues",
-        },
-      ],
-    });
+    expect(beforeTurn?.prependContext ?? "").not.toContain("<tootoo_bridge>");
+    expect(beforeTurn?.prependContext ?? "").not.toContain("<tootoo_bridge_followup>");
   });
 
-  it("adds linked TooToo guidance for live before_agent_start turns when messages are empty", async () => {
+  it("does not add hidden TooToo bridge guidance for live turns when messages are empty", async () => {
     vi.spyOn(SessionStateStore.prototype, "readDirtyFromPriorLifecycle").mockResolvedValue(null);
     vi.spyOn(CortexClient.prototype, "getLinkStatus").mockResolvedValue({
       linked: true,
       link: {
+        owner_type: "claimed_user",
+        owner_id: "owner-1",
         tootoo_user_id: "tt-user-1",
+        claimed_user_id: "tt-user-1",
+        shadow_subject_id: null,
         linked_at: "2026-03-01T10:00:00Z",
       },
     });
@@ -573,12 +549,12 @@ describe("plugin lifecycle contract", () => {
       { sessionKey: "sess-live-empty-messages" },
     );
 
-    expect(beforeTurn?.prependContext).toContain("<tootoo_bridge>");
-    expect(logger.info).toHaveBeenCalledWith("Cortex bridge: injecting full prompt into prependContext");
-    expect(logger.debug).toHaveBeenCalledWith(expect.stringContaining("latestUserTextSource=prompt"));
+    expect(beforeTurn?.prependContext ?? "").not.toContain("<tootoo_bridge>");
+    expect(beforeTurn?.prependContext ?? "").not.toContain("<tootoo_bridge_followup>");
+    expect(logger.info).not.toHaveBeenCalledWith(expect.stringContaining("injecting"));
   });
 
-  it("treats an active shadow-owner link as linked and still forwards explicit bridge Q&A", async () => {
+  it("keeps the passive agent_end hook active for shadow-owner links without prompt injection", async () => {
     vi.spyOn(CortexClient.prototype, "getLinkStatus").mockResolvedValue({
       linked: true,
       link: {
@@ -590,14 +566,16 @@ describe("plugin lifecycle contract", () => {
         linked_at: "2026-04-23T10:00:00Z",
       },
     });
-    const submitBridgeQA = vi.spyOn(CortexClient.prototype, "submitBridgeQA").mockResolvedValue({
+    const submitBridgePassive = vi.spyOn(CortexClient.prototype, "submitBridgePassive").mockResolvedValue({
       accepted: true,
       forwarded: true,
       queued_for_retry: false,
-      entries_sent: 1,
+      candidates_sent: 1,
       tootoo_user_id: null,
-      bridge_event_id: "bridge-event-shadow-1",
+      bridge_event_id: "bridge-event-passive-shadow-1",
       suggestions_created: 1,
+      materialized: 1,
+      suppressed: 0,
       owner_type: "shadow_subject",
       owner_id: "owner-shadow-1",
       shadow_subject_id: "shadow-subject-1",
@@ -624,30 +602,20 @@ describe("plugin lifecycle contract", () => {
       },
       { sessionKey: "sess-shadow-owner" },
     );
-    expect(beforeTurn?.prependContext).toContain("<tootoo_bridge>");
+    expect(beforeTurn?.prependContext ?? "").not.toContain("<tootoo_bridge>");
+    expect(beforeTurn?.prependContext ?? "").not.toContain("<tootoo_bridge_followup>");
 
-    await hooks.agent_end[0]({
+    await expect(hooks.agent_end[0]({
       messages: [
-        { role: "user", content: "I've been rethinking what matters most in my work." },
-        { role: "assistant", content: "What do you value most in your work?" },
-        { role: "user", content: "Ownership and purposeful impact." },
+        { role: "user", content: "I prefer boring explicit checks because hidden magic burns us later." },
+        { role: "assistant", content: "I will keep the checks explicit." },
       ],
       aborted: false,
       sessionKey: "sess-shadow-owner",
-    });
-
-    await vi.waitFor(() => expect(submitBridgeQA).toHaveBeenCalledTimes(1));
-    expect(submitBridgeQA).toHaveBeenCalledWith({
-      user_id: "agent-user-1",
-      request_id: expect.stringMatching(/^openclaw-bridge-/),
-      entries: [
-        {
-          question: "What do you value most in your work?",
-          answer: "Ownership and purposeful impact.",
-          target_section: "coreValues",
-        },
-      ],
-    });
+    })).resolves.toBeUndefined();
+    expect(submitBridgePassive).not.toHaveBeenCalledWith(expect.objectContaining({
+      entries: expect.any(Array),
+    }));
   });
 
   it("does not inject bridge guidance for technical turns even when linked", async () => {
@@ -687,14 +655,14 @@ describe("plugin lifecycle contract", () => {
   it("leaves unlinked users unchanged for bridge behavior", async () => {
     vi.spyOn(SessionStateStore.prototype, "readDirtyFromPriorLifecycle").mockResolvedValue(null);
     vi.spyOn(CortexClient.prototype, "getLinkStatus").mockResolvedValue({ linked: false });
-    const submitBridgeQA = vi.spyOn(CortexClient.prototype, "submitBridgeQA").mockResolvedValue({
+    const submitBridgePassive = vi.spyOn(CortexClient.prototype, "submitBridgePassive").mockResolvedValue({
       accepted: true,
       forwarded: true,
       queued_for_retry: false,
-      entries_sent: 1,
+      candidates_sent: 1,
       tootoo_user_id: "tt-user-1",
-      bridge_event_id: "bridge-event-1",
-      suggestions_created: 2,
+      bridge_event_id: "bridge-event-passive-1",
+      suggestions_created: 1,
     });
 
     const { api, hooks } = makeApi({
@@ -721,7 +689,7 @@ describe("plugin lifecycle contract", () => {
       sessionKey: "sess-unlinked",
     });
 
-    expect(submitBridgeQA).not.toHaveBeenCalled();
+    expect(submitBridgePassive).not.toHaveBeenCalled();
   });
 
   it("does not inject bridge guidance for heartbeat or synthetic user turns", async () => {

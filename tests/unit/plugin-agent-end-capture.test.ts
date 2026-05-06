@@ -73,10 +73,8 @@ describe("plugin agent_end capture scheduling", () => {
       createCaptureHandler: vi.fn(() => captureHandler),
     }));
     vi.doMock("../../src/features/bridge/handler.js", () => ({
-      buildBridgeFollowUpPrompt: vi.fn(() => "bridge-followup"),
       createBridgeHandler: vi.fn(() => ({
         shouldInjectPrompt: vi.fn().mockResolvedValue(false),
-        getPromptContext: vi.fn(),
         refreshLinkStatus: vi.fn().mockResolvedValue({ linked: false }),
         handleAgentEnd: bridgeHandleAgentEnd,
       })),
@@ -131,10 +129,8 @@ describe("plugin agent_end capture scheduling", () => {
       createCaptureHandler: vi.fn(() => captureHandler),
     }));
     vi.doMock("../../src/features/bridge/handler.js", () => ({
-      buildBridgeFollowUpPrompt: vi.fn(() => "bridge-followup"),
       createBridgeHandler: vi.fn(() => ({
         shouldInjectPrompt: vi.fn().mockResolvedValue(false),
-        getPromptContext: vi.fn(),
         refreshLinkStatus: vi.fn().mockResolvedValue({ linked: false }),
         handleAgentEnd: vi.fn().mockResolvedValue(true),
       })),
