@@ -155,32 +155,6 @@ export type BridgeTargetSection =
   | "shadows"
   | "legacy";
 
-export interface BridgeQAEntry {
-  question: string;
-  answer: string;
-  target_section: BridgeTargetSection;
-}
-
-export interface BridgeQARequest {
-  user_id: string;
-  request_id: string;
-  entries: BridgeQAEntry[];
-}
-
-export interface BridgeQAResponse {
-  accepted: boolean;
-  forwarded: boolean;
-  queued_for_retry: boolean;
-  entries_sent: number;
-  tootoo_user_id: string | null;
-  bridge_event_id: string;
-  suggestions_created: number | null;
-  owner_type?: LinkOwnerType;
-  owner_id?: string;
-  shadow_subject_id?: string | null;
-  claimed_user_id?: string | null;
-}
-
 export interface PassiveBridgeCandidate {
   content: string;
   suggested_section: BridgeTargetSection;
@@ -856,18 +830,6 @@ export class CortexClient {
       { agent_user_id: agentUserId },
       timeoutMs,
       "auth/code",
-    );
-  }
-
-  async submitBridgeQA(
-    request: BridgeQARequest,
-    timeoutMs = DEFAULT_BRIDGE_TIMEOUT_MS,
-  ): Promise<BridgeQAResponse> {
-    return this.fetchJsonWithTimeout<BridgeQAResponse>(
-      `${this.baseUrl}/v1/bridge/qa`,
-      request,
-      timeoutMs,
-      "bridge/qa",
     );
   }
 

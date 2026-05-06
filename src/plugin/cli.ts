@@ -892,9 +892,9 @@ export function registerCliCommands(
   builds a living codex of your values, beliefs, principles, and
   goals through interactive journeys.
 
-  By pairing your agent, conversations you have with your AI agent
-  can naturally feed TooToo discovery suggestions when the agent
-  asks a reflective question and you answer it explicitly.
+  By pairing your agent, user-authored conversation details can
+  quietly feed TooToo discovery suggestions when passive extraction
+  finds durable, low-risk self-knowledge in your own words.
 
   This means your day-to-day work conversations quietly contribute
   to your self-knowledge without a separate TooToo questionnaire.
@@ -914,9 +914,9 @@ export function registerCliCommands(
     3. Enter the pairing code above
 
   Once linked, codex suggestions from your agent conversations
-  can appear in your TooToo codex when a discovery Q&A exchange
-  happens naturally. You can unlink at any time from the TooToo
-  settings page.
+  can appear in your TooToo codex when passive extraction finds
+  durable, low-risk self-knowledge in your own words. You can
+  unlink at any time from the TooToo settings page.
 `);
           } catch (err) {
             console.error(`Failed to generate pairing code: ${String(err)}`);

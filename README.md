@@ -305,7 +305,7 @@ Recall latency percentiles are logged at debug level on shutdown. Enable verbose
 
 ### ClawDeploy Bridge Traces
 
-When a linked TooToo bridge Q&A exchange is detected, Cortex can emit best-effort trace events to ClawDeploy at `/api/agent/tootoo/bridge-traces`. The trace POST uses `Authorization: Bearer <OPENCLAW_GATEWAY_TOKEN>` and never includes raw question or answer text.
+When passive bridge candidates are detected for a linked TooToo agent, Cortex can emit best-effort trace events to ClawDeploy at `/api/agent/tootoo/bridge-traces`. The trace POST uses `Authorization: Bearer <OPENCLAW_GATEWAY_TOKEN>` and never includes raw transcript, question, answer, or evidence text.
 
 ClawDeploy-managed OpenClaw instances discover the ClawDeploy base URL in this order:
 

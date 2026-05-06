@@ -100,23 +100,6 @@ openclaw cortex pair       # TooToo pairing code
 - Never delete memories without explicit user confirmation
 - Don't spam saves — batch related facts into one
 
-## TooToo Bridge (Discovery Questions)
-
-When the user has linked their agent to TooToo, a `<tootoo_bridge>` prompt may appear in your system context. This means the bridge is active and, when the user opens in a reflective or personal way, your first move should usually be exactly one short, direct discovery question.
-
-**When you see `<tootoo_bridge>`:**
-- Ask one reflective question that grows naturally from what the user is already discussing.
-- Prefer one short, plainspoken question. For work/career reflection, prefer: `What do you value most in your work?`, `What matters most to you in your work?`, `What are your non-negotiables?`
-- Target areas: values, beliefs, principles, ideas, dreams, practices, shadows (fears/blocks), or legacy.
-- Keep it conversational — don't derail practical help. After the user answers, return to grounded practical help.
-
-**Don't:**
-- Ask discovery questions in back-to-back turns.
-- Infer or restate personal content the user didn't explicitly say.
-- Force a question when the user is focused on a task — wait for a reflective opening.
-- Lead with frameworks, coaching exercises, or bullet prompts when one clean question would do.
-- Mention TooToo, the bridge, or profile sections by name.
-
 ## Privacy & Data Handling
 
 Conversation transcripts are sent to the Cortex API for fact extraction. Volatile state (versions, ports, task statuses) is stripped before capture. Secrets and credentials are filtered by the capture pipeline.

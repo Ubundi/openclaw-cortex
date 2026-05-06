@@ -167,7 +167,7 @@
     "enableClawDeployBridgeTrace": {
       "label": "ClawDeploy Bridge Trace",
       "advanced": true,
-      "helpText": "Best-effort trace emission for TooToo bridge Q&A when ClawDeploy URL and gateway token are available."
+      "helpText": "Best-effort trace emission for TooToo passive bridge events when ClawDeploy URL and gateway token are available."
     },
     "autoRecall": {
       "label": "Auto Recall",

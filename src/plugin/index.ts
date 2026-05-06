@@ -7,7 +7,7 @@ import { CortexConfigSchema, configSchema, type CortexConfig } from "./config.js
 import { CortexClient } from "../cortex/client.js";
 import { createRecallHandler } from "../features/recall/handler.js";
 import { createCaptureHandler } from "../features/capture/handler.js";
-import { createBridgeHandler, buildBridgeFollowUpPrompt } from "../features/bridge/handler.js";
+import { createBridgeHandler } from "../features/bridge/handler.js";
 import {
   createOpenClawPassiveModelExtractor,
   isPassiveExtractorEvent,
@@ -960,7 +960,6 @@ const plugin = {
     const activeModelRefs = new Map<string, ActiveModelSnapshot>();
     const bridgeHandler = createBridgeHandler(client, {
       logger: api.logger,
-      retryQueue,
       getUserId: () => userId,
       userIdReady,
       pluginSessionId: sessionId,
@@ -1018,22 +1017,11 @@ const plugin = {
         }
 
         const recallResult = await recallHandler(event, ctx);
-        const bridgePromptMode = await bridgeHandler.shouldInjectPrompt({
+        await bridgeHandler.shouldInjectPrompt({
           ...event,
           sessionKey: activeSessionKey,
         });
-        const bridgePromptContext = bridgePromptMode === "full"
-          ? await bridgeHandler.getPromptContext()
-          : bridgePromptMode === "followup"
-            ? buildBridgeFollowUpPrompt()
-            : undefined;
-        if (bridgePromptMode) {
-          api.logger.info(`Cortex bridge: injecting ${bridgePromptMode} prompt into prependContext`);
-        }
-        const combined = mergePrependContext(
-          mergePrependContext(recoveryContext, recallResult?.prependContext),
-          bridgePromptContext,
-        );
+        const combined = mergePrependContext(recoveryContext, recallResult?.prependContext);
         if (!combined) return recallResult;
         return { prependContext: combined };
       },
