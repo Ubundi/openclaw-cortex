@@ -6,17 +6,22 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- **OpenClaw 2026.5.4 compatibility shape**: Added manifest `activation`, strict config schema metadata, static `contracts.tools`, and package install metadata while keeping Cortex non-channel and non-exclusive.
+- **CLI descriptors**: Registered the `cortex` CLI root with descriptor metadata so OpenClaw can advertise and route the command lazily.
 - **Tools profile documentation**: Added Quick Start step and troubleshooting entry for `tools.profile` configuration. OpenClaw defaults to the `messaging` profile which excludes memory tools — users must set `tools.profile: "full"` after installation and after any reconfiguration.
 - **Write-path telemetry**: Added persisted write-health state (accepted, confirmed, pending, failed) and surfaced it in `cortex.status` RPC + `openclaw cortex status` output.
 
 ### Changed
 
+- **OpenClaw runtime floor metadata**: Corrected the OpenClaw peer/install floor to `>=2026.4.26` and added `openclaw@2026.5.4` as the local dev verification dependency.
+- **Discovery/setup-mode safety**: `discovery` and `tool-discovery` now register executable Cortex tool and command handlers for OpenClaw 2026.5.x while still skipping hooks, RPC, services, health/knowledge probes, config-file mutation, update checks, and timers. `setup-only` and `setup-runtime` remain static-only. `cli-metadata` keeps terminal CLI registration active for OpenClaw 2026.4.x command routing while still skipping gateway runtime surfaces.
 - **Honest async write messaging**: `cortex_save_memory` and `/checkpoint` now treat `/v1/remember` acceptance as unconfirmed background processing instead of implying durable success.
 - **Capture completion semantics**: Auto-capture no longer marks `knowledgeState.hasMemories` on job acceptance alone; it now waits for brief job-status confirmation.
 - **Status command write diagnostics**: `openclaw cortex status` now checks recent pending write jobs and reports degraded write-path state explicitly.
 
 ### Fixed
 
+- **Manifest/config parity**: Added missing manifest coverage for `recallReferenceDate` and tests that keep Zod config keys, manifest config keys, and runtime tool ownership aligned.
 - **Async contract test drift**: Integration tests no longer expect synchronous memory summaries from `remember()` / `rememberConversation()`, matching the real accepted-for-processing API contract.
 
 ## [2.18.3] - 2026-04-26

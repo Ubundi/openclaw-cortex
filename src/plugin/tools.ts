@@ -10,6 +10,7 @@ import type { AuditLogger } from "../internal/audit-logger.js";
 import type { RecentSaves } from "../internal/dedupe.js";
 import type { KnowledgeState } from "./index.js";
 import type { SessionGoalStore } from "../internal/session-goal.js";
+import { loadOrCreateUserId } from "../internal/user-id.js";
 import { formatMemories } from "../features/recall/formatter.js";
 import { coerceSearchMode, filterSearchResults, prepareSearchQuery } from "./search-query.js";
 import {
@@ -86,6 +87,13 @@ function getLongTermExcludedSessionIds(deps: ToolsDeps): Set<string> {
   const activeSessionKey = normalizeSessionKey(deps.getActiveSessionKey?.());
   if (activeSessionKey) sessionIds.add(activeSessionKey);
   return sessionIds;
+}
+
+async function resolveToolUserId(deps: Pick<ToolsDeps, "getUserId" | "userIdReady">): Promise<string | undefined> {
+  await deps.userIdReady;
+  const readyUserId = deps.getUserId();
+  if (readyUserId) return readyUserId;
+  return loadOrCreateUserId();
 }
 
 function getMemoryDisplayScore(memory: RecallMemory): number {
@@ -210,8 +218,7 @@ export function buildSearchMemoryTool(deps: ToolsDeps): ToolDefinition {
         ? Math.min(50, Math.max(limit, Math.ceil(limit * 2)))
         : limit;
 
-      await userIdReady;
-      const userId = getUserId();
+      const userId = await resolveToolUserId({ userIdReady, getUserId });
 
       const prepared = prepareSearchQuery(query, mode);
 
@@ -395,8 +402,7 @@ export function buildSaveMemoryTool(deps: ToolsDeps): ToolDefinition {
       const importance = typeof params.importance === "string" ? params.importance : undefined;
       const checkNovelty = params.checkNovelty === true;
 
-      await userIdReady;
-      const userId = getUserId();
+      const userId = await resolveToolUserId({ userIdReady, getUserId });
       const effectiveSessionId = normalizeSessionKey(getActiveSessionKey?.()) ?? sessionId;
       if (!userId) {
         logger.warn("Cortex save: missing user_id");
@@ -653,8 +659,7 @@ export function buildForgetMemoryTool(deps: ToolsDeps): ToolDefinition {
         };
       }
 
-      await userIdReady;
-      const userId = getUserId();
+      const userId = await resolveToolUserId({ userIdReady, getUserId });
 
       const results: string[] = [];
 
@@ -832,8 +837,7 @@ export function buildGetMemoryTool(deps: ToolsDeps): ToolDefinition {
         return { content: [{ type: "text", text: "Please provide a memory 'id' to retrieve." }] };
       }
 
-      await userIdReady;
-      const userId = getUserId();
+      const userId = await resolveToolUserId({ userIdReady, getUserId });
 
       void auditLoggerProxy.log({
         feature: "tool-get-memory",

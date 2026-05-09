@@ -3,6 +3,18 @@
   "name": "Cortex Memory",
   "description": "Long-term memory powered by Cortex — Auto-Recall, Auto-Capture, agent memory tools, and deduplication",
   "version": "2.21.0",
+  "activation": {
+    "onStartup": true
+  },
+  "contracts": {
+    "tools": [
+      "cortex_search_memory",
+      "cortex_get_memory",
+      "cortex_save_memory",
+      "cortex_forget",
+      "cortex_set_session_goal"
+    ]
+  },
   "commandAliases": [
     {
       "name": "cortex"
@@ -10,6 +22,7 @@
   ],
   "configSchema": {
     "type": "object",
+    "additionalProperties": false,
     "properties": {
       "apiKey": {
         "type": "string",
@@ -143,6 +156,10 @@
         ],
         "description": "Agent specialization that tunes capture categories, capture instructions, and recall context for the role."
       },
+      "recallReferenceDate": {
+        "type": "string",
+        "description": "Optional fixed reference date (ISO 8601) to use as the temporal anchor for recall queries. Leave unset in production."
+      },
       "configVersion": {
         "type": "number",
         "description": "Internal config migration version marker. Do not set manually.",
@@ -153,7 +170,7 @@
   "uiHints": {
     "apiKey": {
       "label": "API Key",
-      "helpText": "Your Cortex API key. Can also be provided via the CORTEX_API_KEY environment variable."
+      "help": "Your Cortex API key. Can also be provided via the CORTEX_API_KEY environment variable."
     },
     "baseUrl": {
       "label": "Base URL",
@@ -162,45 +179,45 @@
     "clawDeployBaseUrl": {
       "label": "ClawDeploy Base URL",
       "advanced": true,
-      "helpText": "Optional ClawDeploy API base URL for TooToo bridge trace observability. Can also be provided via CLAWDEPLOY_BASE_URL."
+      "help": "Optional ClawDeploy API base URL for TooToo bridge trace observability. Can also be provided via CLAWDEPLOY_BASE_URL."
     },
     "enableClawDeployBridgeTrace": {
       "label": "ClawDeploy Bridge Trace",
       "advanced": true,
-      "helpText": "Best-effort trace emission for TooToo passive bridge events when ClawDeploy URL and gateway token are available."
+      "help": "Best-effort trace emission for TooToo passive bridge events when ClawDeploy URL and gateway token are available."
     },
     "autoRecall": {
       "label": "Auto Recall",
-      "helpText": "Automatically inject relevant memories on cold start when workspace daily notes are unavailable."
+      "help": "Automatically inject relevant memories on cold start when workspace daily notes are unavailable."
     },
     "autoCapture": {
       "label": "Auto Capture",
-      "helpText": "Automatically extract facts from conversations after agent turns."
+      "help": "Automatically extract facts from conversations after agent turns."
     },
     "userId": {
       "label": "User ID",
       "advanced": true,
-      "helpText": "Scopes all memories to this installation. Auto-generated at ~/.openclaw/cortex-user-id on first run — only set this if you need to share memories across machines or override the auto-generated ID."
+      "help": "Scopes all memories to this installation. Auto-generated at ~/.openclaw/cortex-user-id on first run — only set this if you need to share memories across machines or override the auto-generated ID."
     },
     "recallLimit": {
       "label": "Recall Limit",
       "advanced": true,
-      "helpText": "Maximum number of memories injected per turn (1-50)."
+      "help": "Maximum number of memories injected per turn (1-50)."
     },
     "recallQueryType": {
       "label": "Recall Query Type",
       "advanced": true,
-      "helpText": "Query type for automatic recall: factual, emotional, combined, or codex."
+      "help": "Query type for automatic recall: factual, emotional, combined, or codex."
     },
     "recallTopK": {
       "label": "Recall Top-K",
       "advanced": true,
-      "helpText": "Max memories returned after scoring, applied after recallLimit (1-50)."
+      "help": "Max memories returned after scoring, applied after recallLimit (1-50)."
     },
     "recallProfile": {
       "label": "Recall Profile",
       "advanced": true,
-      "helpText": "Recall strategy profile. 'auto' selects the best profile based on conversation context."
+      "help": "Recall strategy profile. 'auto' selects the best profile based on conversation context."
     },
     "recallTimeoutMs": {
       "label": "Recall Timeout (ms)",
@@ -209,58 +226,63 @@
     "toolTimeoutMs": {
       "label": "Tool Timeout (ms)",
       "advanced": true,
-      "helpText": "Timeout for cortex_search_memory tool and /memories command searches."
+      "help": "Timeout for cortex_search_memory tool and /memories command searches."
     },
     "captureMaxPayloadBytes": {
       "label": "Capture Max Payload Size",
       "advanced": true,
-      "helpText": "Maximum byte size for capture payloads (default 256KB). Oversized transcripts are trimmed from oldest messages."
+      "help": "Maximum byte size for capture payloads (default 256KB). Oversized transcripts are trimmed from oldest messages."
     },
     "captureFilter": {
       "label": "Capture Filter",
-      "helpText": "Filters out low-signal content (heartbeats, TUI artifacts, token counters) before ingestion."
+      "help": "Filters out low-signal content (heartbeats, TUI artifacts, token counters) before ingestion."
     },
     "dedupeWindowMinutes": {
       "label": "Dedupe Window (min)",
       "advanced": true,
-      "helpText": "Time window for client-side deduplication of saves. Saves that are too similar to a recent save within this window are skipped. Set to 0 to disable."
+      "help": "Time window for client-side deduplication of saves. Saves that are too similar to a recent save within this window are skipped. Set to 0 to disable."
     },
     "noveltyThreshold": {
       "label": "Novelty Threshold",
       "advanced": true,
-      "helpText": "Similarity score (0-1) above which an existing memory is considered a duplicate during save-if-novel checks. Lower = stricter deduplication."
+      "help": "Similarity score (0-1) above which an existing memory is considered a duplicate during save-if-novel checks. Lower = stricter deduplication."
     },
     "auditLog": {
       "label": "Audit Log",
-      "helpText": "Records every payload sent to Cortex at .cortex/audit/ in your workspace. Also toggleable at runtime via /audit on."
+      "help": "Records every payload sent to Cortex at .cortex/audit/ in your workspace. Also toggleable at runtime via /audit on."
     },
     "namespace": {
       "label": "Namespace",
       "advanced": true,
-      "helpText": "Isolates memory per workspace. Auto-derived from workspace directory if left empty."
+      "help": "Isolates memory per workspace. Auto-derived from workspace directory if left empty."
     },
     "captureInstructions": {
       "label": "Capture Instructions",
       "advanced": true,
-      "helpText": "Appends custom save guidance to the injected Cortex section in AGENTS.md so the agent knows what to prioritize."
+      "help": "Appends custom save guidance to the injected Cortex section in AGENTS.md so the agent knows what to prioritize."
     },
     "captureCategories": {
       "label": "Capture Categories",
       "advanced": true,
-      "helpText": "Highlights categories the agent should especially watch for when deciding what to save to memory."
+      "help": "Highlights categories the agent should especially watch for when deciding what to save to memory."
     },
     "sessionGoal": {
       "label": "Session Goal",
-      "helpText": "When enabled, the agent sets a session goal that biases recall toward relevant memories and tags captured facts."
+      "help": "When enabled, the agent sets a session goal that biases recall toward relevant memories and tags captured facts."
     },
     "agentRole": {
       "label": "Agent Role",
-      "helpText": "Tunes memory capture and recall for a specific focus area. Leave unset for general-purpose behavior."
+      "help": "Tunes memory capture and recall for a specific focus area. Leave unset for general-purpose behavior."
+    },
+    "recallReferenceDate": {
+      "label": "Recall Reference Date",
+      "advanced": true,
+      "help": "Optional temporal anchor for benchmark replays. Leave unset in production."
     },
     "configVersion": {
       "label": "Config Version",
       "advanced": true,
-      "helpText": "Internal migration marker. Do not change manually."
+      "help": "Internal migration marker. Do not change manually."
     }
   }
 }

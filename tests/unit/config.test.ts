@@ -5,6 +5,9 @@ import { CortexConfigSchema } from "../../src/plugin/config.js";
 
 describe("CortexConfigSchema", () => {
   const validBase = {};
+  const packageJson = JSON.parse(
+    readFileSync(resolve(__dirname, "../../package.json"), "utf-8"),
+  );
 
   describe("HTTPS enforcement", () => {
     it("accepts HTTPS URLs", () => {
@@ -208,7 +211,26 @@ describe("CortexConfigSchema", () => {
       for (const key of Object.keys(manifestProps)) {
         if (optionalFields.has(key)) continue;
         expect(manifest.uiHints, `missing uiHints for: ${key}`).toHaveProperty(key);
+        expect(manifest.uiHints[key as keyof typeof manifest.uiHints]).not.toHaveProperty("helpText");
       }
+    });
+
+    it("declares the OpenClaw 2026.5 plugin package and manifest shape", () => {
+      expect(manifest).not.toHaveProperty("channels");
+      expect(manifest).not.toHaveProperty("channelConfigs");
+      expect(manifest).not.toHaveProperty("kind");
+      expect(manifest.activation).toEqual({ onStartup: true });
+      expect(manifest.contracts.tools).toEqual([
+        "cortex_search_memory",
+        "cortex_get_memory",
+        "cortex_save_memory",
+        "cortex_forget",
+        "cortex_set_session_goal",
+      ]);
+      expect(manifest.configSchema.additionalProperties).toBe(false);
+      expect(packageJson.openclaw?.install?.minHostVersion).toBe(">=2026.4.26");
+      expect(packageJson.peerDependencies?.openclaw).toBe(">=2026.4.26");
+      expect(packageJson.devDependencies?.openclaw).toBe("2026.5.4");
     });
   });
 });

@@ -1,4 +1,7 @@
-// --- OpenClaw Plugin API types (per docs.openclaw.ai/tools/plugin) ---
+import type {
+  AnyAgentTool,
+  OpenClawPluginService,
+} from "openclaw/plugin-sdk/core";
 
 export interface HookMetadata {
   name: string;
@@ -31,7 +34,31 @@ export interface CommandContext {
   config?: Record<string, unknown>;
 }
 
+export interface CliDescriptor {
+  name: string;
+  description: string;
+  hasSubcommands: boolean;
+}
+
+export interface CliRegistrationOptions {
+  commands?: string[];
+  descriptors?: CliDescriptor[];
+}
+
+export type RegistrationMode =
+  | "full"
+  | "discovery"
+  | "tool-discovery"
+  | "runtime"
+  | "setup-only"
+  | "setup-runtime"
+  | "cli-metadata";
+
 export interface PluginApi {
+  id?: string;
+  name?: string;
+  source?: string;
+  registrationMode?: RegistrationMode;
   pluginConfig?: Record<string, unknown>;
   config?: Record<string, unknown>;
   runtime?: Record<string, unknown>;
@@ -44,13 +71,9 @@ export interface PluginApi {
     handler: (...args: any[]) => any,
     metadata: HookMetadata,
   ): void;
-  registerService(service: {
-    id: string;
-    start?: (ctx: { workspaceDir?: string }) => void;
-    stop?: (ctx: { workspaceDir?: string }) => void;
-  }): void;
+  registerService(service: OpenClawPluginService): void;
   // Agent tools (LLM-invocable functions)
-  registerTool?(definition: ToolDefinition, options?: { optional?: boolean }): void;
+  registerTool?(definition: ToolDefinition | AnyAgentTool, options?: { optional?: boolean }): void;
   // Auto-reply commands (execute without AI agent)
   registerCommand?(definition: CommandDefinition): void;
   // Gateway RPC methods
@@ -61,7 +84,7 @@ export interface PluginApi {
   // CLI commands (terminal-level, uses Commander.js)
   registerCli?(
     registrar: (ctx: { program: CliProgram; config: Record<string, unknown>; workspaceDir?: string; logger: Logger }) => void,
-    opts?: { commands?: string[] },
+    opts?: CliRegistrationOptions,
   ): void;
 }
 

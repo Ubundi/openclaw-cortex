@@ -8,6 +8,7 @@ import {
   markWriteFailed,
   type WriteHealthState,
 } from "../../internal/write-health.js";
+import { loadOrCreateUserId } from "../../internal/user-id.js";
 
 type Logger = {
   debug?(...args: unknown[]): void;
@@ -134,7 +135,7 @@ export function createCheckpointHandler(
       }
 
       const text = `[SESSION CHECKPOINT] ${summary}`;
-      const userId = getUserId();
+      const userId = getUserId() ?? await loadOrCreateUserId();
       if (!userId) {
         logger.warn("Cortex checkpoint: missing user_id");
         return { text: "Checkpoint failed: Cortex ingest requires user_id." };

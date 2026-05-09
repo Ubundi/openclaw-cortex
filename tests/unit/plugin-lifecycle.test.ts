@@ -5,6 +5,7 @@ import plugin, {
   readRuntimeDefaultModelRef,
 } from "../../src/plugin/index.js";
 import packageJson from "../../package.json" with { type: "json" };
+import manifest from "../../openclaw.plugin.json" with { type: "json" };
 import { CortexClient } from "../../src/cortex/client.js";
 import { RetryQueue } from "../../src/internal/retry-queue.js";
 import { SessionStateStore } from "../../src/internal/session-state.js";
@@ -32,6 +33,13 @@ interface MockLogger {
 }
 
 interface MockApi {
+  id: string;
+  name: string;
+  source: string;
+  registrationMode: "full" | "discovery" | "tool-discovery" | "runtime" | "setup-only" | "setup-runtime" | "cli-metadata";
+  rootDir: string;
+  config: Record<string, unknown>;
+  runtime: Record<string, unknown>;
   pluginConfig: Record<string, unknown>;
   logger: MockLogger;
   on: ReturnType<typeof vi.fn>;
@@ -90,13 +98,22 @@ function createCliNode(name: string): CliNode & {
   return commandApi;
 }
 
-function makeApi(pluginConfig: Record<string, unknown>) {
+function makeApi(
+  pluginConfig: Record<string, unknown>,
+  registrationMode: MockApi["registrationMode"] = "full",
+) {
   const hooks: Record<string, HookHandler[]> = {};
   const services: Array<{ id: string; start?: (ctx: { workspaceDir?: string }) => void; stop?: () => void }> = [];
   const tools: Array<{ name: string; description: string; parameters: unknown; execute: Function }> = [];
   const commands: Array<{ name: string; description: string; handler: Function }> = [];
   const rpcMethods: Record<string, Function> = {};
-  const cliRegistrars: Array<{ registrar: Function; opts?: { commands?: string[] } }> = [];
+  const cliRegistrars: Array<{
+    registrar: Function;
+    opts?: {
+      commands?: string[];
+      descriptors?: Array<{ name: string; description: string; hasSubcommands: boolean }>;
+    };
+  }> = [];
   const logger: MockLogger = {
     debug: vi.fn(),
     info: vi.fn(),
@@ -105,6 +122,13 @@ function makeApi(pluginConfig: Record<string, unknown>) {
   };
 
   const api: MockApi = {
+    id: "openclaw-cortex",
+    name: "Cortex Memory",
+    source: "test",
+    registrationMode,
+    rootDir: "/tmp/openclaw-cortex",
+    config: {},
+    runtime: {},
     pluginConfig,
     logger,
     on: vi.fn((hookName: string, handler: HookHandler) => {
@@ -127,7 +151,7 @@ function makeApi(pluginConfig: Record<string, unknown>) {
     registerGatewayMethod: vi.fn((name: string, handler: Function) => {
       rpcMethods[name] = handler;
     }),
-    registerCli: vi.fn((registrar: Function, opts?: { commands?: string[] }) => {
+    registerCli: vi.fn((registrar: Function, opts?: { commands?: string[]; descriptors?: Array<{ name: string; description: string; hasSubcommands: boolean }> }) => {
       cliRegistrars.push({ registrar, opts });
     }),
   };
@@ -185,6 +209,105 @@ describe("plugin lifecycle contract", () => {
     vi.restoreAllMocks();
     delete process.env.CORTEX_API_KEY;
     process.exitCode = undefined;
+  });
+
+  it("exports a 2026.5-style plugin definition without memory kind takeover", () => {
+    expect(plugin).toMatchObject({
+      id: "openclaw-cortex",
+      name: "Cortex Memory",
+      version: packageJson.version,
+      configSchema: expect.any(Object),
+      register: expect.any(Function),
+    });
+    expect(plugin).not.toHaveProperty("kind");
+  });
+
+  it("registers CLI descriptors for the cortex command root", () => {
+    const { api } = makeApi({});
+
+    plugin.register(api as any);
+
+    expect(api.registerCli).toHaveBeenCalledWith(expect.any(Function), {
+      commands: ["cortex"],
+      descriptors: [
+        { name: "cortex", description: expect.any(String), hasSubcommands: true },
+      ],
+    });
+  });
+
+  it("registers only CLI commands in cli-metadata mode", () => {
+    const { api } = makeApi({ userId: "agent-cli-1" }, "cli-metadata");
+
+    plugin.register(api as any);
+
+    expect(api.registerCli).toHaveBeenCalledTimes(1);
+    expect(api.registerCli.mock.calls[0][1]).toEqual({
+      commands: ["cortex"],
+      descriptors: [
+        {
+          name: "cortex",
+          description: expect.any(String),
+          hasSubcommands: true,
+        },
+      ],
+    });
+    expect(CortexClient.prototype.healthCheck).not.toHaveBeenCalled();
+    expect(CortexClient.prototype.knowledge).not.toHaveBeenCalled();
+    expect(api.registerService).not.toHaveBeenCalled();
+    expect(api.registerTool).not.toHaveBeenCalled();
+    expect(api.registerCommand).not.toHaveBeenCalled();
+    expect(api.registerGatewayMethod).not.toHaveBeenCalled();
+    expect(mockWriteFileSync).not.toHaveBeenCalled();
+  });
+
+  it.each(["setup-only", "setup-runtime"] as const)(
+    "does not start Cortex runtime side effects in %s mode",
+    (mode) => {
+      const { api, tools } = makeApi({}, mode);
+
+      plugin.register(api as any);
+
+      expect(api.registerCli).toHaveBeenCalledTimes(1);
+      expect(CortexClient.prototype.healthCheck).not.toHaveBeenCalled();
+      expect(CortexClient.prototype.knowledge).not.toHaveBeenCalled();
+      expect(api.registerService).not.toHaveBeenCalled();
+      expect(api.registerTool).not.toHaveBeenCalled();
+      expect(api.registerCommand).not.toHaveBeenCalled();
+      expect(api.registerGatewayMethod).not.toHaveBeenCalled();
+      expect(mockWriteFileSync).not.toHaveBeenCalled();
+      expect(tools).toEqual([]);
+    },
+  );
+
+  it.each(["discovery", "tool-discovery"] as const)(
+    "registers executable tools and commands without runtime side effects in %s mode",
+    (mode) => {
+      const { api, tools, commands } = makeApi({}, mode);
+
+      plugin.register(api as any);
+
+      expect(CortexClient.prototype.healthCheck).not.toHaveBeenCalled();
+      expect(CortexClient.prototype.knowledge).not.toHaveBeenCalled();
+      expect(api.registerService).not.toHaveBeenCalled();
+      expect(api.registerGatewayMethod).not.toHaveBeenCalled();
+      expect(mockWriteFileSync).not.toHaveBeenCalled();
+
+      const registeredToolNames = tools.map((tool) => tool.name);
+      expect(registeredToolNames).toEqual(manifest.contracts.tools);
+      expect(commands.map((command) => command.name)).toEqual(["audit", "checkpoint", "sleep"]);
+    },
+  );
+
+  it("treats legacy runtime registration mode as full runtime registration", () => {
+    const { api, services, commands, rpcMethods, tools } = makeApi({}, "runtime");
+
+    plugin.register(api as any);
+
+    expect(api.registerService).toHaveBeenCalledTimes(1);
+    expect(services).toHaveLength(1);
+    expect(commands.map((command) => command.name)).toEqual(["audit", "checkpoint", "sleep"]);
+    expect(Object.keys(rpcMethods)).toEqual(["cortex.status"]);
+    expect(tools.map((tool) => tool.name)).toEqual(manifest.contracts.tools);
   });
 
   it("register wires hooks and service via api.on", async () => {
@@ -367,11 +490,16 @@ describe("plugin lifecycle contract", () => {
 
     expect(api.registerTool).toHaveBeenCalledTimes(5);
     const toolNames = tools.map((t) => t.name);
-    expect(toolNames).toContain("cortex_search_memory");
-    expect(toolNames).toContain("cortex_get_memory");
-    expect(toolNames).toContain("cortex_save_memory");
-    expect(toolNames).toContain("cortex_forget");
-    expect(toolNames).toContain("cortex_set_session_goal");
+    expect(toolNames).toEqual(manifest.contracts.tools);
+    for (const tool of tools) {
+      expect(tool).toMatchObject({
+        name: expect.stringMatching(/^cortex_/),
+        description: expect.any(String),
+        parameters: expect.any(Object),
+        execute: expect.any(Function),
+      });
+      expect(manifest.contracts.tools).toContain(tool.name);
+    }
   });
 
   it("falls back to async ingest when cortex_save_memory sync remember fails", async () => {
@@ -847,7 +975,7 @@ describe("plugin lifecycle contract", () => {
 
   it("registers only CLI commands during explicit cortex CLI invocations", async () => {
     const originalArgv = process.argv;
-    const { api, cliRegistrars } = makeApi({ userId: "agent-cli-1" });
+    const { api, cliRegistrars } = makeApi({ userId: "agent-cli-1" }, "cli-metadata");
     try {
       process.argv = ["node", "openclaw", "cortex", "config"];
       plugin.register(api as any);
@@ -856,7 +984,12 @@ describe("plugin lifecycle contract", () => {
     }
 
     expect(api.registerCli).toHaveBeenCalledTimes(1);
-    expect(cliRegistrars[0]?.opts).toEqual({ commands: ["cortex"] });
+    expect(cliRegistrars[0]?.opts).toEqual({
+      commands: ["cortex"],
+      descriptors: [
+        { name: "cortex", description: expect.any(String), hasSubcommands: true },
+      ],
+    });
     expect(api.on).not.toHaveBeenCalled();
     expect(api.registerHook).not.toHaveBeenCalled();
     expect(api.registerTool).not.toHaveBeenCalled();
@@ -886,9 +1019,39 @@ describe("plugin lifecycle contract", () => {
     }
 
     expect(api.registerCli).toHaveBeenCalledTimes(1);
-    expect(cliRegistrars[0]?.opts).toEqual({ commands: ["cortex"] });
+    expect(cliRegistrars[0]?.opts).toEqual({
+      commands: ["cortex"],
+      descriptors: [
+        { name: "cortex", description: expect.any(String), hasSubcommands: true },
+      ],
+    });
     expect(api.on).not.toHaveBeenCalled();
     expect(api.registerService).not.toHaveBeenCalled();
+    expect(CortexClient.prototype.healthCheck).not.toHaveBeenCalled();
+    expect(CortexClient.prototype.knowledge).not.toHaveBeenCalled();
+  });
+
+  it("registers CLI commands for explicit cortex invocations even in discovery mode", () => {
+    const originalArgv = process.argv;
+    const { api, cliRegistrars, tools } = makeApi({ userId: "agent-cli-1" }, "discovery");
+    try {
+      process.argv = ["node", "openclaw", "cortex", "status"];
+      plugin.register(api as any);
+    } finally {
+      process.argv = originalArgv;
+    }
+
+    expect(api.registerCli).toHaveBeenCalledTimes(1);
+    expect(cliRegistrars[0]?.opts).toEqual({
+      commands: ["cortex"],
+      descriptors: [
+        { name: "cortex", description: expect.any(String), hasSubcommands: true },
+      ],
+    });
+    expect(tools).toEqual([]);
+    expect(api.registerService).not.toHaveBeenCalled();
+    expect(api.registerCommand).not.toHaveBeenCalled();
+    expect(api.registerGatewayMethod).not.toHaveBeenCalled();
     expect(CortexClient.prototype.healthCheck).not.toHaveBeenCalled();
     expect(CortexClient.prototype.knowledge).not.toHaveBeenCalled();
   });

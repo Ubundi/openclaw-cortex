@@ -94,6 +94,7 @@ Read the relevant files before starting work:
 
 - `docs/agent/testing.md` — Test layers, how to run each, what needs API keys, manual test scripts
 - `docs/agent/plugin_hooks.md` — OpenClaw plugin API, hook contracts, data flow between recall/capture and the runtime
+- `docs/agent/ec2_benchmark_server.md` — Agent-facing EC2 OpenClaw server guide for plugin benchmark testing
 
 ## Cortex API Reference
 

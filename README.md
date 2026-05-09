@@ -25,7 +25,7 @@
 ## Prerequisites
 
 - Node.js `>=20`
-- [OpenClaw](https://github.com/openclaw/openclaw) with plugin support (`openclaw` peer dependency is `>=0.1.0`)
+- [OpenClaw](https://github.com/openclaw/openclaw) with plugin support (`openclaw` peer dependency is `>=2026.4.26`; local compatibility is smoke-checked against `2026.5.4`)
 
 ## Installation
 
@@ -103,12 +103,11 @@ Add to your `openclaw.json`:
         },
       },
     },
-    slots: {
-      memory: "openclaw-cortex",
-    },
   },
 }
 ```
+
+Cortex remains an additive memory-adjacent plugin. It does not claim OpenClaw's exclusive memory slot or declare `kind: "memory"`; keep configuration under `plugins.entries.openclaw-cortex.config`.
 
 ### Config Options
 
@@ -236,7 +235,7 @@ The plugin registers tools the LLM agent can invoke directly:
 
 These work alongside Auto-Recall/Auto-Capture — the automatic hooks handle background memory flow, while the tools give the agent explicit control when needed.
 
-> Agent tools require the OpenClaw runtime to support `api.registerTool()`. On older runtimes, the plugin gracefully skips tool registration.
+> Agent tools require the OpenClaw runtime to support `api.registerTool()`. The plugin also declares all five tools in `openclaw.plugin.json` under `contracts.tools` so OpenClaw 2026.5.x can inspect ownership without executing runtime code.
 
 ### Commands
 
@@ -352,7 +351,7 @@ If both the plugin and the skill are active, the `<cortex_memories>` tag in the 
 ## Troubleshooting
 
 - **Agent not using plugin tools**: Check `tools.profile` in `openclaw.json` — OpenClaw defaults to `"messaging"`, which excludes memory tools. Run `openclaw config set tools.profile full && openclaw gateway restart`. The configure wizard resets this, so re-check after any reconfiguration.
-- Plugin installed but no memory behavior: verify both `"enabled": true` and `"slots.memory": "openclaw-cortex"` in `openclaw.json`. Note: config uses the install name `openclaw-cortex`, not the npm scope.
+- Plugin installed but no memory behavior: verify `"enabled": true`, `hooks.allowConversationAccess: true`, and `plugins.entries.openclaw-cortex.config.apiKey` in `openclaw.json`. Note: config uses the install name `openclaw-cortex`, not the npm scope. Do not configure Cortex through `channels.*` or `slots.memory`.
 - `Cannot find module 'zod'` during plugin load (older installs): run `npm install --prefix ~/.openclaw/extensions/openclaw-cortex --omit=dev zod`.
 - Frequent recall timeouts: increase `recallTimeoutMs` for auto-recall or `toolTimeoutMs` for explicit searches.
 - No useful memories returned: ensure prior sessions were captured (`autoCapture`) or saved explicitly with `cortex_save_memory` or `/checkpoint`.
@@ -368,6 +367,15 @@ npm run test:integration # Live Cortex API tests (uses the baked-in API key)
 ```
 
 Manual proof scripts live under `tests/manual/`.
+
+OpenClaw 2026.5.x inspection smoke:
+
+```bash
+openclaw plugins inspect openclaw-cortex --runtime --json
+openclaw config validate
+```
+
+The runtime inspection should show `openclaw-cortex` as a non-channel, non-exclusive memory-adjacent plugin with the five owned Cortex tools and the `cortex` CLI root descriptor.
 
 ## Built by Ubundi
 

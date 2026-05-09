@@ -2,6 +2,11 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { createCheckpointHandler } from "../../src/features/checkpoint/handler.js";
 import type { CortexClient } from "../../src/cortex/client.js";
 import type { CortexConfig } from "../../src/plugin/config.js";
+import { loadOrCreateUserId } from "../../src/internal/user-id.js";
+
+vi.mock("../../src/internal/user-id.js", () => ({
+  loadOrCreateUserId: vi.fn().mockResolvedValue("fallback-user-456"),
+}));
 
 function makeConfig(overrides: Partial<CortexConfig> = {}): CortexConfig {
   return {
@@ -167,8 +172,8 @@ describe("createCheckpointHandler", () => {
     expect(rememberMock).toHaveBeenCalledOnce();
   });
 
-  it("fails fast when user_id is missing after userIdReady", async () => {
-    const rememberMock = vi.fn();
+  it("falls back to the persisted Cortex user id when runtime command registration has not populated one", async () => {
+    const rememberMock = vi.fn().mockResolvedValue({ session_id: "sess-1", status: "accepted" });
     const client = { remember: rememberMock } as unknown as CortexClient;
 
     const handler = createCheckpointHandler(
@@ -183,9 +188,17 @@ describe("createCheckpointHandler", () => {
 
     const result = await handler({ args: "checkpoint text" });
 
-    expect(result.text).toContain("requires user_id");
-    expect(rememberMock).not.toHaveBeenCalled();
-    expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining("missing user_id"));
+    expect(result.text).toContain("Checkpoint accepted");
+    expect(loadOrCreateUserId).toHaveBeenCalled();
+    expect(rememberMock).toHaveBeenCalledWith(
+      "[SESSION CHECKPOINT] checkpoint text",
+      "sess-1",
+      10000,
+      expect.any(String),
+      "fallback-user-456",
+      "openclaw",
+      "OpenClaw",
+    );
   });
 
   it("takes only last 5 user messages for auto-summary", async () => {

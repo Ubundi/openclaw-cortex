@@ -1,6 +1,6 @@
 import type { CortexClient, LinkOwnerType, LinkStatusResponse } from "../cortex/client.js";
 import type { CortexConfig } from "./config.js";
-import type { CliProgram, Logger } from "./types.js";
+import type { CliProgram, CliRegistrationOptions, Logger } from "./types.js";
 import { coerceCliSearchQuery, coerceSearchMode, filterSearchResults, getMemoryDisplayScore, prepareSearchQuery } from "./search-query.js";
 import { classifyJobStatus, type WriteHealthState } from "../internal/write-health.js";
 
@@ -9,6 +9,17 @@ const STATUS_FALLBACK_TIMEOUT_MS = 8_000;
 const STATUS_LINK_TIMEOUT_MS = 5_000;
 const STATUS_USER_ID_READY_TIMEOUT_MS = 5_000;
 const STATUS_TOTAL_TIMEOUT_MS = 12_000;
+
+export const CORTEX_CLI_REGISTRATION_OPTIONS: CliRegistrationOptions = {
+  commands: ["cortex"],
+  descriptors: [
+    {
+      name: "cortex",
+      description: "Manage Cortex memory plugin status, search, config, pairing, and reset commands",
+      hasSubcommands: true,
+    },
+  ],
+};
 
 export async function readResetConfirmation(
   input: NodeJS.ReadStream = process.stdin,
@@ -354,7 +365,7 @@ export interface CliDeps {
 export function registerCliCommands(
   registerCli: (
     registrar: (ctx: { program: CliProgram; config: Record<string, unknown>; workspaceDir?: string; logger: Logger }) => void,
-    opts?: { commands?: string[] },
+    opts?: CliRegistrationOptions,
   ) => void,
   deps: CliDeps,
 ): void {
@@ -1047,6 +1058,6 @@ export function registerCliCommands(
           }
         });
     },
-    { commands: ["cortex"] },
+    CORTEX_CLI_REGISTRATION_OPTIONS,
   );
 }

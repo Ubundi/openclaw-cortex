@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import type { CortexClient, NodeDetailResponse, RecallMemory } from "../../src/cortex/client.js";
 import type { CortexConfig } from "../../src/plugin/config.js";
+import { loadOrCreateUserId } from "../../src/internal/user-id.js";
 import {
   buildForgetMemoryTool,
   buildGetMemoryTool,
@@ -9,6 +10,10 @@ import {
   type SessionStats,
   type ToolsDeps,
 } from "../../src/plugin/tools.js";
+
+vi.mock("../../src/internal/user-id.js", () => ({
+  loadOrCreateUserId: vi.fn().mockResolvedValue("fallback-user-456"),
+}));
 
 function makeConfig(overrides: Partial<CortexConfig> = {}): CortexConfig {
   return {
@@ -263,6 +268,27 @@ describe("buildSaveMemoryTool", () => {
     expect(record).toHaveBeenCalledWith("Remember that the project uses Atlas.");
     expect(deps.knowledgeState.hasMemories).toBe(false);
     expect(deps.sessionStats.saves).toBe(1);
+  });
+
+  it("falls back to the persisted Cortex user id when runtime tool registration has not populated one", async () => {
+    const { client, deps } = makeDeps();
+    deps.getUserId = () => undefined;
+    client.remember = vi.fn().mockResolvedValue({ session_id: "active-session-123", status: "accepted" });
+
+    const tool = buildSaveMemoryTool(deps);
+    const result = await tool.execute("tool-1", { text: "Remember that the project uses Atlas." });
+
+    expect(loadOrCreateUserId).toHaveBeenCalled();
+    expect(client.remember).toHaveBeenCalledWith(
+      "Remember that the project uses Atlas.",
+      "active-session-123",
+      deps.config.toolTimeoutMs,
+      expect.any(String),
+      "fallback-user-456",
+      "openclaw",
+      "OpenClaw",
+    );
+    expect(result.content[0]?.text).toContain("accepted for background processing");
   });
 
   it("marks direct remember writes healthy when Cortex confirms completion", async () => {

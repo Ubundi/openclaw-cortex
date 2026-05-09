@@ -34,7 +34,11 @@ import type {
   PluginApi,
   Logger,
 } from "./types.js";
-import { registerCliCommands, type PluginDiscoveryDiagnostic } from "./cli.js";
+import {
+  CORTEX_CLI_REGISTRATION_OPTIONS,
+  registerCliCommands,
+  type PluginDiscoveryDiagnostic,
+} from "./cli.js";
 import { buildSearchMemoryTool, buildSaveMemoryTool, buildForgetMemoryTool, buildGetMemoryTool, buildSetSessionGoalTool } from "./tools.js";
 import { SessionGoalStore } from "../internal/session-goal.js";
 import { getRolePreset, detectAgentRole } from "../internal/agent-roles.js";
@@ -486,6 +490,9 @@ function registerHookCompat(
   metadata: HookMetadata,
 ): void {
   if (api.on) {
+    // Intentional: external OpenClaw builds have listed hooks from
+    // registerHook() without dispatching them. Prefer api.on() until a
+    // 2026.5.4 smoke proves registerHook() dispatches lifecycle events.
     api.on(hookName, handler);
   } else if (api.registerHook) {
     api.registerHook(hookName, handler, metadata);
@@ -502,6 +509,18 @@ const CORTEX_TOOL_NAMES = [
   "cortex_forget",
   "cortex_set_session_goal",
 ] as const;
+
+function emptySessionStats(): SessionStats {
+  return {
+    saves: 0,
+    savesSkippedDedupe: 0,
+    savesSkippedNovelty: 0,
+    searches: 0,
+    recallCount: 0,
+    recallMemoriesTotal: 0,
+    recallDuplicatesCollapsed: 0,
+  };
+}
 
 /**
  * Current config version. Bump this and add a migration case below
@@ -742,6 +761,70 @@ function ensureToolsAllowlist(logger: Logger): void {
   }
 }
 
+function registerCortexTools(
+  api: PluginApi,
+  deps: Parameters<typeof buildSearchMemoryTool>[0],
+): void {
+  if (!api.registerTool) return;
+
+  api.registerTool(buildSearchMemoryTool(deps));
+  api.registerTool(buildGetMemoryTool(deps));
+  api.registerTool(buildSaveMemoryTool(deps));
+  api.registerTool(buildForgetMemoryTool(deps));
+  api.registerTool(buildSetSessionGoalTool(deps));
+
+  api.logger.debug?.("Cortex tools registered: cortex_search_memory, cortex_get_memory, cortex_save_memory, cortex_forget, cortex_set_session_goal");
+}
+
+function registerDiscoveryTools(api: PluginApi, config: CortexConfig): void {
+  const apiKey = resolveCortexApiKey(config.apiKey);
+  const fallbackSessionState = new SessionStateStore();
+  const writeHealthState = createWriteHealthState();
+  const discoveryDeps: Parameters<typeof buildSearchMemoryTool>[0] = {
+    client: new CortexClient(config.baseUrl, apiKey),
+    config,
+    logger: api.logger,
+    getUserId: () => undefined,
+    getActiveSessionKey: () => undefined,
+    userIdReady: Promise.resolve(),
+    sessionId: "discovery",
+    sessionStats: emptySessionStats(),
+    persistStats: () => {},
+    auditLoggerProxy: { log: () => Promise.resolve() } as unknown as AuditLogger,
+    knowledgeState: {
+      hasMemories: false,
+      totalSessions: 0,
+      pipelineTier: 1,
+      maturity: "unknown",
+      lastChecked: 0,
+    },
+    writeHealthState: createWriteHealthState(),
+    persistWriteHealth: () => {},
+    recentSaves: null,
+    sessionGoalStore: new SessionGoalStore(),
+  };
+  registerCortexTools(api, discoveryDeps);
+
+  if (api.registerCommand) {
+    buildCommands(api.registerCommand.bind(api), {
+      client: discoveryDeps.client,
+      config,
+      logger: api.logger,
+      getUserId: () => undefined,
+      userIdReady: Promise.resolve(),
+      getLastMessages: () => [],
+      sessionId: "discovery",
+      auditLoggerProxy: { log: () => Promise.resolve() } as unknown as AuditLogger,
+      writeHealthState,
+      persistWriteHealth: () => {},
+      sessionState: fallbackSessionState,
+      getWorkspaceDir: () => undefined,
+      getAuditLoggerInner: () => undefined,
+      setAuditLoggerInner: () => {},
+    });
+  }
+}
+
 const plugin = {
   id: PLUGIN_ID,
   name: "Cortex Memory",
@@ -752,6 +835,14 @@ const plugin = {
   configSchema,
 
   register(api: PluginApi) {
+    const registrationMode = api.registrationMode ?? "full";
+    const explicitCortexCliInvocation = isExplicitCortexCliInvocation();
+    const metadataOnly = !explicitCortexCliInvocation && (
+      registrationMode === "discovery"
+      || registrationMode === "tool-discovery"
+      || registrationMode === "setup-only"
+      || registrationMode === "setup-runtime"
+    );
     const raw = api.pluginConfig ?? {};
     const parsed = CortexConfigSchema.safeParse(raw);
 
@@ -760,6 +851,17 @@ const plugin = {
         "Cortex plugin config invalid:",
         parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; "),
       );
+      return;
+    }
+
+    if (metadataOnly) {
+      if (api.registerCli) {
+        api.registerCli(() => {}, CORTEX_CLI_REGISTRATION_OPTIONS);
+      }
+      if (registrationMode === "discovery" || registrationMode === "tool-discovery") {
+        registerDiscoveryTools(api, parsed.data);
+      }
+      api.logger.debug?.(`Cortex ${registrationMode} registration completed without runtime startup`);
       return;
     }
 
@@ -879,7 +981,7 @@ const plugin = {
             api.logger.warn("Cortex: could not persist user ID, using ephemeral ID for this session");
           });
 
-    const isCliInvocation = isExplicitCortexCliInvocation();
+    const isCliInvocation = explicitCortexCliInvocation || registrationMode === "cli-metadata";
     if (isCliInvocation) {
       const cliSessionStats: SessionStats = loadPersistedStats() ?? {
         saves: 0,
@@ -914,8 +1016,8 @@ const plugin = {
     }
 
     // Health check + knowledge probe — runs after userId resolves so recall
-    // knows whether memories exist. Must happen in register() because some
-    // runtime instances never call start().
+    // knows whether memories exist. Kept out of discovery/metadata modes above
+    // so OpenClaw can inspect static surfaces without starting Cortex.
     void userIdReady.then(() => bootstrapClient(client, api.logger, knowledgeState, userId!));
     void checkForUpdate(api.logger);
 
@@ -1139,15 +1241,7 @@ const plugin = {
 
     // --- Session Stats ---
 
-    const sessionStats: SessionStats = loadPersistedStats() ?? {
-      saves: 0,
-      savesSkippedDedupe: 0,
-      savesSkippedNovelty: 0,
-      searches: 0,
-      recallCount: 0,
-      recallMemoriesTotal: 0,
-      recallDuplicatesCollapsed: 0,
-    };
+    const sessionStats: SessionStats = loadPersistedStats() ?? emptySessionStats();
 
     // --- Agent Tools ---
 
@@ -1175,13 +1269,7 @@ const plugin = {
         getRoleContext: () => rolePreset?.recallContext,
       };
 
-      api.registerTool(buildSearchMemoryTool(toolsDeps));
-      api.registerTool(buildGetMemoryTool(toolsDeps));
-      api.registerTool(buildSaveMemoryTool(toolsDeps));
-      api.registerTool(buildForgetMemoryTool(toolsDeps));
-      api.registerTool(buildSetSessionGoalTool(toolsDeps));
-
-      api.logger.debug?.("Cortex tools registered: cortex_search_memory, cortex_get_memory, cortex_save_memory, cortex_forget, cortex_set_session_goal");
+      registerCortexTools(api, toolsDeps);
     }
 
     // --- Auto-Reply Commands ---
