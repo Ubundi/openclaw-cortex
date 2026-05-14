@@ -288,7 +288,7 @@ For public X/Twitter research, install [TweetClaw](https://github.com/Xquik-dev/
 openclaw plugins install @xquik/tweetclaw
 ```
 
-TweetClaw is also listed on [npm](https://www.npmjs.com/package/@xquik/tweetclaw) and [ClawHub](https://clawhub.ai/plugins/@xquik/tweetclaw). Use it to scrape tweets, search tweets, search tweet replies, run follower export, perform user lookup, monitor tweets, receive webhooks, and run giveaway draws. Then save concise source memories with `cortex_save_memory` or `/checkpoint`:
+Install TweetClaw from [npm](https://www.npmjs.com/package/@xquik/tweetclaw); the [ClawHub page](https://clawhub.ai/plugins/@xquik/tweetclaw) is useful for browsing while its listing lags behind the npm release. Use it to scrape tweets, search tweets, search tweet replies, run follower export, perform user lookup, monitor tweets, receive webhooks, and run giveaway draws. Then save concise source memories with `cortex_save_memory` or `/checkpoint`:
 
 - search query and capture date
 - tweet URLs or tweet IDs
