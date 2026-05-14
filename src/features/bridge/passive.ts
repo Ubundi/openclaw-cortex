@@ -227,9 +227,12 @@ export function buildPassiveExtractorPrompt(): string {
     "Candidate wording should be concise, durable, operational, and not include unsupported details.",
     "Evidence quotes must be exact user-authored substrings from the provided messages.",
     "Keep evidence_quote to the shortest exact substring that proves the candidate; do not quote whole long messages.",
+    "suggested_section must be exactly one of: coreValues, beliefs, principles, ideas, dreams, practices, shadows, legacy.",
+    "Use coreValues for personal values, principles for operating principles, practices for concrete recurring work habits, and beliefs for durable beliefs.",
     "If uncertain, return no candidates.",
     "Return JSON only with this shape:",
-    "{\"candidates\":[{\"content\":\"string\",\"suggested_section\":\"practices\",\"evidence_quote\":\"exact user-authored quote\",\"supporting_evidence_quotes\":[\"optional exact user-authored quotes\"],\"confidence\":0.0,\"risk_tier\":\"low\",\"reason\":\"brief internal review note\"}]}",
+    "{\"candidates\":[{\"content\":\"string\",\"suggested_section\":\"coreValues|beliefs|principles|ideas|dreams|practices|shadows|legacy\",\"evidence_quote\":\"exact user-authored quote\",\"supporting_evidence_quotes\":[\"optional exact user-authored quotes\"],\"confidence\":0.0,\"risk_tier\":\"low\",\"reason\":\"brief internal review note\"}]}",
+    "Output must be a single strict JSON object: no markdown fences, no prose, no comments, no trailing commas, and no extra top-level keys.",
   ].join("\n");
 }
 
@@ -262,8 +265,19 @@ export function buildPassiveExtractorInput(rawMessages: unknown[]): PassiveExtra
 }
 
 export function parsePassiveExtractorJson(raw: string): PassiveExtractorOutput {
-  const trimmed = raw.trim().replace(/^```(?:json)?\s*([\s\S]*?)\s*```$/i, "$1").trim();
-  const parsed = JSON.parse(trimmed) as unknown;
+  const trimmed = stripPassiveExtractorJsonWrapper(raw);
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(trimmed) as unknown;
+  } catch (err) {
+    const repaired = repairPassiveExtractorJsonText(trimmed);
+    if (!repaired || repaired === trimmed) throw err;
+    try {
+      parsed = JSON.parse(repaired) as unknown;
+    } catch {
+      throw err;
+    }
+  }
   if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
     throw new SyntaxError("passive extractor JSON root must be an object");
   }
@@ -276,6 +290,54 @@ export function parsePassiveExtractorJson(raw: string): PassiveExtractorOutput {
     throw new SyntaxError("passive extractor JSON must include candidates array");
   }
   return { candidates };
+}
+
+function stripPassiveExtractorJsonWrapper(raw: string): string {
+  return raw.trim().replace(/^```(?:json)?\s*([\s\S]*?)\s*```$/i, "$1").trim();
+}
+
+function extractLikelyJsonObject(raw: string): string | undefined {
+  const first = raw.indexOf("{");
+  const last = raw.lastIndexOf("}");
+  if (first < 0 || last <= first) return undefined;
+  return raw.slice(first, last + 1).trim();
+}
+
+function removeTrailingJsonCommas(raw: string): string {
+  let output = "";
+  let inString = false;
+  let escaped = false;
+  for (let index = 0; index < raw.length; index++) {
+    const char = raw[index];
+    if (escaped) {
+      output += char;
+      escaped = false;
+      continue;
+    }
+    if (char === "\\" && inString) {
+      output += char;
+      escaped = true;
+      continue;
+    }
+    if (char === "\"") {
+      inString = !inString;
+      output += char;
+      continue;
+    }
+    if (char === "," && !inString) {
+      let lookahead = index + 1;
+      while (/\s/.test(raw[lookahead] ?? "")) lookahead++;
+      if (raw[lookahead] === "}" || raw[lookahead] === "]") continue;
+    }
+    output += char;
+  }
+  return output;
+}
+
+function repairPassiveExtractorJsonText(raw: string): string | undefined {
+  const candidate = extractLikelyJsonObject(raw) ?? raw;
+  const repaired = removeTrailingJsonCommas(candidate).trim();
+  return repaired ? repaired : undefined;
 }
 
 function exactUserEvidenceSource(
@@ -311,6 +373,14 @@ function normalizeSection(value: unknown): BridgeTargetSection | undefined {
 
 function reject(reason: string): { reason: string } {
   return { reason };
+}
+
+function schemaReject(detail: string): { reason: string } {
+  return reject(`schema_invalid:${detail}`);
+}
+
+function schemaKeyReject(key: string): { reason: string } {
+  return schemaReject(`unexpected_key:${key.replace(/[^A-Za-z0-9_-]/g, "_").slice(0, 40) || "unknown"}`);
 }
 
 const PASSIVE_PRUNE_STOPWORDS = new Set([
@@ -462,12 +532,13 @@ export function validatePassiveExtractorCandidates(
       "risk_tier",
       "reason",
     ]);
-    if (Object.keys(typed).some((key) => !allowedKeys.has(key))) {
-      rejected.push(reject("schema_invalid"));
+    const unexpectedKey = Object.keys(typed).find((key) => !allowedKeys.has(key));
+    if (unexpectedKey) {
+      rejected.push(schemaKeyReject(unexpectedKey));
       continue;
     }
     if (typeof typed.supporting_evidence_quotes !== "undefined" && !Array.isArray(typed.supporting_evidence_quotes)) {
-      rejected.push(reject("schema_invalid"));
+      rejected.push(schemaReject("supporting_evidence_quotes"));
       continue;
     }
     if (!content || countWords(content) < 4) {
@@ -475,7 +546,7 @@ export function validatePassiveExtractorCandidates(
       continue;
     }
     if (!suggestedSection) {
-      rejected.push(reject("schema_invalid"));
+      rejected.push(schemaReject("suggested_section"));
       continue;
     }
     if (confidence === undefined || confidence < 0.75) {

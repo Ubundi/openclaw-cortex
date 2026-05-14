@@ -77,6 +77,7 @@ interface PassiveRecentCandidate {
   contentKey: string;
   evidenceKey: string;
   evidenceHash: string;
+  suggestedSection: PassiveBridgeRequest["candidates"][number]["suggested_section"];
   sentAt: number;
 }
 
@@ -178,33 +179,35 @@ function passiveTracePrivateFragments(request: PassiveBridgeRequest): string[] {
 
 function isDuplicateRecentPassiveCandidate(
   sessionState: BridgeSessionState,
-  candidate: Pick<PassiveBridgeRequest["candidates"][number], "content" | "evidence_quote">,
+  candidate: Pick<PassiveBridgeRequest["candidates"][number], "content" | "evidence_quote" | "suggested_section">,
   recentCandidates: PassiveRecentCandidate[] = trimPassiveRecentCandidates(sessionState),
 ): boolean {
   const contentKey = passiveCanonicalKey(candidate.content);
   const evidenceKey = passiveCanonicalKey(candidate.evidence_quote);
   const evidenceHash = passiveEvidenceHash(candidate.evidence_quote);
-  return recentCandidates.some((recent) => (
-    recent.evidenceHash === evidenceHash
-    || passiveSimilarity(contentKey, recent.contentKey) >= PASSIVE_CONTENT_DUPLICATE_SIMILARITY
-    || passiveSimilarity(evidenceKey, recent.evidenceKey) >= PASSIVE_EVIDENCE_DUPLICATE_SIMILARITY
-  ));
+  return recentCandidates.some((recent) => {
+    if (recent.evidenceHash === evidenceHash) return true;
+    if (recent.suggestedSection !== candidate.suggested_section) return false;
+    return passiveSimilarity(contentKey, recent.contentKey) >= PASSIVE_CONTENT_DUPLICATE_SIMILARITY
+      || passiveSimilarity(evidenceKey, recent.evidenceKey) >= PASSIVE_EVIDENCE_DUPLICATE_SIMILARITY;
+  });
 }
 
 function passiveRecentCandidateFor(
-  candidate: Pick<PassiveBridgeRequest["candidates"][number], "content" | "evidence_quote">,
+  candidate: Pick<PassiveBridgeRequest["candidates"][number], "content" | "evidence_quote" | "suggested_section">,
 ): PassiveRecentCandidate {
   return {
     contentKey: passiveCanonicalKey(candidate.content),
     evidenceKey: passiveCanonicalKey(candidate.evidence_quote),
     evidenceHash: passiveEvidenceHash(candidate.evidence_quote),
+    suggestedSection: candidate.suggested_section,
     sentAt: Date.now(),
   };
 }
 
 function rememberRecentPassiveCandidate(
   sessionState: BridgeSessionState,
-  candidate: Pick<PassiveBridgeRequest["candidates"][number], "content" | "evidence_quote">,
+  candidate: Pick<PassiveBridgeRequest["candidates"][number], "content" | "evidence_quote" | "suggested_section">,
 ): void {
   const recent = trimPassiveRecentCandidates(sessionState);
   recent.push(passiveRecentCandidateFor(candidate));

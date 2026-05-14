@@ -433,6 +433,95 @@ describe("OpenClaw passive model extractor adapter", () => {
     });
   });
 
+  it("recovers direct model output that wraps nearly-valid extractor JSON", async () => {
+    const evidence = "I value trust through clarity. I would rather slow down and make expectations explicit than leave people guessing about ownership, risk, or what 'done' means.";
+    const directModelCall = vi.fn().mockResolvedValue([
+      "Here is the JSON:",
+      "{",
+      '  "candidates": [',
+      "    {",
+      '      "content": "Values trust through clarity and explicit expectations around ownership, risk, and done.",',
+      '      "suggested_section": "coreValues",',
+      `      "evidence_quote": ${JSON.stringify(evidence)},`,
+      '      "confidence": 0.88,',
+      '      "risk_tier": "low",',
+      '      "reason": "Durable personal value."',
+      "    },",
+      "  ],",
+      "}",
+    ].join("\n"));
+    const extractor = createOpenClawPassiveModelExtractor({
+      config: {
+        agents: { defaults: { model: { primary: "openai/test-model" } } },
+      },
+    }, { debug: vi.fn(), info: vi.fn() }, { directModelCall });
+
+    await expect(extractor(buildPassiveExtractorInput([
+      { role: "user", content: evidence },
+    ]))).resolves.toEqual({
+      candidates: [expect.objectContaining({
+        content: "Values trust through clarity and explicit expectations around ownership, risk, and done.",
+        evidence_quote: evidence,
+      })],
+    });
+    expect(directModelCall).toHaveBeenCalledTimes(1);
+  });
+
+  it("retries a direct model extraction once with stricter JSON instructions after unrecoverable output", async () => {
+    const evidence = "I value trust through clarity. I would rather slow down and make expectations explicit than leave people guessing about ownership, risk, or what 'done' means.";
+    const directModelCall = vi.fn()
+      .mockResolvedValueOnce("I can extract a value here, but this is not JSON.")
+      .mockResolvedValueOnce(JSON.stringify({
+        candidates: [{
+          content: "Values trust through clarity and explicit expectations around ownership, risk, and done.",
+          suggested_section: "coreValues",
+          evidence_quote: evidence,
+          confidence: 0.88,
+          risk_tier: "low",
+          reason: "Durable personal value.",
+        }],
+      }));
+    const logger = { debug: vi.fn(), info: vi.fn() };
+    const extractor = createOpenClawPassiveModelExtractor({
+      config: {
+        agents: { defaults: { model: { primary: "openai/test-model" } } },
+      },
+    }, logger, { directModelCall });
+
+    await expect(extractor(buildPassiveExtractorInput([
+      { role: "user", content: evidence },
+    ]))).resolves.toEqual({
+      candidates: [expect.objectContaining({
+        content: "Values trust through clarity and explicit expectations around ownership, risk, and done.",
+        evidence_quote: evidence,
+      })],
+    });
+
+    expect(directModelCall).toHaveBeenCalledTimes(2);
+    expect(directModelCall.mock.calls[1][0].input.prompt).toContain("Your previous response was not parseable JSON");
+    expect(logger.debug).toHaveBeenCalledWith(expect.stringContaining("passive extractor_json_retry"));
+  });
+
+  it("keeps unrecoverable direct model JSON failures bounded", async () => {
+    const directModelCall = vi.fn()
+      .mockResolvedValueOnce("not json")
+      .mockResolvedValueOnce("still not json");
+    const logger = { debug: vi.fn(), info: vi.fn() };
+    const extractor = createOpenClawPassiveModelExtractor({
+      config: {
+        agents: { defaults: { model: { primary: "openai/test-model" } } },
+      },
+    }, logger, { directModelCall });
+
+    await expect(extractor(buildPassiveExtractorInput([
+      { role: "user", content: "I value trust through clarity and explicit expectations." },
+    ]))).rejects.toBeInstanceOf(SyntaxError);
+
+    expect(directModelCall).toHaveBeenCalledTimes(2);
+    expect(logger.debug).toHaveBeenCalledWith(expect.stringContaining("passive extractor_json_retry"));
+    expect(logger.debug).toHaveBeenCalledWith(expect.stringContaining("passive extractor_json_unrecoverable"));
+  });
+
   it("creates isolated temporary session paths before the embedded run and removes them afterward", async () => {
     let workspaceDir = "";
     let sessionFile = "";

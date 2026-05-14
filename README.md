@@ -8,6 +8,12 @@
 
 [OpenClaw](https://github.com/openclaw/openclaw) plugin for [Cortex](https://github.com/ubundi/cortex) long-term memory. Gives your agent persistent memory that survives across sessions — who you are, what your project does, decisions you made weeks ago, and how things changed over time.
 
+## Customer-Friendly Explainer
+
+A one-page explainer for companies using the plugin is published at [https://marble-birch-znnf.here.now/](https://marble-birch-znnf.here.now/). It explains what Cortex Memory does for AI agents, how it benefits users and teams, and what controls administrators have.
+
+The source HTML artifact is also stored privately in here.now Drive at `My Drive/openclaw-cortex/cortex-memory-plugin-explainer.html`.
+
 ![Features](assets/readme_assets/Feature%20Cards.png)
 
 - **Auto-Recall** — optional cold-start memory injection before the agent reads workspace notes

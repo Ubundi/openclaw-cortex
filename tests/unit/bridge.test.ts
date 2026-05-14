@@ -309,6 +309,71 @@ describe("TooToo passive bridge handler", () => {
     expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining("passive_job_dropped reason=provider_unavailable"));
   });
 
+  it("logs invalid extractor JSON as the current clean failure shape", async () => {
+    const client = makeClient();
+    const passiveModelExtractor = vi.fn().mockRejectedValue(new SyntaxError("Unexpected token"));
+    const handler = createBridgeHandler(client, {
+      logger,
+      getUserId: () => "agent-user-1",
+      userIdReady: Promise.resolve(),
+      pluginSessionId: "plugin-session-1",
+      passiveModelExtractor,
+    });
+
+    await expect(handler.handleAgentEnd({
+      messages: [
+        { role: "user", content: "I value trust through clarity and explicit expectations." },
+        { role: "assistant", content: "That is a useful value statement." },
+      ],
+      aborted: false,
+      sessionKey: "sess-invalid-json",
+    })).resolves.toBe(true);
+    await handler.drainPassiveJobs();
+
+    expect(passiveModelExtractor).toHaveBeenCalledTimes(1);
+    expect((client.submitBridgePassive as any)).not.toHaveBeenCalled();
+    expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining("passive_extractor_invalid_json"));
+    expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining("reason=json_parse_failed"));
+  });
+
+  it("only sends repaired extractor candidates after normal validation accepts them", async () => {
+    const client = makeClient();
+    const evidence = "I value trust through clarity. I would rather slow down and make expectations explicit than leave people guessing about ownership, risk, or what 'done' means.";
+    const passiveModelExtractor = vi.fn().mockResolvedValue({
+      candidates: [{
+        content: "Values trust through clarity and explicit expectations around ownership, risk, and done.",
+        suggested_section: "coreValues",
+        evidence_quote: evidence,
+        confidence: 0.52,
+        risk_tier: "low",
+        reason: "Recovered candidate with too-low confidence.",
+      }],
+    });
+    const handler = createBridgeHandler(client, {
+      logger,
+      getUserId: () => "agent-user-1",
+      userIdReady: Promise.resolve(),
+      pluginSessionId: "plugin-session-1",
+      passiveModelExtractor,
+    });
+
+    await expect(handler.handleAgentEnd({
+      messages: [
+        { role: "user", content: evidence },
+        { role: "assistant", content: "That frames it as a value." },
+      ],
+      aborted: false,
+      sessionKey: "sess-repaired-but-rejected",
+    })).resolves.toBe(true);
+    await handler.drainPassiveJobs();
+
+    expect(passiveModelExtractor).toHaveBeenCalledTimes(1);
+    expect((client.submitBridgePassive as any)).not.toHaveBeenCalled();
+    expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining("passive_validator_rejected"));
+    expect(logger.info).toHaveBeenCalledWith(expect.stringContaining("passive_validation_completed"));
+    expect(logger.info).toHaveBeenCalledWith(expect.stringContaining("accepted_count=0"));
+  });
+
   it("sends one passive candidate without assistant question or answer payload fields", async () => {
     const client = makeClient();
     const handler = createBridgeHandler(client, {
@@ -413,5 +478,53 @@ describe("TooToo passive bridge handler", () => {
 
     expect((client.submitBridgePassive as any)).toHaveBeenCalledTimes(2);
     expect(logger.info).toHaveBeenCalledWith(expect.stringContaining("passive_candidate_suppressed reason=duplicate_recent_session_fuzzy"));
+  });
+
+  it("does not suppress a distinct values theme as a duplicate of a prior practices entry", async () => {
+    const client = makeClient();
+    const practiceEvidence = "For project updates, I want ownership, risk, and done written down clearly before work moves forward.";
+    const valueEvidence = "I value trust through clarity. I prefer making ownership, risk, and the definition of done explicit before important work moves forward.";
+    const passiveModelExtractor = vi.fn(async (input: any): Promise<PassiveExtractorOutput> => {
+      const latest = [...input.messages].reverse().find((message: any) => message.role === "user")?.content ?? "";
+      if (latest === practiceEvidence) {
+        return {
+          candidates: [validPassiveCandidate(
+            "Prefers project updates to make ownership, risk, and done explicit before work moves forward.",
+            practiceEvidence,
+          )],
+        };
+      }
+      if (latest === valueEvidence) {
+        return {
+          candidates: [{
+            ...validPassiveCandidate(
+              "Values trust through clarity, especially by making ownership, risk, and done explicit before important work moves forward.",
+              valueEvidence,
+            ),
+            suggested_section: "coreValues",
+          }],
+        };
+      }
+      return { candidates: [] };
+    });
+    const handler = createBridgeHandler(client, {
+      logger,
+      getUserId: () => "agent-user-1",
+      userIdReady: Promise.resolve(),
+      pluginSessionId: "plugin-session-1",
+      passiveModelExtractor,
+    });
+
+    await handler.handleAgentEnd({ messages: [{ role: "user", content: practiceEvidence }, { role: "assistant", content: "Clear." }], sessionKey: "sess-distinct-values" });
+    await handler.drainPassiveJobs();
+    await handler.handleAgentEnd({ messages: [{ role: "user", content: practiceEvidence }, { role: "assistant", content: "Clear." }, { role: "user", content: valueEvidence }, { role: "assistant", content: "That is a value." }], sessionKey: "sess-distinct-values" });
+    await handler.drainPassiveJobs();
+
+    expect((client.submitBridgePassive as any)).toHaveBeenCalledTimes(2);
+    const secondRequest = (client.submitBridgePassive as any).mock.calls[1][0];
+    expect(secondRequest.candidates[0]).toMatchObject({
+      suggested_section: "coreValues",
+      evidence_quote: valueEvidence,
+    });
   });
 });

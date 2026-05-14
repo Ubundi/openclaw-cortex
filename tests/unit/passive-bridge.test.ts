@@ -38,6 +38,13 @@ function validCandidate(content: string, evidence: string, confidence = 0.86) {
   };
 }
 
+function validCandidateForSection(content: string, evidence: string, suggestedSection: string, confidence = 0.86) {
+  return {
+    ...validCandidate(content, evidence, confidence),
+    suggested_section: suggestedSection,
+  };
+}
+
 describe("passive bridge extraction gate and validation", () => {
   it("uses a practical default extractor timeout and supports a bounded env override", () => {
     const previousOpenClaw = process.env.OPENCLAW_CORTEX_PASSIVE_EXTRACTOR_TIMEOUT_MS;
@@ -211,6 +218,29 @@ describe("passive bridge extraction gate and validation", () => {
     ]);
   });
 
+  it("accepts a values-style candidate for a personal value statement", () => {
+    const evidence = "I value trust through clarity. I prefer making ownership, risk, and the definition of done explicit before important work moves forward.";
+    const input = buildPassiveExtractorInput(messages(evidence));
+    const result = validatePassiveExtractorCandidates({
+      candidates: [
+        validCandidateForSection(
+          "Values trust through clarity, especially by making ownership, risk, and done explicit before important work moves forward.",
+          evidence,
+          "coreValues",
+          0.89,
+        ),
+      ],
+    }, input);
+
+    expect(result.rejected).toEqual([]);
+    expect(result.accepted).toEqual([
+      expect.objectContaining({
+        suggested_section: "coreValues",
+        evidence_quote: evidence,
+      }),
+    ]);
+  });
+
   it("accepts a durable review-versus-delegate preference with exact user evidence", () => {
     const evidence = "I tend to review things myself when the decision is irreversible or customer-facing. If it is internal cleanup or easy to undo, I would rather delegate it and only ask for a short note on what changed.";
     const input = buildPassiveExtractorInput(messages(evidence));
@@ -354,9 +384,9 @@ describe("passive bridge extraction gate and validation", () => {
     [{ confidence: 0.74 }, "confidence_low"],
     [{ risk_tier: "medium" }, "sensitive_content"],
     [{ risk_tier: "high" }, "sensitive_content"],
-    [{ suggested_section: "privateNotes" }, "schema_invalid"],
+    [{ suggested_section: "privateNotes" }, "schema_invalid:suggested_section"],
     [{ content: "User is depressed." }, "sensitive_content"],
-    [{ unexpected: "field" }, "schema_invalid"],
+    [{ unexpected: "field" }, "schema_invalid:unexpected_key:unexpected"],
   ])("rejects invalid model candidate metadata %#", (override, reason) => {
     const evidence = "I want the handoff to make the owner and next step obvious.";
     const input = buildPassiveExtractorInput(messages(evidence));
@@ -364,6 +394,24 @@ describe("passive bridge extraction gate and validation", () => {
     Object.assign(output.candidates[0], override);
 
     expect(validatePassiveExtractorCandidates(output, input).rejected).toContainEqual({ reason });
+  });
+
+  it("rejects common malformed values-section output with a specific non-sensitive reason", () => {
+    const evidence = "I value trust through clarity. I prefer making ownership, risk, and the definition of done explicit before important work moves forward.";
+    const input = buildPassiveExtractorInput(messages(evidence));
+    const result = validatePassiveExtractorCandidates({
+      candidates: [
+        validCandidateForSection(
+          "Values trust through clarity by making ownership, risk, and done explicit.",
+          evidence,
+          "values",
+        ),
+      ],
+    }, input);
+
+    expect(result.accepted).toEqual([]);
+    expect(result.rejected).toEqual([{ reason: "schema_invalid:suggested_section" }]);
+    expect(JSON.stringify(result.rejected)).not.toContain("trust through clarity");
   });
 
   it("filters invalid candidates before applying the accepted candidate cap", () => {

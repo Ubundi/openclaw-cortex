@@ -75,6 +75,8 @@ type DirectPassiveModelCall = (params: {
   signal?: AbortSignal;
 }) => Promise<string>;
 
+const DIRECT_EXTRACTOR_JSON_RETRY_LIMIT = 1;
+
 type JsonCompatible =
   | null
   | boolean
@@ -367,6 +369,53 @@ function buildDirectExtractorUserPrompt(input: PassiveExtractorInput): string {
       max_candidates: input.maxCandidates,
     }, null, 2),
   ].join("\n");
+}
+
+function buildStrictJsonRetryInput(input: PassiveExtractorInput): PassiveExtractorInput {
+  return {
+    ...input,
+    prompt: [
+      input.prompt,
+      "",
+      "Your previous response was not parseable JSON.",
+      "Retry now with exactly one strict JSON object matching the requested schema.",
+      "Do not include markdown, comments, explanations, trailing commas, or extra top-level keys.",
+      "If there are no valid candidates, return exactly {\"candidates\":[]}.",
+    ].join("\n"),
+  };
+}
+
+async function runDirectPassiveModelExtractorWithJsonRecovery(params: {
+  input: PassiveExtractorInput;
+  config?: OpenClawConfigLike;
+  modelRef: string;
+  timeoutMs: number;
+  directModelCall: DirectPassiveModelCall;
+  logger: Logger;
+}): Promise<PassiveExtractorOutput> {
+  const startedAt = Date.now();
+  let lastSyntaxError: SyntaxError | undefined;
+  for (let attempt = 0; attempt <= DIRECT_EXTRACTOR_JSON_RETRY_LIMIT; attempt++) {
+    const input = attempt === 0 ? params.input : buildStrictJsonRetryInput(params.input);
+    const remainingMs = Math.max(1, params.timeoutMs - (Date.now() - startedAt));
+    const text = await params.directModelCall({
+      input,
+      config: params.config,
+      modelRef: params.modelRef,
+      timeoutMs: remainingMs,
+    });
+    if (!text.trim()) return { candidates: [] };
+    try {
+      return parsePassiveExtractorJson(text);
+    } catch (err) {
+      if (!(err instanceof SyntaxError)) throw err;
+      lastSyntaxError = err;
+      if (attempt >= DIRECT_EXTRACTOR_JSON_RETRY_LIMIT) break;
+      params.logger.debug?.(`Cortex bridge: passive extractor_json_retry attempt=${attempt + 1} reason=json_parse_failed`);
+    }
+  }
+  params.logger.debug?.("Cortex bridge: passive extractor_json_unrecoverable reason=json_parse_failed");
+  throw lastSyntaxError ?? new SyntaxError("passive extractor JSON parse failed");
 }
 
 function normalizeSecretInput(value: unknown): string | undefined {
@@ -811,13 +860,13 @@ export function createOpenClawPassiveModelExtractor(
     }
 
     logger.info?.(`Cortex bridge: passive_extractor_model_call_started runner=direct_model timeoutMs=${timeoutMs} maxOutputTokens=${input.maxOutputTokens} model=${modelRef}`);
-    const text = await (options.directModelCall ?? createPiAiDirectModelCall())({
+    return runDirectPassiveModelExtractorWithJsonRecovery({
       input,
       config: directExtractorConfig,
       modelRef,
       timeoutMs,
+      directModelCall: options.directModelCall ?? createPiAiDirectModelCall(),
+      logger,
     });
-    if (!text.trim()) return { candidates: [] };
-    return parsePassiveExtractorJson(text);
   };
 }
