@@ -13,7 +13,7 @@ Long-term memory system for OpenClaw agents. Automatically recalls relevant past
 ### 1. Install the plugin
 
 ```bash
-openclaw plugin install @ubundi/openclaw-cortex@latest
+openclaw plugins install @ubundi/openclaw-cortex@latest
 ```
 
 ### 2. Configure tools profile

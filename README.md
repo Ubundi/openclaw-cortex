@@ -6,7 +6,7 @@
 
 ![OpenClaw Cortex Banner](assets/readme_assets/Hero%20Banner.png)
 
-[OpenClaw](https://github.com/openclaw/openclaw) plugin for [Cortex](https://github.com/ubundi/cortex) long-term memory. Gives your agent persistent memory that survives across sessions — who you are, what your project does, decisions you made weeks ago, and how things changed over time.
+[OpenClaw](https://github.com/openclaw/openclaw) plugin for Cortex long-term memory. Gives your agent persistent memory that survives across sessions - who you are, what your project does, decisions you made weeks ago, and how things changed over time.
 
 ## Customer-Friendly Explainer
 
@@ -282,6 +282,24 @@ openclaw cortex reset --yes        # Skip confirmation
 ```
 
 `openclaw cortex status --json` emits one single-line JSON object from the plugin. Some OpenClaw runners may merge or reroute plugin stdout/stderr and prepend plugin status logs; callers that invoke OpenClaw as a subprocess should parse the first JSON object from the combined output rather than assuming the entire stream is raw JSON.
+
+## Public Source Workflows With TweetClaw
+
+For public X/Twitter research, install [TweetClaw](https://github.com/Xquik-dev/tweetclaw) beside Cortex:
+
+```bash
+openclaw plugins install @xquik/tweetclaw
+```
+
+Install TweetClaw from [npm](https://www.npmjs.com/package/@xquik/tweetclaw); the [ClawHub page](https://clawhub.ai/plugins/@xquik/tweetclaw) is useful for browsing while its listing lags behind the npm release. Use it to scrape tweets, search tweets, search tweet replies, run follower export, perform user lookup, monitor tweets, receive webhooks, and run giveaway draws. Then save concise source memories with `cortex_save_memory` or `/checkpoint`:
+
+- search query and capture date
+- tweet URLs or tweet IDs
+- author handles
+- short summary
+- decision or follow-up action
+
+Keep raw timelines, private account material, DMs, cookies, API keys, and exported files out of Cortex memories. For visible X/Twitter actions such as post tweets or post tweet replies, review the TweetClaw request and OpenClaw approval prompt before saving the final action summary.
 
 ### Gateway RPC
 
