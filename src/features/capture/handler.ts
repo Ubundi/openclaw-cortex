@@ -548,7 +548,7 @@ export function createCaptureHandler(
       const cooldownMs = config.captureCooldownMs ?? 180_000;
       const lastSubmissionAt = lastSubmissionAtBySession.get(watermarkKey);
       if (cooldownMs > 0 && lastSubmissionAt !== undefined && Date.now() - lastSubmissionAt < cooldownMs) {
-        logger.info(`Cortex capture: capture_cooldown_coalesced sessionId=${watermarkKey} cooldownMs=${cooldownMs}`);
+        logger.info(`Cortex capture: capture_cooldown_suppressed sessionId=${watermarkKey} cooldownMs=${cooldownMs}`);
         return true;
       }
       const previousWatermark = watermarkStore?.isLoaded()

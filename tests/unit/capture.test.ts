@@ -374,7 +374,7 @@ describe("createCaptureHandler", () => {
     }
   });
 
-  it("suppresses repeated submissions during capture cooldown and coalesces later deltas", async () => {
+  it("suppresses repeated submissions during capture cooldown and preserves the watermark for the next eligible turn", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-05-19T10:00:00Z"));
     const submitMock = vi.fn().mockResolvedValue({ job_id: "job-cooldown", status: "pending" });
@@ -415,7 +415,7 @@ describe("createCaptureHandler", () => {
     await handler({ messages: [...turn1, ...turn2], aborted: false, sessionKey: "sess-cooldown" });
     await handler.waitForIdle();
     expect(submitMock).toHaveBeenCalledTimes(1);
-    expect(logger.info).toHaveBeenCalledWith(expect.stringContaining("capture_cooldown_coalesced"));
+    expect(logger.info).toHaveBeenCalledWith(expect.stringContaining("capture_cooldown_suppressed"));
 
     vi.setSystemTime(new Date("2026-05-19T10:03:01Z"));
     await handler({ messages: [...turn1, ...turn2, ...turn3], aborted: false, sessionKey: "sess-cooldown" });

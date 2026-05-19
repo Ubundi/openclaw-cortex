@@ -106,7 +106,7 @@
       },
       "captureCooldownMs": {
         "type": "number",
-        "description": "Minimum time between automatic Cortex capture submissions per session. New turns during cooldown are coalesced into the next eligible capture.",
+        "description": "Minimum time between automatic Cortex capture submissions per session. Turns during cooldown are suppressed; unsent deltas are only picked up if another agent_end fires after the cooldown.",
         "default": 180000
       },
       "captureFilter": {
@@ -251,7 +251,7 @@
     "captureCooldownMs": {
       "label": "Capture Cooldown (ms)",
       "advanced": true,
-      "help": "Minimum per-session delay between Cortex auto-capture submissions. Turns during the cooldown are coalesced into the next capture."
+      "help": "Minimum per-session delay between Cortex auto-capture submissions. Suppressed turns are not scheduled for delayed capture; they are picked up only on a later eligible agent_end."
     },
     "captureFilter": {
       "label": "Capture Filter",

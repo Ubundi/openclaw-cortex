@@ -131,7 +131,10 @@ Cortex remains an additive memory-adjacent plugin. It does not claim OpenClaw's 
 | `recallReferenceDate`    | string  | _now_        | Optional fixed ISO 8601 date as temporal anchor for recall. For benchmarks only — leave unset in production. |
 | `toolTimeoutMs`          | number  | `60000`      | Timeout for explicit tool calls (`cortex_search_memory`, `/checkpoint`). Longer than auto-recall since the user is actively waiting. |
 | `captureMaxPayloadBytes` | number  | `262144`     | Max byte size of capture payloads (256KB default). Oversized transcripts are trimmed from the oldest messages. |
+| `captureCooldownMs`      | number  | `180000`     | Minimum per-session delay between automatic capture submissions. Turns during cooldown are suppressed, not scheduled for delayed capture. |
 | `captureFilter`          | boolean | `true`       | Enable built-in filter to drop low-signal content (heartbeat messages, TUI artifacts, token counters) before ingestion. |
+| `tootooPassiveExtraction` | boolean | `true`      | Run TooToo passive candidate extraction after agent turns, independent from Cortex auto-capture. |
+| `tootooCandidateSubmission` | boolean | `true`    | Submit accepted passive candidates to TooToo. Disable to inspect extraction without sending candidates. |
 | `auditLog`               | boolean | `false`      | Enable local audit log. Records every payload sent to Cortex at `.cortex/audit/` in the workspace. Also toggleable at runtime via `/audit on`. |
 | `dedupeWindowMinutes`    | number  | `30`         | Time window (minutes) for client-side deduplication of explicit memory saves. Set to 0 to disable. |
 | `noveltyThreshold`       | number  | `0.85`       | Similarity score (0–1) above which an existing memory is considered a duplicate. Lower = stricter. |
@@ -341,6 +344,8 @@ Before transmission, the plugin strips runtime metadata from captured messages a
 All data is transmitted over HTTPS. Each installation's data is isolated server-side by its unique `userId` — no other installation can access your memories. This isolation has been verified via cross-user recall testing.
 
 Capture payloads are capped at 256KB by default (`captureMaxPayloadBytes`) to prevent oversized transmissions from pasted files or verbose replies.
+
+`autoCapture`, `tootooPassiveExtraction`, and `tootooCandidateSubmission` all default to `true`. For repaired or fleet-managed agents, set `autoCapture: false` explicitly until canary validation confirms capture volume is acceptable.
 
 To see exactly what data leaves your machine, enable the audit log with `/audit on` or `auditLog: true` in your config. This records every payload to `.cortex/audit/` in your workspace.
 
