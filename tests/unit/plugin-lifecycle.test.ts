@@ -538,6 +538,8 @@ describe("plugin lifecycle contract", () => {
       expect.any(String),
       "openclaw",
       "OpenClaw",
+      undefined,
+      { enrichmentMode: "full" },
     );
     expect(CortexClient.prototype.submitIngest).toHaveBeenCalledWith(
       "User prefers dark mode interfaces.",
@@ -546,6 +548,8 @@ describe("plugin lifecycle contract", () => {
       expect.any(String),
       "openclaw",
       "OpenClaw",
+      undefined,
+      { enrichmentMode: "full" },
     );
     expect(CortexClient.prototype.getJob).toHaveBeenCalledWith("job-123");
   });

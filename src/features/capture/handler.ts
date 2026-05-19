@@ -450,6 +450,11 @@ export function createCaptureHandler(
             sourceChannel,
             originSessionId,
             event.activeGoal,
+            {
+              enrichmentMode: "capture_light",
+              captureReason: "agent_end",
+              sourceReason: "auto_capture",
+            },
           );
           logger.info(`Cortex capture: submitted job ${job.job_id} (status=${job.status})`);
           options.onSubmitted?.();

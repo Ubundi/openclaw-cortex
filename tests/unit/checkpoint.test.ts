@@ -62,6 +62,8 @@ describe("createCheckpointHandler", () => {
       "user-1",
       "openclaw",
       "OpenClaw",
+      undefined,
+      { enrichmentMode: "full", sourceReason: "manual_checkpoint" },
     );
   });
 
@@ -198,6 +200,8 @@ describe("createCheckpointHandler", () => {
       "fallback-user-456",
       "openclaw",
       "OpenClaw",
+      undefined,
+      { enrichmentMode: "full", sourceReason: "manual_checkpoint" },
     );
   });
 

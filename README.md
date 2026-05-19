@@ -347,6 +347,14 @@ Capture payloads are capped at 256KB by default (`captureMaxPayloadBytes`) to pr
 
 `autoCapture`, `tootooPassiveExtraction`, and `tootooCandidateSubmission` all default to `true`. For repaired or fleet-managed agents, set `autoCapture: false` explicitly until canary validation confirms capture volume is acceptable.
 
+## Memory Write Lanes
+
+Automatic `agent_end` capture submits conversation payloads to `/v1/jobs/ingest/conversation` with `capture_light` enrichment, marking them as `auto_capture` writes.
+
+Explicit memory saves (`cortex_save_memory`, `/v1/remember`) and `/checkpoint` use `full` enrichment so manual saves keep the richer Cortex processing path.
+
+TooToo passive candidates stay independent from Cortex memory capture and continue to use `/v1/bridge/passive`.
+
 To see exactly what data leaves your machine, enable the audit log with `/audit on` or `auditLog: true` in your config. This records every payload to `.cortex/audit/` in your workspace.
 
 To disable all network activity, set `autoRecall: false` and `autoCapture: false` in your config.

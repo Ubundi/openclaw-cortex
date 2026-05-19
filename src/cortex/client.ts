@@ -119,6 +119,16 @@ export interface ConversationMessage {
   content: string;
 }
 
+export type EnrichmentMode = "full" | "factual_first" | "skip" | "capture_light";
+export type CaptureReason = "agent_end" | "manual_checkpoint" | "heartbeat" | "backfill" | "fleet_repair";
+export type SourceReason = CaptureReason | "auto_capture";
+
+export interface IngestMetadataOptions {
+  enrichmentMode?: EnrichmentMode;
+  captureReason?: CaptureReason;
+  sourceReason?: SourceReason;
+}
+
 export type QueryType = "factual" | "emotional" | "combined" | "codex";
 
 export interface BatchIngestItem {
@@ -443,6 +453,14 @@ export class CortexClient {
     };
   }
 
+  private buildIngestMetadata(options?: IngestMetadataOptions): Record<string, unknown> {
+    return {
+      ...(options?.enrichmentMode ? { enrichment_mode: options.enrichmentMode } : {}),
+      ...(options?.captureReason ? { capture_reason: options.captureReason } : {}),
+      ...(options?.sourceReason ? { source_reason: options.sourceReason } : {}),
+    };
+  }
+
   async healthCheck(timeoutMs = DEFAULT_HEALTH_TIMEOUT_MS): Promise<boolean> {
     const controller = new AbortController();
     let timeout: ReturnType<typeof setTimeout> | undefined;
@@ -579,6 +597,7 @@ export class CortexClient {
     sourceOrigin = DEFAULT_SOURCE_ORIGIN,
     sourceApp = DEFAULT_SOURCE_APP,
     derivationMode = DEFAULT_DERIVATION_MODE,
+    metadata?: IngestMetadataOptions,
   ): Promise<JobSubmitResponse> {
     return this.fetchJsonWithTimeout<JobSubmitResponse>(
       `${this.baseUrl}/v1/jobs/ingest`,
@@ -587,6 +606,7 @@ export class CortexClient {
         session_id: sessionId,
         reference_date: referenceDate ?? null,
         ...this.buildIngestProvenance(userId, sourceOrigin, derivationMode, sourceApp),
+        ...this.buildIngestMetadata(metadata),
       },
       DEFAULT_SUBMIT_TIMEOUT_MS,
       "jobs/ingest",
@@ -604,6 +624,7 @@ export class CortexClient {
     sourceChannel?: string,
     originSessionId?: string,
     sessionGoal?: string,
+    metadata?: IngestMetadataOptions,
   ): Promise<JobSubmitResponse> {
     return this.fetchJsonWithTimeout<JobSubmitResponse>(
       `${this.baseUrl}/v1/jobs/ingest/conversation`,
@@ -613,6 +634,7 @@ export class CortexClient {
         reference_date: referenceDate ?? null,
         ...this.buildIngestProvenance(userId, sourceOrigin, derivationMode, sourceApp, sourceChannel, originSessionId),
         ...(sessionGoal ? { session_goal: sessionGoal } : {}),
+        ...this.buildIngestMetadata(metadata),
       },
       DEFAULT_SUBMIT_TIMEOUT_MS,
       "jobs/ingest/conversation",
@@ -672,6 +694,7 @@ export class CortexClient {
     sourceOrigin = DEFAULT_SOURCE_ORIGIN,
     sourceApp = DEFAULT_SOURCE_APP,
     derivationMode = DEFAULT_DERIVATION_MODE,
+    metadata: IngestMetadataOptions = { enrichmentMode: "full" },
   ): Promise<RememberAcceptedResponse> {
     return this.fetchJsonWithTimeout<RememberAcceptedResponse>(
       `${this.baseUrl}/v1/remember`,
@@ -680,6 +703,7 @@ export class CortexClient {
         session_id: sessionId ?? null,
         reference_date: referenceDate ?? null,
         ...this.buildIngestProvenance(userId, sourceOrigin, derivationMode, sourceApp),
+        ...this.buildIngestMetadata(metadata),
       },
       timeoutMs,
       "remember",
@@ -695,6 +719,7 @@ export class CortexClient {
     sourceOrigin = DEFAULT_SOURCE_ORIGIN,
     sourceApp = DEFAULT_SOURCE_APP,
     derivationMode = DEFAULT_DERIVATION_MODE,
+    metadata: IngestMetadataOptions = { enrichmentMode: "full" },
   ): Promise<RememberAcceptedResponse> {
     return this.fetchJsonWithTimeout<RememberAcceptedResponse>(
       `${this.baseUrl}/v1/remember`,
@@ -703,6 +728,7 @@ export class CortexClient {
         session_id: sessionId ?? null,
         reference_date: referenceDate ?? null,
         ...this.buildIngestProvenance(userId, sourceOrigin, derivationMode, sourceApp),
+        ...this.buildIngestMetadata(metadata),
       },
       timeoutMs,
       "remember",

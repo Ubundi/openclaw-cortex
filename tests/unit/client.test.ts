@@ -113,6 +113,7 @@ describe("CortexClient", () => {
             source_origin: "openclaw",
             derivation_mode: "inferred",
             source_app: "OpenClaw",
+            enrichment_mode: "full",
           }),
         }),
       );
@@ -159,6 +160,7 @@ describe("CortexClient", () => {
             source_origin: "openclaw",
             derivation_mode: "inferred",
             source_app: "OpenClaw",
+            enrichment_mode: "full",
           }),
         }),
       );
@@ -321,6 +323,7 @@ describe("CortexClient", () => {
         source_origin: "openclaw",
         derivation_mode: "inferred",
         source_app: "OpenClaw",
+        enrichment_mode: "full",
       });
     });
   });
@@ -339,6 +342,37 @@ describe("CortexClient", () => {
       expect(body.source_origin).toBe("openclaw");
       expect(body.derivation_mode).toBe("inferred");
       expect(body.source_app).toBe("OpenClaw");
+      expect(body.enrichment_mode).toBe("full");
+    });
+
+    it("includes capture-light metadata in async conversation ingest when provided", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ job_id: "job-1", status: "pending" }),
+      });
+
+      await client.submitIngestConversation(
+        [{ role: "user", content: "hello world" }],
+        "sess-1",
+        "2026-05-19T00:00:00.000Z",
+        "user-1",
+        "openclaw",
+        "OpenClaw",
+        "inferred",
+        undefined,
+        undefined,
+        undefined,
+        {
+          enrichmentMode: "capture_light",
+          captureReason: "agent_end",
+          sourceReason: "auto_capture",
+        },
+      );
+
+      const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+      expect(body.enrichment_mode).toBe("capture_light");
+      expect(body.capture_reason).toBe("agent_end");
+      expect(body.source_reason).toBe("auto_capture");
     });
 
     it("throws before request when remember user_id is missing", async () => {

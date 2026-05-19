@@ -258,6 +258,8 @@ describe("buildSaveMemoryTool", () => {
       "user-123",
       "openclaw",
       "OpenClaw",
+      undefined,
+      { enrichmentMode: "full" },
     );
     expect(auditLoggerProxy.log).toHaveBeenCalledWith(
       expect.objectContaining({ sessionId: "active-session-123" }),
@@ -287,6 +289,8 @@ describe("buildSaveMemoryTool", () => {
       "fallback-user-456",
       "openclaw",
       "OpenClaw",
+      undefined,
+      { enrichmentMode: "full" },
     );
     expect(result.content[0]?.text).toContain("accepted for background processing");
   });
@@ -340,6 +344,16 @@ describe("buildSaveMemoryTool", () => {
     const responseText = result.content[0]?.text ?? "";
 
     expect(client.submitIngest).toHaveBeenCalledOnce();
+    expect(client.submitIngest).toHaveBeenCalledWith(
+      "Remember that the project uses Atlas.",
+      "active-session-123",
+      expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/),
+      "user-123",
+      "openclaw",
+      "OpenClaw",
+      undefined,
+      { enrichmentMode: "full" },
+    );
     expect(client.getJob).toHaveBeenCalled();
     expect(responseText).toContain("job job-123");
     expect(responseText).toContain("not confirmed");

@@ -477,6 +477,8 @@ export function buildSaveMemoryTool(deps: ToolsDeps): ToolDefinition {
           userId,
           "openclaw",
           "OpenClaw",
+          undefined,
+          { enrichmentMode: "full" },
         );
         const rememberStatus = rememberResult.status ?? "accepted";
         recordAcceptedSave();
@@ -538,6 +540,8 @@ export function buildSaveMemoryTool(deps: ToolsDeps): ToolDefinition {
             userId,
             "openclaw",
             "OpenClaw",
+            undefined,
+            { enrichmentMode: "full" },
           );
 
           const acceptedWarning = `Memory save queued (job ${job.job_id}, status=${job.status}) but not yet confirmed.`;

@@ -163,6 +163,8 @@ export function createCheckpointHandler(
         userId,
         "openclaw",
         "OpenClaw",
+        undefined,
+        { enrichmentMode: "full", sourceReason: "manual_checkpoint" },
       );
 
       const acceptedMessage = "Checkpoint accepted for background processing. Cortex has not confirmed storage yet.";

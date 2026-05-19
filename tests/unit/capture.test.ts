@@ -91,6 +91,11 @@ describe("createCaptureHandler", () => {
       undefined,
       undefined,
       undefined,
+      {
+        enrichmentMode: "capture_light",
+        captureReason: "agent_end",
+        sourceReason: "auto_capture",
+      },
     );
   });
 
@@ -957,6 +962,11 @@ describe("createCaptureHandler", () => {
       undefined,
       undefined,
       undefined,
+      {
+        enrichmentMode: "capture_light",
+        captureReason: "agent_end",
+        sourceReason: "auto_capture",
+      },
     );
   });
 
@@ -1097,6 +1107,11 @@ describe("createCaptureHandler", () => {
       "acp",
       "acp-session-42",
       undefined,
+      {
+        enrichmentMode: "capture_light",
+        captureReason: "agent_end",
+        sourceReason: "auto_capture",
+      },
     );
   });
 
@@ -1136,6 +1151,11 @@ describe("createCaptureHandler", () => {
       undefined,
       undefined,
       undefined,
+      {
+        enrichmentMode: "capture_light",
+        captureReason: "agent_end",
+        sourceReason: "auto_capture",
+      },
     );
   });
 
@@ -1167,6 +1187,11 @@ describe("createCaptureHandler", () => {
       undefined,
       undefined,
       undefined,
+      {
+        enrichmentMode: "capture_light",
+        captureReason: "agent_end",
+        sourceReason: "auto_capture",
+      },
     );
   });
 

@@ -17,6 +17,7 @@ All notable changes to this project will be documented in this file.
 - **Discovery/setup-mode safety**: `discovery` and `tool-discovery` now register executable Cortex tool and command handlers for OpenClaw 2026.5.x while still skipping hooks, RPC, services, health/knowledge probes, config-file mutation, update checks, and timers. `setup-only` and `setup-runtime` remain static-only. `cli-metadata` keeps terminal CLI registration active for OpenClaw 2026.4.x command routing while still skipping gateway runtime surfaces.
 - **Honest async write messaging**: `cortex_save_memory` and `/checkpoint` now treat `/v1/remember` acceptance as unconfirmed background processing instead of implying durable success.
 - **Capture completion semantics**: Auto-capture no longer marks `knowledgeState.hasMemories` on job acceptance alone; it now waits for brief job-status confirmation.
+- **Memory write lanes**: Automatic `agent_end` capture now routes through `capture_light` enrichment with `auto_capture` metadata, while explicit saves and checkpoints preserve `full` enrichment.
 - **Status command write diagnostics**: `openclaw cortex status` now checks recent pending write jobs and reports degraded write-path state explicitly.
 
 ### Fixed
