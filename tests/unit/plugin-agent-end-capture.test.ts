@@ -115,6 +115,56 @@ describe("plugin agent_end capture scheduling", () => {
     await agentEndPromise;
   });
 
+  it("keeps TooToo passive handling independent from Cortex autoCapture", async () => {
+    const bridgeHandleAgentEnd = vi.fn().mockResolvedValue(true);
+    const captureHandler = vi.fn(async () => false);
+    const createBridgeHandler = vi.fn(() => ({
+      shouldInjectPrompt: vi.fn().mockResolvedValue(false),
+      refreshLinkStatus: vi.fn().mockResolvedValue({ linked: false }),
+      handleAgentEnd: bridgeHandleAgentEnd,
+    }));
+
+    vi.doMock("../../src/features/capture/handler.js", () => ({
+      createCaptureHandler: vi.fn(() => captureHandler),
+    }));
+    vi.doMock("../../src/features/bridge/handler.js", () => ({
+      createBridgeHandler,
+    }));
+    vi.doMock("../../src/features/recall/handler.js", () => ({
+      createRecallHandler: vi.fn(() => vi.fn(async () => undefined)),
+    }));
+
+    const [{ default: plugin }, { SessionStateStore }] = await Promise.all([
+      import("../../src/plugin/index.js"),
+      import("../../src/internal/session-state.js"),
+    ]);
+    vi.spyOn(SessionStateStore.prototype, "markDirty").mockResolvedValue();
+
+    const { api, hooks } = makeApi({
+      userId: "agent-user-1",
+      autoCapture: false,
+      tootooPassiveExtraction: true,
+      tootooCandidateSubmission: true,
+    });
+    plugin.register(api as any);
+
+    await hooks.agent_end[0]({
+      messages: [
+        { role: "user", content: "I prefer boring explicit checks because hidden magic burns us later." },
+        { role: "assistant", content: "I will keep the checks explicit." },
+      ],
+      aborted: false,
+      sessionKey: "sess-bridge-without-capture",
+    });
+
+    expect(captureHandler).toHaveBeenCalledTimes(1);
+    expect(bridgeHandleAgentEnd).toHaveBeenCalledTimes(1);
+    expect(createBridgeHandler.mock.calls[0][1]).toMatchObject({
+      passiveExtractionEnabled: true,
+      candidateSubmissionEnabled: true,
+    });
+  });
+
   it("waits for pending capture work before service stop completes", async () => {
     let releaseIdle!: () => void;
     const waitForIdle = vi.fn(() => new Promise<void>((resolve) => {

@@ -40,6 +40,10 @@ export class CaptureWatermarkStore {
     return this.data?.[sessionKey] ?? 0;
   }
 
+  has(sessionKey: string): boolean {
+    return Object.prototype.hasOwnProperty.call(this.data ?? {}, sessionKey);
+  }
+
   isLoaded(): boolean {
     return this.data !== null;
   }

@@ -82,6 +82,10 @@ const TURN_DEDUP_MAX_FINGERPRINTS = 1000;
 const CAPTURE_DERIVATION_MODE = "inferred";
 const BENCHMARK_SEED_SESSION_PREFIX = "benchmark-seed-";
 
+function captureBackfillAllowed(): boolean {
+  return /^(1|true|yes)$/i.test(process.env.CORTEX_CAPTURE_ALLOW_BACKFILL ?? "");
+}
+
 function extractContent(content: unknown): string {
   if (typeof content === "string") return content;
   if (Array.isArray(content)) {
@@ -206,6 +210,7 @@ export function createCaptureHandler(
 ): CaptureHandler {
   let captureCounter = 0;
   const seenTurnFingerprints = new Map<string, number>();
+  const lastSubmissionAtBySession = new Map<string, number>();
   let captureQueue = Promise.resolve();
   const activeSubmissions = new Set<Promise<void>>();
 
@@ -227,6 +232,11 @@ export function createCaptureHandler(
 
         const sessionId = event.sessionKey ?? event.sessionId ?? pluginSessionId;
         const watermarkKey = sessionId ?? "__default__";
+        if (watermarkStore && !captureBackfillAllowed() && !watermarkStore.has(watermarkKey)) {
+          watermarkStore.set(watermarkKey, event.totalMessageCount);
+          logger.info(`Cortex capture: watermark_missing_initialized_without_backfill sessionId=${watermarkKey} messageCount=${event.totalMessageCount}`);
+          return;
+        }
         const previousWatermark = watermarkStore?.get(watermarkKey) ?? 0;
         const watermark = previousWatermark > event.totalMessageCount ? 0 : previousWatermark;
         const relativeWatermark = Math.max(0, watermark - event.snapshotFromIndex);
@@ -266,6 +276,10 @@ export function createCaptureHandler(
         const filtered = config.captureFilter !== false
           ? filterLowSignalMessages(normalized)
           : normalized;
+        const lowSignalDropped = normalized.length - filtered.length;
+        if (lowSignalDropped > 0) {
+          logger.info(`Cortex capture: payload_guard_dropped reason=low_signal count=${lowSignalDropped}`);
+        }
 
         // Strip volatile/transient statements (version numbers, task status, "currently" state)
         // from message content before capture to prevent stale facts from entering long-term memory.
@@ -299,6 +313,9 @@ export function createCaptureHandler(
         // API caps at 200 messages — take the most recent to stay within the limit
         const MAX_MESSAGES = 200;
         const trimmed = echoFiltered.length > MAX_MESSAGES ? echoFiltered.slice(-MAX_MESSAGES) : echoFiltered;
+        if (echoFiltered.length > MAX_MESSAGES) {
+          logger.info(`Cortex capture: payload_guard_dropped reason=max_messages count=${echoFiltered.length - trimmed.length}`);
+        }
 
         // Enforce byte-size cap — drop oldest messages until the transcript fits.
         // This prevents oversized payloads from pasted files or verbose replies.
@@ -314,20 +331,30 @@ export function createCaptureHandler(
 
         // Enforce byte-size cap on the actual payload that will be sent.
         const maxBytes = config.captureMaxPayloadBytes ?? 262_144;
+        let byteCapDropped = 0;
         while (compressed.length > 2) {
           const estimatedSize = compressed.reduce((sum, m) => sum + Buffer.byteLength(m.role, "utf-8") + 2 + Buffer.byteLength(m.content, "utf-8") + 2, 0);
           if (estimatedSize <= maxBytes) break;
           compressed.shift();
+          byteCapDropped++;
+        }
+        if (byteCapDropped > 0) {
+          logger.info(`Cortex capture: payload_guard_dropped reason=max_payload_bytes count=${byteCapDropped}`);
         }
 
         // Enforce character cap — the Cortex API rejects text > 50,000 chars.
         // The transcript format is "role: content\n\n" per message, so we estimate
         // the final transcript length and drop oldest messages to fit.
         const API_MAX_CHARS = 50_000;
+        let charCapDropped = 0;
         while (compressed.length > 2) {
           const estimatedChars = compressed.reduce((sum, m) => sum + m.role.length + 2 + m.content.length + 2, 0);
           if (estimatedChars <= API_MAX_CHARS) break;
           compressed.shift();
+          charCapDropped++;
+        }
+        if (charCapDropped > 0) {
+          logger.info(`Cortex capture: payload_guard_dropped reason=max_transcript_chars count=${charCapDropped}`);
         }
 
         // Keep probe-lookup filtering enabled for normal traffic and benchmark probes,
@@ -366,6 +393,7 @@ export function createCaptureHandler(
 
         // Advance watermark before async work so a second turn doesn't re-send this delta.
         // captureQueue preserves turn order, so later scheduled turns see this watermark update.
+        lastSubmissionAtBySession.set(watermarkKey, Date.now());
         markCapturedWatermark();
 
         // Ensure userId is resolved before sending — in practice this resolves in <100ms
@@ -517,6 +545,12 @@ export function createCaptureHandler(
     try {
       const sessionId = event.sessionKey ?? event.sessionId ?? pluginSessionId;
       const watermarkKey = sessionId ?? "__default__";
+      const cooldownMs = config.captureCooldownMs ?? 180_000;
+      const lastSubmissionAt = lastSubmissionAtBySession.get(watermarkKey);
+      if (cooldownMs > 0 && lastSubmissionAt !== undefined && Date.now() - lastSubmissionAt < cooldownMs) {
+        logger.info(`Cortex capture: capture_cooldown_coalesced sessionId=${watermarkKey} cooldownMs=${cooldownMs}`);
+        return true;
+      }
       const previousWatermark = watermarkStore?.isLoaded()
         ? (watermarkStore.get(watermarkKey) ?? 0)
         : 0;

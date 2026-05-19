@@ -104,9 +104,24 @@
         "description": "Max byte size of capture payloads. Oversized transcripts are trimmed from oldest messages.",
         "default": 262144
       },
+      "captureCooldownMs": {
+        "type": "number",
+        "description": "Minimum time between automatic Cortex capture submissions per session. New turns during cooldown are coalesced into the next eligible capture.",
+        "default": 180000
+      },
       "captureFilter": {
         "type": "boolean",
         "description": "Enable built-in filter to drop low-signal content (heartbeat messages, TUI artifacts, token counters) before ingestion",
+        "default": true
+      },
+      "tootooPassiveExtraction": {
+        "type": "boolean",
+        "description": "Enable TooToo passive candidate extraction from agent_end turns. Independent from Cortex autoCapture.",
+        "default": true
+      },
+      "tootooCandidateSubmission": {
+        "type": "boolean",
+        "description": "Submit accepted passive candidates to TooToo. Disable to inspect extraction without sending candidates.",
         "default": true
       },
       "dedupeWindowMinutes": {
@@ -233,9 +248,24 @@
       "advanced": true,
       "help": "Maximum byte size for capture payloads (default 256KB). Oversized transcripts are trimmed from oldest messages."
     },
+    "captureCooldownMs": {
+      "label": "Capture Cooldown (ms)",
+      "advanced": true,
+      "help": "Minimum per-session delay between Cortex auto-capture submissions. Turns during the cooldown are coalesced into the next capture."
+    },
     "captureFilter": {
       "label": "Capture Filter",
       "help": "Filters out low-signal content (heartbeats, TUI artifacts, token counters) before ingestion."
+    },
+    "tootooPassiveExtraction": {
+      "label": "TooToo Passive Extraction",
+      "advanced": true,
+      "help": "Runs passive candidate extraction after agent turns independently from Cortex auto-capture."
+    },
+    "tootooCandidateSubmission": {
+      "label": "TooToo Candidate Submission",
+      "advanced": true,
+      "help": "Submits accepted passive candidates to TooToo. Turn off to run extraction without sending candidates."
     },
     "dedupeWindowMinutes": {
       "label": "Dedupe Window (min)",

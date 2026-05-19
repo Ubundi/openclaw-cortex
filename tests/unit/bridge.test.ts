@@ -215,6 +215,63 @@ describe("TooToo passive bridge handler", () => {
     expect((client.submitBridgePassive as any)).not.toHaveBeenCalled();
   });
 
+  it("can disable passive extraction without disabling Cortex capture elsewhere", async () => {
+    const client = makeClient();
+    const passiveModelExtractor = passiveExtractorFor();
+    const handler = createBridgeHandler(client, {
+      logger,
+      getUserId: () => "agent-user-1",
+      userIdReady: Promise.resolve(),
+      pluginSessionId: "plugin-session-1",
+      passiveModelExtractor,
+      passiveExtractionEnabled: false,
+      candidateSubmissionEnabled: true,
+    });
+
+    const result = await handler.handleAgentEnd({
+      messages: [
+        { role: "user", content: "I prefer boring explicit checks because hidden magic burns us later." },
+        { role: "assistant", content: "I will keep the checks explicit." },
+      ],
+      aborted: false,
+      sessionKey: "sess-passive-disabled",
+    });
+
+    expect(result).toBe(false);
+    expect(passiveModelExtractor).not.toHaveBeenCalled();
+    expect((client.submitBridgePassive as any)).not.toHaveBeenCalled();
+    expect(logger.info).toHaveBeenCalledWith(expect.stringContaining("passive skipped reason=passive_extraction_disabled"));
+  });
+
+  it("can run passive extraction while suppressing TooToo candidate submission", async () => {
+    const client = makeClient();
+    const passiveModelExtractor = passiveExtractorFor();
+    const handler = createBridgeHandler(client, {
+      logger,
+      getUserId: () => "agent-user-1",
+      userIdReady: Promise.resolve(),
+      pluginSessionId: "plugin-session-1",
+      passiveModelExtractor,
+      passiveExtractionEnabled: true,
+      candidateSubmissionEnabled: false,
+    });
+
+    const result = await handler.handleAgentEnd({
+      messages: [
+        { role: "user", content: "I prefer boring explicit checks because hidden magic burns us later." },
+        { role: "assistant", content: "I will keep the checks explicit." },
+      ],
+      aborted: false,
+      sessionKey: "sess-submission-disabled",
+    });
+
+    expect(result).toBe(true);
+    await handler.drainPassiveJobs();
+    expect(passiveModelExtractor).toHaveBeenCalledTimes(1);
+    expect((client.submitBridgePassive as any)).not.toHaveBeenCalled();
+    expect(logger.info).toHaveBeenCalledWith(expect.stringContaining("passive_candidate_submission_suppressed"));
+  });
+
   it("does not fall back to Q&A when passive submission fails", async () => {
     const client = makeClient({
       submitBridgePassive: vi.fn().mockRejectedValue(new Error("Cortex bridge/passive failed: 503")),

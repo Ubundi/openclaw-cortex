@@ -22,6 +22,11 @@ const LOW_SIGNAL_PATTERNS: RegExp[] = [
   /\bdo not mention internal steps,? files,? tools/i,
   /\bexecute your session startup\b/i,
   /\bruntime model differs? from default.model\b/i,
+  /\b(?:hook|hooks) registry\b/i,
+  /\b(?:tool|tools) (?:registry|probe|discovery|availability)\b/i,
+  /\b(?:auth|authentication|oauth|token) (?:probe|check|handshake|refresh)\b/i,
+  /\b(?:link|pairing|bridge) (?:status|check|probe|handshake)\b/i,
+  /\bno actionable user memory\b/i,
 
   // Filesystem metadata chatter (highly repetitive, low semantic value)
   /^User has a (file|directory) named /i,

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { beforeEach, describe, it, expect, vi } from "vitest";
 import { createCaptureHandler } from "../../src/features/capture/handler.js";
 import type { CortexClient } from "../../src/cortex/client.js";
 import type { CortexConfig } from "../../src/plugin/config.js";
@@ -14,7 +14,10 @@ function makeConfig(overrides: Partial<CortexConfig> = {}): CortexConfig {
     recallQueryType: "combined",
     recallTimeoutMs: 500,
     toolTimeoutMs: 10000,
+    captureCooldownMs: 0,
     captureFilter: true,
+    tootooPassiveExtraction: true,
+    tootooCandidateSubmission: true,
     ...overrides,
     namespace: overrides.namespace ?? "test",
   };
@@ -26,6 +29,11 @@ const logger = {
   warn: vi.fn(),
   error: vi.fn(),
 };
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  vi.useRealTimers();
+});
 
 /** In-memory watermark store for tests (no disk I/O) */
 function makeWatermarkStore(): CaptureWatermarkStore {
@@ -132,6 +140,7 @@ describe("createCaptureHandler", () => {
     });
 
     await vi.waitFor(() => expect(getJobMock).toHaveBeenCalled());
+    await handler.waitForIdle();
     expect(knowledgeState.hasMemories).toBe(false);
     expect(onSubmitted).toHaveBeenCalledTimes(1);
     expect(onConfirmed).not.toHaveBeenCalled();
@@ -258,7 +267,9 @@ describe("createCaptureHandler", () => {
     const submitMock = vi.fn().mockResolvedValue({ job_id: "job-4", status: "pending" });
     const client = { submitIngestConversation: submitMock } as unknown as CortexClient;
 
-    const handler = createCaptureHandler(client, makeConfig(), logger, undefined, undefined, undefined, undefined, undefined, undefined, undefined, makeWatermarkStore());
+    const watermarkStore = makeWatermarkStore();
+    (watermarkStore as any).data = { "sess-1": 0 };
+    const handler = createCaptureHandler(client, makeConfig(), logger, undefined, undefined, undefined, undefined, undefined, undefined, undefined, watermarkStore);
 
     const turn1Messages = [
       { role: "user", content: "What is the deployment strategy for our backend services?" },
@@ -284,10 +295,10 @@ describe("createCaptureHandler", () => {
     expect(secondTranscript).not.toContain("What is the deployment strategy");
   });
 
-  it("returns before background capture prep completes", async () => {
-    const submitMock = vi.fn().mockResolvedValue({ job_id: "job-background", status: "pending" });
+  it("initializes a missing watermark without backfilling historical messages by default", async () => {
+    const submitMock = vi.fn().mockResolvedValue({ job_id: "job-missing-watermark", status: "pending" });
     const client = { submitIngestConversation: submitMock } as unknown as CortexClient;
-    const watermarkGate = deferred<void>();
+    const watermarkStore = makeWatermarkStore();
 
     const handler = createCaptureHandler(
       client,
@@ -300,7 +311,141 @@ describe("createCaptureHandler", () => {
       undefined,
       undefined,
       undefined,
-      makeWatermarkStore(),
+      watermarkStore,
+    );
+
+    await handler({
+      messages: [
+        { role: "user", content: "Older question about deployment strategy and how rollout safety should work." },
+        { role: "assistant", content: "Older answer describing blue-green deployments and health checks." },
+        { role: "user", content: "Newest question that would be historical backfill when no watermark exists." },
+        { role: "assistant", content: "Newest answer that should not be submitted until a later turn arrives." },
+      ],
+      aborted: false,
+      sessionKey: "sess-missing-watermark",
+    });
+    await handler.waitForIdle();
+
+    expect(submitMock).not.toHaveBeenCalled();
+    expect(watermarkStore.get("sess-missing-watermark")).toBe(4);
+    expect(logger.info).toHaveBeenCalledWith(expect.stringContaining("watermark_missing_initialized_without_backfill"));
+  });
+
+  it("allows historical capture when CORTEX_CAPTURE_ALLOW_BACKFILL is explicitly enabled", async () => {
+    const previous = process.env.CORTEX_CAPTURE_ALLOW_BACKFILL;
+    process.env.CORTEX_CAPTURE_ALLOW_BACKFILL = "true";
+    try {
+      const submitMock = vi.fn().mockResolvedValue({ job_id: "job-backfill", status: "pending" });
+      const client = { submitIngestConversation: submitMock } as unknown as CortexClient;
+      const watermarkStore = makeWatermarkStore();
+
+      const handler = createCaptureHandler(
+        client,
+        makeConfig(),
+        logger,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        watermarkStore,
+      );
+
+      await handler({
+        messages: [
+          { role: "user", content: "Older question about deployment strategy and how rollout safety should work." },
+          { role: "assistant", content: "Older answer describing blue-green deployments and health checks." },
+          { role: "user", content: "Newest question that should be included because backfill was explicitly enabled." },
+          { role: "assistant", content: "Newest answer that should be included in the explicit backfill submission." },
+        ],
+        aborted: false,
+        sessionKey: "sess-allow-backfill",
+      });
+
+      await vi.waitFor(() => expect(submitMock).toHaveBeenCalledTimes(1));
+      const transcript = submittedTranscript(submitMock);
+      expect(transcript).toContain("Older question about deployment strategy");
+      expect(transcript).toContain("Newest question that should be included");
+    } finally {
+      if (previous === undefined) delete process.env.CORTEX_CAPTURE_ALLOW_BACKFILL;
+      else process.env.CORTEX_CAPTURE_ALLOW_BACKFILL = previous;
+    }
+  });
+
+  it("suppresses repeated submissions during capture cooldown and coalesces later deltas", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-05-19T10:00:00Z"));
+    const submitMock = vi.fn().mockResolvedValue({ job_id: "job-cooldown", status: "pending" });
+    const client = { submitIngestConversation: submitMock } as unknown as CortexClient;
+    const watermarkStore = makeWatermarkStore();
+    (watermarkStore as any).data = { "sess-cooldown": 0 };
+    const handler = createCaptureHandler(
+      client,
+      makeConfig({ captureCooldownMs: 180_000 }),
+      logger,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      watermarkStore,
+    );
+
+    const turn1 = [
+      { role: "user", content: "What deployment strategy do we use for backend services and safety checks?" },
+      { role: "assistant", content: "We use blue-green deployment with ALB health checks before shifting traffic." },
+    ];
+    const turn2 = [
+      { role: "user", content: "How should rollback behave if the new target group starts failing health checks?" },
+      { role: "assistant", content: "Rollback should preserve the old target group and shift traffic back immediately." },
+    ];
+    const turn3 = [
+      { role: "user", content: "What should the operator watch during the next deployment window?" },
+      { role: "assistant", content: "The operator should watch health alarms, error rate, and target availability." },
+    ];
+
+    await handler({ messages: turn1, aborted: false, sessionKey: "sess-cooldown" });
+    await vi.waitFor(() => expect(submitMock).toHaveBeenCalledTimes(1));
+
+    vi.setSystemTime(new Date("2026-05-19T10:01:00Z"));
+    await handler({ messages: [...turn1, ...turn2], aborted: false, sessionKey: "sess-cooldown" });
+    await handler.waitForIdle();
+    expect(submitMock).toHaveBeenCalledTimes(1);
+    expect(logger.info).toHaveBeenCalledWith(expect.stringContaining("capture_cooldown_coalesced"));
+
+    vi.setSystemTime(new Date("2026-05-19T10:03:01Z"));
+    await handler({ messages: [...turn1, ...turn2, ...turn3], aborted: false, sessionKey: "sess-cooldown" });
+    await vi.waitFor(() => expect(submitMock).toHaveBeenCalledTimes(2));
+
+    const secondTranscript = submittedTranscript(submitMock, 1);
+    expect(secondTranscript).toContain("How should rollback behave");
+    expect(secondTranscript).toContain("What should the operator watch");
+    expect(secondTranscript).not.toContain("What deployment strategy do we use");
+  });
+
+  it("returns before background capture prep completes", async () => {
+    const submitMock = vi.fn().mockResolvedValue({ job_id: "job-background", status: "pending" });
+    const client = { submitIngestConversation: submitMock } as unknown as CortexClient;
+    const watermarkGate = deferred<void>();
+    const watermarkStore = makeWatermarkStore();
+    (watermarkStore as any).data = { "sess-background": 0 };
+
+    const handler = createCaptureHandler(
+      client,
+      makeConfig(),
+      logger,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      watermarkStore,
       undefined,
       { watermarkReady: watermarkGate.promise },
     );
@@ -360,7 +505,9 @@ describe("createCaptureHandler", () => {
   it("tracks watermarks per session", async () => {
     const submitMock = vi.fn().mockResolvedValue({ job_id: "job-per-session", status: "pending" });
     const client = { submitIngestConversation: submitMock } as unknown as CortexClient;
-    const handler = createCaptureHandler(client, makeConfig(), logger, undefined, undefined, undefined, undefined, undefined, undefined, undefined, makeWatermarkStore());
+    const watermarkStore = makeWatermarkStore();
+    (watermarkStore as any).data = { "sess-1": 0, "sess-2": 0 };
+    const handler = createCaptureHandler(client, makeConfig(), logger, undefined, undefined, undefined, undefined, undefined, undefined, undefined, watermarkStore);
 
     const session1Turn1 = [
       { role: "user", content: "Session one asks about deployment strategy for backend services and blue-green rollout details." },

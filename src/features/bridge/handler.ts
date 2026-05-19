@@ -90,6 +90,8 @@ export interface CreateBridgeHandlerOptions {
   bridgeTraceClient?: ClawDeployBridgeTraceClient;
   passiveModelExtractor?: PassiveModelExtractor;
   getActiveModelRef?: (sessionKey: string) => string | undefined;
+  passiveExtractionEnabled?: boolean;
+  candidateSubmissionEnabled?: boolean;
 }
 
 const LINK_STATUS_TTL_MS = 60_000;
@@ -292,6 +294,8 @@ export function createBridgeHandler(
     bridgeTraceClient,
     passiveModelExtractor,
   } = options;
+  const passiveExtractionEnabled = options.passiveExtractionEnabled ?? true;
+  const candidateSubmissionEnabled = options.candidateSubmissionEnabled ?? true;
 
   let linkStatus: LinkStatusSnapshot = {
     linked: false,
@@ -504,6 +508,11 @@ export function createBridgeHandler(
 
     if (extractedCandidates.length === 0) return;
 
+    if (!candidateSubmissionEnabled) {
+      logger.info(`Cortex bridge: passive_candidate_submission_suppressed sessionId=${job.sessionKey} candidates=${extractedCandidates.length}`);
+      return;
+    }
+
     const request: PassiveBridgeRequest = {
       user_id: job.agentUserId,
       request_id: buildPassiveBridgeRequestId({
@@ -591,6 +600,10 @@ export function createBridgeHandler(
     if (event.aborted) return false;
     if (!Array.isArray(event.messages) || event.messages.length === 0) return false;
     if (isPassiveExtractorEvent(event)) return false;
+    if (!passiveExtractionEnabled) {
+      logger.info(`Cortex bridge: passive skipped reason=passive_extraction_disabled sessionId=${resolveBridgeSessionKey(event)}`);
+      return false;
+    }
     if (userIdReady) await userIdReady;
 
     const agentUserId = getUserId();

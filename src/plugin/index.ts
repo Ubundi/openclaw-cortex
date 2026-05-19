@@ -1071,6 +1071,8 @@ const plugin = {
       getActiveModelRef: (activeSessionKey) => readActiveModelRef(activeModelRefs, activeSessionKey)
         ?? readConfiguredPrimaryModelRef(api.config)
         ?? readRuntimeDefaultModelRef(api.runtime),
+      passiveExtractionEnabled: config.tootooPassiveExtraction,
+      candidateSubmissionEnabled: config.tootooCandidateSubmission,
     });
 
     void userIdReady.then(() => bridgeHandler.refreshLinkStatus(true));

@@ -119,6 +119,9 @@ describe("CortexConfigSchema", () => {
         expect(result.data.recallTopK).toBe(10);
         expect(result.data.recallQueryType).toBe("combined");
         expect(result.data.recallTimeoutMs).toBe(60000);
+        expect(result.data.captureCooldownMs).toBe(180000);
+        expect(result.data.tootooPassiveExtraction).toBe(true);
+        expect(result.data.tootooCandidateSubmission).toBe(true);
         expect(result.data.namespace).toBe("openclaw");
       }
     });
@@ -191,7 +194,11 @@ describe("CortexConfigSchema", () => {
       }
     });
 
-    it("does not expose a passive bridge rollout flag", () => {
+    it("exposes separate TooToo passive extraction and candidate submission flags", () => {
+      expect(CortexConfigSchema.shape).toHaveProperty("tootooPassiveExtraction");
+      expect(CortexConfigSchema.shape).toHaveProperty("tootooCandidateSubmission");
+      expect(manifestProps).toHaveProperty("tootooPassiveExtraction");
+      expect(manifestProps).toHaveProperty("tootooCandidateSubmission");
       expect(CortexConfigSchema.shape).not.toHaveProperty("passiveBridge");
       expect(CortexConfigSchema.shape).not.toHaveProperty("enablePassiveBridge");
       expect(manifestProps).not.toHaveProperty("passiveBridge");
